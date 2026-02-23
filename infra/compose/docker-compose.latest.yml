@@ -1,0 +1,185 @@
+version: "3.9"
+
+# Full stack using pre-built images from GitHub Container Registry.
+# No local build required — pulls ghcr.io/pipelogiq/* images.
+#
+# Usage:
+#   docker network create pipelogiq 2>/dev/null || true
+#   cp .env.example .env
+#   docker compose -f infra/compose/docker-compose.latest.yml up -d
+#
+# Pin a specific release with PIPELOGIQ_VERSION:
+#   PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.latest.yml up -d
+
+networks:
+  pipelogiq:
+    external: true
+
+services:
+  pipelogiq-postgres:
+    image: postgres:16-alpine
+    container_name: pipelogiq-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipelogiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
+      POSTGRES_DB: ${POSTGRES_DB:-pipelogiq}
+    ports:
+      - "5441:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipelogiq} -d ${POSTGRES_DB:-pipelogiq}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pipelogiq-rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: pipelogiq-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    container_name: pipelogiq-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - pipelogiq
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: pipelogiq-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      tempo:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - pipelogiq
+
+  pipeline-api:
+    image: ghcr.io/pipelogiq/pipeline-api:${PIPELOGIQ_VERSION:-latest}
+    container_name: pipelogiq-api
+    environment:
+      APP_ID: ${APP_ID:-PipelogiqTest}
+      DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
+      HTTP_ADDR: ":8080"
+      EXTERNAL_HTTP_ADDR: ":8081"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GATEWAY_VISIBILITY_TIMEOUT: ${GATEWAY_VISIBILITY_TIMEOUT:-60s}
+      GATEWAY_MAX_INFLIGHT: ${GATEWAY_MAX_INFLIGHT:-128}
+      RABBIT_PREFETCH: ${RABBIT_PREFETCH:-10}
+      RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
+      RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}
+      LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-true}
+      LIQUIBASE_URL: ${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
+      LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
+      LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
+      LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_API:-pipeline-api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
+    depends_on:
+      pipelogiq-postgres:
+        condition: service_healthy
+      pipelogiq-rabbitmq:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pipeline-worker:
+    image: ghcr.io/pipelogiq/pipeline-worker:${PIPELOGIQ_VERSION:-latest}
+    container_name: pipelogiq-worker
+    environment:
+      APP_ID: ${APP_ID:-PipelogiqTest}
+      DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1s}
+      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-5m}
+      RABBIT_PREFETCH: ${RABBIT_PREFETCH:-5}
+      RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
+      RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}
+      METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipeline-worker}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
+    depends_on:
+      pipelogiq-postgres:
+        condition: service_healthy
+      pipelogiq-rabbitmq:
+        condition: service_healthy
+      pipeline-api:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+    ports:
+      - "9090:9090"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9090/metrics || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  pipeline-web:
+    image: ghcr.io/pipelogiq/pipeline-web:${PIPELOGIQ_VERSION:-latest}
+    container_name: pipelogiq-web
+    depends_on:
+      pipeline-api:
+        condition: service_healthy
+    ports:
+      - "3300:80"
+    networks:
+      - pipelogiq
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  tempo-data:
+  grafana-data:

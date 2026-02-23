@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Core backgrounds */
+    --background: 0 0% 99%;
+    --foreground: 222 47% 11%;
+    
+    /* Cards and surfaces */
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    
+    /* Popovers */
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    
+    /* Primary - Deep blue */
+    --primary: 224 76% 38%;
+    --primary-foreground: 0 0% 100%;
+    
+    /* Secondary */
+    --secondary: 214 32% 96%;
+    --secondary-foreground: 222 47% 11%;
+    
+    /* Muted */
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 9% 46%;
+    
+    /* Accent */
+    --accent: 220 14% 96%;
+    --accent-foreground: 222 47% 11%;
+    
+    /* Destructive */
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    /* Border and inputs */
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 224 76% 48%;
+    
+    --radius: 0.5rem;
+    
+    /* Status colors */
+    --status-success: 160 84% 39%;
+    --status-success-bg: 158 64% 95%;
+    --status-warning: 38 92% 50%;
+    --status-warning-bg: 48 96% 95%;
+    --status-error: 0 84% 60%;
+    --status-error-bg: 0 86% 97%;
+    --status-running: 217 91% 60%;
+    --status-running-bg: 214 100% 97%;
+    --status-paused: 262 83% 58%;
+    --status-paused-bg: 270 100% 98%;
+    --status-throttled: 25 95% 53%;
+    --status-throttled-bg: 33 100% 96%;
+    
+    /* Pipeline graph */
+    --node-bg: 0 0% 100%;
+    --node-border: 220 13% 91%;
+    --node-border-hover: 224 76% 48%;
+    --edge-color: 220 13% 80%;
+    
+    /* Sidebar */
+    --sidebar-background: 220 14% 98%;
+    --sidebar-foreground: 220 9% 46%;
+    --sidebar-primary: 224 76% 38%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 96%;
+    --sidebar-accent-foreground: 222 47% 11%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 224 76% 48%;
+  }
+
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 98%;
+    
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 98%;
+    
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 6%;
+    
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    
+    --accent: 217 33% 17%;
+    --accent-foreground: 210 40% 98%;
+    
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 210 40% 98%;
+    
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 217 91% 60%;
+    
+    --status-success: 160 84% 45%;
+    --status-success-bg: 160 50% 15%;
+    --status-warning: 38 92% 50%;
+    --status-warning-bg: 38 50% 15%;
+    --status-error: 0 84% 60%;
+    --status-error-bg: 0 50% 15%;
+    --status-running: 217 91% 60%;
+    --status-running-bg: 217 50% 15%;
+    --status-paused: 262 83% 58%;
+    --status-paused-bg: 262 50% 15%;
+    --status-throttled: 25 95% 53%;
+    --status-throttled-bg: 25 50% 15%;
+    
+    --node-bg: 222 47% 8%;
+    --node-border: 217 33% 25%;
+    --node-border-hover: 217 91% 60%;
+    --edge-color: 217 33% 30%;
+    
+    --sidebar-background: 222 47% 6%;
+    --sidebar-foreground: 215 20% 65%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 222 47% 6%;
+    --sidebar-accent: 217 33% 17%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 217 33% 17%;
+    --sidebar-ring: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Custom scrollbar */
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 3px;
+  }
+  
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+/* Pipeline node animations */
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 hsl(var(--status-running) / 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 8px hsl(var(--status-running) / 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--status-running) / 0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out forwards;
+}

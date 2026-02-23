@@ -1,0 +1,35 @@
+FROM golang:1.22-alpine AS builder
+WORKDIR /src
+
+COPY apps/go/go.mod ./
+COPY apps/go/go.sum ./
+
+# Avoid `go mod tidy` in container builds: it rewrites modules and pulls test-only deps.
+# Download exact module set from go.mod/go.sum with retries for transient proxy EOFs.
+RUN set -eux; \
+  ok=0; \
+  for i in 1 2 3 4 5; do \
+    if go mod download; then ok=1; break; fi; \
+    echo "go mod download failed (attempt $i), retrying..."; \
+    sleep $((i * 2)); \
+  done; \
+  test "$ok" -eq 1
+
+COPY apps/go ./
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/pipeline-api ./cmd/pipeline-api
+
+FROM liquibase/liquibase:4.25 AS liquibase
+
+FROM alpine:3.19
+RUN apk add --no-cache ca-certificates curl bash openjdk17-jre
+WORKDIR /app
+COPY --from=builder /out/pipeline-api /usr/local/bin/pipeline-api
+COPY --from=liquibase /liquibase /opt/liquibase
+COPY database /app/database
+COPY infra/docker/pipeline-api-entrypoint.sh /usr/local/bin/pipeline-api-entrypoint.sh
+RUN chmod +x /usr/local/bin/pipeline-api-entrypoint.sh
+ENV PATH="/opt/liquibase:${PATH}"
+USER nobody
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/pipeline-api-entrypoint.sh"]

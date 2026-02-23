@@ -1,0 +1,44 @@
+version: "3.9"
+
+# Requires infra and API services to be running first:
+#   docker compose -f infra/compose/docker-compose.infra.yml up -d
+#   docker compose -f infra/compose/docker-compose.api.yml up -d
+# All services must share the external "pipelogiq" network:
+#   docker network create pipelogiq 2>/dev/null || true
+
+networks:
+  pipelogiq:
+    external: true
+
+services:
+  pipeline-worker:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.pipeline-worker
+    container_name: pipelogiq-worker
+    environment:
+      APP_ID: ${APP_ID:-PipelogiqTest}
+      DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
+      WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1s}
+      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-5m}
+      RABBIT_PREFETCH: ${RABBIT_PREFETCH:-5}
+      RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
+      RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}
+      METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipeline-worker}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
+    ports:
+      - "9090:9090"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9090/metrics || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5

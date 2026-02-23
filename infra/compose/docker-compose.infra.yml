@@ -1,0 +1,79 @@
+version: "3.9"
+
+networks:
+  pipelogiq:
+    external: true
+
+services:
+  pipelogiq-postgres:
+    image: postgres:16-alpine
+    container_name: pipelogiq-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pipelogiq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
+      POSTGRES_DB: ${POSTGRES_DB:-pipelogiq}
+    ports:
+      - "5441:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pipelogiq} -d ${POSTGRES_DB:-pipelogiq}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  pipelogiq-rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: pipelogiq-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  tempo:
+    image: grafana/tempo:2.7.2
+    container_name: pipelogiq-tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/tmp/tempo
+    ports:
+      - "3200:3200"
+      - "4317:4317"
+      - "4318:4318"
+    networks:
+      - pipelogiq
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: pipelogiq-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    depends_on:
+      tempo:
+        condition: service_started
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - pipelogiq
+
+volumes:
+  pg-data:
+  tempo-data:
+  grafana-data:

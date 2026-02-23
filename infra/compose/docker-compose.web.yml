@@ -1,0 +1,21 @@
+version: "3.9"
+
+# Requires pipeline-api to be running first.
+# All services must share the external "pipelogiq" network:
+#   docker network create pipelogiq 2>/dev/null || true
+
+networks:
+  pipelogiq:
+    external: true
+
+services:
+  pipeline-web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.web
+    container_name: pipelogiq-web
+    ports:
+      - "3300:80"
+    networks:
+      - pipelogiq
+    restart: unless-stopped

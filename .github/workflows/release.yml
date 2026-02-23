@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/go/go.mod
+
+      - name: Build binaries
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          LDFLAGS="-s -w -X pipelogiq/internal/version.Version=${VERSION} -X pipelogiq/internal/version.Commit=${COMMIT} -X pipelogiq/internal/version.Date=${DATE}"
+
+          cd apps/go
+          for GOOS in linux darwin; do
+            for GOARCH in amd64 arm64; do
+              mkdir -p dist
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipeline-api-${GOOS}-${GOARCH} ./cmd/pipeline-api
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipeline-worker-${GOOS}-${GOARCH} ./cmd/pipeline-worker
+            done
+          done
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          TAG=${GITHUB_REF_NAME}
+          VERSION=${TAG#v}
+          # Extract the section for this version from CHANGELOG.md
+          awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found" CHANGELOG.md > /tmp/release-notes.md
+          echo "notes_file=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ steps.changelog.outputs.notes_file }}
+          files: apps/go/dist/*
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+  docker-publish:
+    name: Publish Docker Images
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version tag
+        id: meta
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.pipeline-api
+          push: true
+          tags: |
+            ghcr.io/pipelogiq/pipeline-api:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipeline-api:latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.pipeline-worker
+          push: true
+          tags: |
+            ghcr.io/pipelogiq/pipeline-worker:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipeline-worker:latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/docker/Dockerfile.web
+          push: true
+          tags: |
+            ghcr.io/pipelogiq/pipeline-web:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipeline-web:latest

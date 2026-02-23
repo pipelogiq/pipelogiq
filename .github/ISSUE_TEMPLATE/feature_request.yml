@@ -1,0 +1,53 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: "What problem does this feature solve? What use case does it address?"
+      placeholder: "When I try to ..., I can't ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: "How would you like this to work?"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: "Other approaches you considered and why they don't work"
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      description: "Which part of the system does this affect?"
+      options:
+        - API (pipeline-api)
+        - Worker (pipeline-worker)
+        - Dashboard (web)
+        - SDK / External API
+        - Infrastructure / Deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impact
+      options:
+        - Nice to have
+        - Important for my use case
+        - Blocking adoption
+    validations:
+      required: true

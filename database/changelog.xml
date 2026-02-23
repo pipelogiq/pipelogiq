@@ -1,0 +1,983 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.6.xsd">
+
+    <changeSet id="create tables pipeline and stage" author="Jegor">
+        <createTable tableName="pipeline">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="finished_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="stage">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="pipeline_id" type="int">
+                <constraints nullable="true" />
+            </column>
+            <column name="created_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="finished_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="result" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="pipeline_id"
+                baseTableName="stage"
+                constraintName="fk_stage_pipeline_id"
+                referencedColumnNames="id"
+                referencedTableName="pipeline"/>
+    </changeSet>
+    
+    <changeSet id="add handler name column" author="Jegor">
+        <addColumn tableName="stage">
+            <column name="stage_handler_name" type="nvarchar(300)" defaultValue="NULL">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="add isCompleted column" author="Jegor">
+        <addColumn tableName="pipeline">
+            <column name="is_completed" type="boolean" defaultValue="false"/>
+        </addColumn>
+        
+        <sql>
+            update pipeline set is_completed=true;
+        </sql>
+    </changeSet>
+
+    <changeSet id="add input column to stage" author="Jegor">
+        <addColumn tableName="stage">
+            <column name="input" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="add table stage_io" author="Jegor">
+        <createTable tableName="stage_io">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="input" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="output" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="stage_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="stage_id"
+                baseTableName="stage_io"
+                constraintName="fk_stage_io_stage_id"
+                referencedColumnNames="id"
+                referencedTableName="stage"/>
+    </changeSet>
+    
+    <changeSet id="insert IO columns from stage to stage_io and drop from stage table" author="Jegor">
+        <sql>
+            insert into stage_io (input, output, stage_id)
+            select input, result, id from stage
+            where stage.result is not null and stage.input is not null;
+        </sql>
+        <dropColumn 
+                columnName="result"
+                tableName="stage">
+        </dropColumn>
+        <dropColumn
+                columnName="input"
+                tableName="stage">
+        </dropColumn>
+    </changeSet>
+
+    <changeSet id="add table stage_log" author="Jegor">
+        <createTable tableName="stage_log">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="log" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="log_level" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="stage_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="stage_id"
+                baseTableName="stage_log"
+                constraintName="fk_stage_log_stage_id"
+                referencedColumnNames="id"
+                referencedTableName="stage"/>
+    </changeSet>
+
+    <changeSet id="add table pipeline_keyword" author="Jegor">
+        <createTable tableName="pipeline_keyword">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="key" type="varchar(300)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="value" type="varchar(300)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pipeline_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="pipeline_id"
+                baseTableName="pipeline_keyword"
+                constraintName="fk_pipeline_keyword_pipeline_id"
+                referencedColumnNames="id"
+                referencedTableName="pipeline"/>
+    </changeSet>
+
+    <changeSet id="create table user, team, user_team" author="Jegor">
+        <createTable tableName="user">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="first_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_name" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="email" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="password" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="role" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+        </createTable>
+
+        <createTable tableName="team">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValue="true"/>
+            <column name="created_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+        </createTable>
+
+        <createTable tableName="user_team">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="team_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="boolean" defaultValue="true"/>
+            <column name="joined_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="left_at" type="timestamp"
+                    defaultValueComputed="null"/>
+            <column name="role" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="user_id"
+                baseTableName="user_team"
+                constraintName="fk_user_team_user_id"
+                referencedColumnNames="id"
+                referencedTableName="user"/>
+
+        <addForeignKeyConstraint
+                baseColumnNames="team_id"
+                baseTableName="user_team"
+                constraintName="fk_user_team_team_id"
+                referencedColumnNames="id"
+                referencedTableName="team"/>
+
+        <addColumn tableName="pipeline">
+            <column name="user_id" type="int">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+                baseColumnNames="user_id"
+                baseTableName="pipeline"
+                constraintName="fk_pipeline_user_id"
+                referencedColumnNames="id"
+                referencedTableName="user"/>
+    </changeSet>
+    
+    <changeSet id="seed users and team" author="Jegor">
+        <sql>
+            insert into "user" (first_name, last_name, email, password, role)
+            values (
+                'Jegor',
+                'Borissov',
+                'jegor@gmail.com',
+                '$2a$12$7k/eb090r0jNWF3aMgBXw.V9p9U.7x4c2eNNbP0TAYqUEIPMX0nwG',
+                'Admin');
+
+            insert into "user" (first_name, last_name, email, password, role)
+            values (
+                'Leo',
+                'Messi',
+                'leo@gmail.com',
+                '$2a$12$TGNopcSVE8D6P4GxsPWbneNjP0Iua1ngopHciWaOPYebih8O1myoC', -- user1
+                'RegularUser');
+
+            insert into "user" (first_name, last_name, email, password, role)
+            values (
+                'Walter',
+                'White',
+                'ww@gmail.com',
+                '$2a$12$.dBosWNEr/3HJkA19X885eUk7OiK2CNaRTkAAg/HIPlQEKpCjS1..', -- user2
+                'RegularUser');
+
+            insert into "team" (name) values ('test team');
+
+            INSERT INTO user_team (user_id, team_id, is_active, left_at, role)
+            VALUES (2, 1, true, null, 'TeamLead');
+
+            INSERT INTO user_team (user_id, team_id, is_active, left_at, role)
+            VALUES (3, 1, true, null, 'Member');
+        </sql>
+    </changeSet>
+    
+    <changeSet id="add api_key table" author="Jegor">
+        <createTable tableName="api_key">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="key" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP"/>
+            <column name="disabled_at" type="timestamp" defaultValueComputed="null"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="user_id"
+                baseTableName="api_key"
+                constraintName="fk_api_key_user_id"
+                referencedColumnNames="id"
+                referencedTableName="user"/>
+    </changeSet>
+    
+    <changeSet id="add application table" author="Jegor">
+
+        <createTable tableName="application">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp"
+                    defaultValueComputed="CURRENT_TIMESTAMP"/>
+        </createTable>
+
+        <createTable tableName="user_application">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="application_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="user_id"
+                baseTableName="user_application"
+                constraintName="fk_user_application_user_id"
+                referencedColumnNames="id"
+                referencedTableName="user"/>
+
+        <addForeignKeyConstraint
+                baseColumnNames="application_id"
+                baseTableName="user_application"
+                constraintName="fk_user_application_application_id"
+                referencedColumnNames="id"
+                referencedTableName="application"/>
+    </changeSet>
+    
+    <changeSet id="drop user id in api_key" author="Jegor">
+        <dropUniqueConstraint constraintName="fk_api_key_user_id" tableName="api_key" />
+        <dropColumn columnName="user_id" tableName="api_key" />
+    </changeSet>
+    
+    <changeSet id="add application id to api_token" author="Jegor">
+        <addColumn tableName="api_key">
+            <column name="application_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <addForeignKeyConstraint
+                baseColumnNames="application_id"
+                baseTableName="api_key"
+                constraintName="fk_api_key_application_id"
+                referencedColumnNames="id"
+                referencedTableName="application"/>
+    </changeSet>
+    
+    <changeSet id="drop user id from pipeline" author="Jegor">
+        <dropForeignKeyConstraint
+                baseTableName="pipeline"
+                constraintName="fk_pipeline_user_id" />
+        <dropColumn
+                tableName="pipeline"
+                columnName="user_id" />
+
+        <addColumn tableName="pipeline">
+            <column name="application_id" type="int">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+                baseColumnNames="application_id"
+                baseTableName="pipeline"
+                constraintName="fk_pipeline_application_id"
+                referencedColumnNames="id"
+                referencedTableName="application"/>
+    </changeSet>
+
+    <changeSet id="create stage options table" author="Jegor">
+        <createTable tableName="stage_options">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="stage_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="run_next_if_failed" type="BOOLEAN"/>
+            <column name="retry_interval" type="INT"/>
+            <column name="time_out" type="INT"/>
+            <column name="max_retries" type="INT"/>
+            <column name="depends_on" type="VARCHAR(1000)"/>
+            <column name="run_in_parallel_with" type="VARCHAR(1000)"/>
+            <column name="fail_if_output_empty" type="BOOLEAN"/>
+            <column name="notify_on_failure" type="BOOLEAN"/>
+            <column name="run_as_user" type="VARCHAR(255)"/>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="stage_id"
+                baseTableName="stage_options"
+                constraintName="fk_stage_options_stage_id"
+                referencedColumnNames="id"
+                referencedTableName="stage"/>
+    </changeSet>
+    
+    <changeSet id="add started_at field to stage" author="Jegor">
+        <addColumn tableName="stage">
+            <column name="started_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="add table pipeline_context_item" author="Jegor">
+        <createTable tableName="pipeline_context_item">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="key" type="varchar(300)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="value" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="value_type" type="varchar(200)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="pipeline_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="pipeline_id"
+                baseTableName="pipeline_context_item"
+                constraintName="fk_pipeline_context_item_pipeline_id"
+                referencedColumnNames="id"
+                referencedTableName="pipeline"/>
+    </changeSet>
+    
+    <changeSet id="add expires_at and last_used to api_key table" author="Jegor">
+        <addColumn tableName="api_key">
+            <column name="expires_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <addColumn tableName="api_key">
+            <column name="last_used" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+    
+    <changeSet id="add isSkipped flag to stage table" author="Jegor">
+        <addColumn tableName="stage">
+            <column name="is_skipped" type="boolean" defaultValue="null">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+    
+    <changeSet id="add event and log logic" author="Jegor">
+        <addColumn tableName="stage">
+            <column name="is_event" type="boolean" defaultValue="false">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+    
+    <changeSet id="refactor keyword logic" author="Jegor">
+        <createTable tableName="keyword">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="key" type="varchar(300)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="value" type="varchar(300)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        
+        <sql>
+            truncate table pipeline_keyword;
+            ALTER TABLE pipeline_keyword DROP COLUMN key;
+            ALTER TABLE pipeline_keyword DROP COLUMN value;
+        </sql>
+        <addColumn tableName="pipeline_keyword">
+            <column name="keyword_id" type="int">
+                <constraints nullable="false" />
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+                baseColumnNames="keyword_id"
+                baseTableName="pipeline_keyword"
+                constraintName="fk_keyword_pipeline_id"
+                referencedColumnNames="id"
+                referencedTableName="keyword"/>
+    </changeSet>
+    
+    <changeSet id="add application logs" author="Jegor">
+        <createTable tableName="log">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="log" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="log_level" type="varchar(100)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="log_keyword">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="log_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="keyword_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="log_id"
+                baseTableName="log_keyword"
+                constraintName="fk_log_keyword_log_id"
+                referencedColumnNames="id"
+                referencedTableName="log"/>
+
+        <addForeignKeyConstraint
+                baseColumnNames="keyword_id"
+                baseTableName="log_keyword"
+                constraintName="fk_log_keyword_keyword_id"
+                referencedColumnNames="id"
+                referencedTableName="keyword"/>
+    </changeSet>
+    
+    <changeSet id="add app_id to log" author="Jegor">
+        <addColumn tableName="log">
+            <column name="application_id" type="int">
+                <constraints nullable="true" />
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+                baseColumnNames="application_id"
+                baseTableName="log"
+                constraintName="fk_log_application_id"
+                referencedColumnNames="id"
+                referencedTableName="application"/>
+    </changeSet>
+
+    <changeSet id="add trace_id to pipeline and span_id to stage" author="Sergei">
+        <addColumn tableName="pipeline">
+            <column name="trace_id" type="varchar(36)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addColumn tableName="stage">
+            <column name="span_id" type="varchar(36)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <!-- Backfill existing rows with generated UUIDs -->
+        <sql>
+            UPDATE pipeline SET trace_id = gen_random_uuid()::text WHERE trace_id IS NULL;
+            UPDATE stage SET span_id = gen_random_uuid()::text WHERE span_id IS NULL;
+        </sql>
+    </changeSet>
+
+    <changeSet id="add policy engine tables" author="Sergei">
+        <createTable tableName="policy">
+            <column name="id" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="type" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="environment" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="targeting" type="jsonb" defaultValueComputed="'{}'::jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="rule" type="jsonb" defaultValueComputed="'{}'::jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="version" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_by" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <sql>
+            ALTER TABLE policy
+            ADD CONSTRAINT chk_policy_type
+            CHECK (type IN ('rate_limit','retry','timeout','circuit_breaker'));
+        </sql>
+        <sql>
+            ALTER TABLE policy
+            ADD CONSTRAINT chk_policy_status
+            CHECK (status IN ('active','paused','disabled'));
+        </sql>
+        <sql>
+            ALTER TABLE policy
+            ADD CONSTRAINT chk_policy_environment
+            CHECK (environment IN ('prod','staging','dev','all'));
+        </sql>
+
+        <createTable tableName="policy_event">
+            <column name="id" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="policy_id" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ts" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="actor" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="type" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="details" type="jsonb" defaultValueComputed="'{}'::jsonb">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex tableName="policy" indexName="idx_policy_updated_at">
+            <column name="updated_at"/>
+        </createIndex>
+
+        <createIndex tableName="policy_event" indexName="idx_policy_event_policy_id_ts">
+            <column name="policy_id"/>
+            <column name="ts"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="add observability integration tables" author="Sergei">
+        <createTable tableName="observability_integration_config">
+            <column name="type" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="config_json" type="text" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(32)" defaultValue="not_configured">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createTable tableName="observability_integration_health">
+            <column name="type" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="last_tested_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_success_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_error" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="export_rate_per_min" type="double precision" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="drop_rate" type="double precision" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="type"
+                baseTableName="observability_integration_health"
+                constraintName="fk_observability_health_config_type"
+                referencedColumnNames="type"
+                referencedTableName="observability_integration_config"/>
+
+        <createIndex tableName="observability_integration_config" indexName="idx_observability_config_updated_at">
+            <column name="updated_at"/>
+        </createIndex>
+
+        <createIndex tableName="observability_integration_health" indexName="idx_observability_health_last_tested_at">
+            <column name="last_tested_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="add stage retry runtime columns" author="Sergei">
+        <addColumn tableName="stage">
+            <column name="retry_attempt" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="next_retry_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <sql>
+            ALTER TABLE stage
+            ADD CONSTRAINT chk_stage_retry_attempt_non_negative
+            CHECK (retry_attempt >= 0);
+        </sql>
+
+        <createIndex tableName="stage" indexName="idx_stage_status_next_retry_at">
+            <column name="status"/>
+            <column name="next_retry_at"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="add worker runtime tables" author="Sergei">
+        <createTable tableName="worker_client">
+            <column name="id" type="varchar(64)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="application_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="app_runtime_id" type="varchar(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="worker_name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="instance_id" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="worker_version" type="varchar(128)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="sdk_version" type="varchar(128)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="environment" type="varchar(64)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="host_name" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="pid" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="state" type="varchar(32)" defaultValue="starting">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status_reason" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="broker_type" type="varchar(64)" defaultValue="rabbitmq">
+                <constraints nullable="false"/>
+            </column>
+            <column name="broker_connected" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="in_flight_jobs" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jobs_processed" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jobs_failed" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_lag" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="cpu_percent" type="double precision">
+                <constraints nullable="true"/>
+            </column>
+            <column name="memory_mb" type="double precision">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_error" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="supported_handlers_json" type="text" defaultValue="[]">
+                <constraints nullable="false"/>
+            </column>
+            <column name="capabilities_json" type="text" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+            <column name="metadata_json" type="text" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+            <column name="session_token" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="session_expires_at" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+            <column name="started_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_seen_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="stopped_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="application_id"
+                baseTableName="worker_client"
+                constraintName="fk_worker_client_application_id"
+                referencedColumnNames="id"
+                referencedTableName="application"/>
+
+        <addUniqueConstraint tableName="worker_client"
+                             columnNames="application_id,instance_id"
+                             constraintName="uq_worker_client_app_instance"/>
+
+        <createTable tableName="worker_heartbeat">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="worker_id" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ts" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="state" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="broker_connected" type="boolean" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="in_flight_jobs" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jobs_processed" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jobs_failed" type="bigint" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="queue_lag" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="cpu_percent" type="double precision">
+                <constraints nullable="true"/>
+            </column>
+            <column name="memory_mb" type="double precision">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_error" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="payload_json" type="text" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="worker_id"
+                baseTableName="worker_heartbeat"
+                constraintName="fk_worker_heartbeat_worker_id"
+                referencedColumnNames="id"
+                referencedTableName="worker_client"/>
+
+        <createTable tableName="worker_event">
+            <column name="id" type="serial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="worker_id" type="varchar(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ts" type="timestamp" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level" type="varchar(16)" defaultValue="INFO">
+                <constraints nullable="false"/>
+            </column>
+            <column name="event_type" type="varchar(128)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="message" type="text">
+                <constraints nullable="false"/>
+            </column>
+            <column name="details_json" type="text" defaultValue="{}">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseColumnNames="worker_id"
+                baseTableName="worker_event"
+                constraintName="fk_worker_event_worker_id"
+                referencedColumnNames="id"
+                referencedTableName="worker_client"/>
+
+        <createIndex tableName="worker_client" indexName="idx_worker_client_last_seen_at">
+            <column name="last_seen_at"/>
+        </createIndex>
+        <createIndex tableName="worker_client" indexName="idx_worker_client_state">
+            <column name="state"/>
+        </createIndex>
+        <createIndex tableName="worker_heartbeat" indexName="idx_worker_heartbeat_worker_ts">
+            <column name="worker_id"/>
+            <column name="ts"/>
+        </createIndex>
+        <createIndex tableName="worker_event" indexName="idx_worker_event_worker_ts">
+            <column name="worker_id"/>
+            <column name="ts"/>
+        </createIndex>
+    </changeSet>
+
+</databaseChangeLog>

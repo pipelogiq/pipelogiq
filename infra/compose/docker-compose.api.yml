@@ -1,0 +1,50 @@
+version: "3.9"
+
+# Requires infra services to be running first:
+#   docker compose -f infra/compose/docker-compose.infra.yml up -d
+# All services must share the external "pipelogiq" network:
+#   docker network create pipelogiq 2>/dev/null || true
+
+networks:
+  pipelogiq:
+    external: true
+
+services:
+  pipeline-api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.pipeline-api
+    container_name: pipelogiq-api
+    environment:
+      APP_ID: ${APP_ID:-PipelogiqTest}
+      DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
+      HTTP_ADDR: ":8080"
+      EXTERNAL_HTTP_ADDR: ":8081"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GATEWAY_VISIBILITY_TIMEOUT: ${GATEWAY_VISIBILITY_TIMEOUT:-60s}
+      GATEWAY_MAX_INFLIGHT: ${GATEWAY_MAX_INFLIGHT:-128}
+      RABBIT_PREFETCH: ${RABBIT_PREFETCH:-10}
+      RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
+      RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}
+      LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-true}
+      LIQUIBASE_URL: ${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
+      LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
+      LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
+      LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_API:-pipeline-api}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
+      OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    networks:
+      - pipelogiq
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
