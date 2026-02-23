@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "dgSpecHash": "Pwt/UV+yVCA=",
+  "success": true,
+  "projectFilePath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/pipeline-sender/pipeline-sender.csproj",
+  "expectedPackageFiles": [
+    "/Users/sergeifedulov/.nuget/packages/hashids.net/1.7.0/hashids.net.1.7.0.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/microsoft.extensions.dependencyinjection.abstractions/8.0.0/microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/microsoft.extensions.logging.abstractions/8.0.0/microsoft.extensions.logging.abstractions.8.0.0.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/newtonsoft.json/13.0.3/newtonsoft.json.13.0.3.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/rabbitmq.client/6.8.1/rabbitmq.client.6.8.1.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/system.memory/4.5.5/system.memory.4.5.5.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/system.threading.channels/7.0.0/system.threading.channels.7.0.0.nupkg.sha512",
+    "/Users/sergeifedulov/.nuget/packages/pipelogiqsdk/1.0.7/pipelogiqsdk.1.0.7.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1803",
+      "level": "Warning",
+      "warningLevel": 1,
+      "message": "You are running the 'restore' operation with an 'HTTP' source, 'http://10.0.0.18:5666/v3/index.json'. Non-HTTPS access will be removed in a future version. Consider migrating to an 'HTTPS' source."
+    }
+  ]
+}

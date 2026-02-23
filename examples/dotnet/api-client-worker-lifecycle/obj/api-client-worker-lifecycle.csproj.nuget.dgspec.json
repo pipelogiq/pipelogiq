@@ -1,0 +1,152 @@
+{
+  "format": 1,
+  "restore": {
+    "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/api-client-worker-lifecycle/api-client-worker-lifecycle.csproj": {}
+  },
+  "projects": {
+    "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/PipelogiqSDK.csproj": {
+      "version": "1.0.7",
+      "restore": {
+        "projectUniqueName": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/PipelogiqSDK.csproj",
+        "projectName": "PipelogiqSDK",
+        "projectPath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/PipelogiqSDK.csproj",
+        "packagesPath": "/Users/sergeifedulov/.nuget/packages/",
+        "outputPath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/sergeifedulov/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "http://10.0.0.18:5666/v3/index.json": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {}
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "dependencies": {
+            "Hashids.net": {
+              "target": "Package",
+              "version": "[1.7.0, )"
+            },
+            "Microsoft.Extensions.DependencyInjection.Abstractions": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            },
+            "Microsoft.Extensions.Logging.Abstractions": {
+              "target": "Package",
+              "version": "[8.0.0, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.3, )"
+            },
+            "RabbitMQ.Client": {
+              "target": "Package",
+              "version": "[6.8.1, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.401/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    },
+    "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/api-client-worker-lifecycle/api-client-worker-lifecycle.csproj": {
+      "version": "1.0.0",
+      "restore": {
+        "projectUniqueName": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/api-client-worker-lifecycle/api-client-worker-lifecycle.csproj",
+        "projectName": "api-client-worker-lifecycle",
+        "projectPath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/api-client-worker-lifecycle/api-client-worker-lifecycle.csproj",
+        "packagesPath": "/Users/sergeifedulov/.nuget/packages/",
+        "outputPath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/examples/dotnet/api-client-worker-lifecycle/obj/",
+        "projectStyle": "PackageReference",
+        "configFilePaths": [
+          "/Users/sergeifedulov/.nuget/NuGet/NuGet.Config"
+        ],
+        "originalTargetFrameworks": [
+          "net8.0"
+        ],
+        "sources": {
+          "http://10.0.0.18:5666/v3/index.json": {},
+          "https://api.nuget.org/v3/index.json": {}
+        },
+        "frameworks": {
+          "net8.0": {
+            "targetAlias": "net8.0",
+            "projectReferences": {
+              "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/PipelogiqSDK.csproj": {
+                "projectPath": "/Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq-sdk-net/src/PipelogiqSDK.csproj"
+              }
+            }
+          }
+        },
+        "warningProperties": {
+          "warnAsError": [
+            "NU1605"
+          ]
+        },
+        "restoreAuditProperties": {
+          "enableAudit": "false",
+          "auditLevel": "low",
+          "auditMode": "direct"
+        }
+      },
+      "frameworks": {
+        "net8.0": {
+          "targetAlias": "net8.0",
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "/usr/local/share/dotnet/sdk/8.0.401/PortableRuntimeIdentifierGraph.json"
+        }
+      }
+    }
+  }
+}
