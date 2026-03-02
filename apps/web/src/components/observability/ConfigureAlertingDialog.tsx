@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -75,51 +75,80 @@ function toggleItem<T extends string>(list: T[], value: T, enabled: boolean): T[
   return list.filter(item => item !== value);
 }
 
+type AlertingFormState = {
+  channels: AlertChannel[];
+  enabledEvents: AlertEvent[];
+  sendResolved: boolean;
+  dedupeWindowSeconds: string;
+  telegramBotToken: string;
+  telegramChatId: string;
+  whatsappWebhookUrl: string;
+  slackWebhookUrl: string;
+  teamsWebhookUrl: string;
+  webhookUrl: string;
+  emailRecipients: string;
+  pagerdutyRoutingKey: string;
+};
+
+function buildAlertingFormState(cfg: Partial<AlertingConfig>): AlertingFormState {
+  const events = toStringArray(cfg.enabledEvents);
+  return {
+    channels: toStringArray(cfg.channels) as AlertChannel[],
+    enabledEvents: (events.length
+      ? events
+      : ["stage_failed", "stage_rerun_manual", "stage_skipped_manual", "worker_failed", "policy_triggered"]) as AlertEvent[],
+    sendResolved: Boolean(cfg.sendResolved ?? true),
+    dedupeWindowSeconds: String(cfg.dedupeWindowSeconds ?? 300),
+    telegramBotToken: cfg.telegramBotToken || "",
+    telegramChatId: cfg.telegramChatId || "",
+    whatsappWebhookUrl: cfg.whatsappWebhookUrl || "",
+    slackWebhookUrl: cfg.slackWebhookUrl || "",
+    teamsWebhookUrl: cfg.teamsWebhookUrl || "",
+    webhookUrl: cfg.webhookUrl || "",
+    emailRecipients: cfg.emailRecipients || "",
+    pagerdutyRoutingKey: cfg.pagerdutyRoutingKey || "",
+  };
+}
+
 export function ConfigureAlertingDialog({ open, onOpenChange, integration }: ConfigureAlertingDialogProps) {
   const existing = (integration.config || {}) as Partial<AlertingConfig>;
 
-  const [channels, setChannels] = useState<AlertChannel[]>(toStringArray(existing.channels) as AlertChannel[]);
-  const [enabledEvents, setEnabledEvents] = useState<AlertEvent[]>(
-    (toStringArray(existing.enabledEvents).length
-      ? toStringArray(existing.enabledEvents)
-      : ["stage_failed", "stage_rerun_manual", "stage_skipped_manual", "worker_failed", "policy_triggered"]) as AlertEvent[],
-  );
-  const [sendResolved, setSendResolved] = useState(Boolean(existing.sendResolved ?? true));
-  const [dedupeWindowSeconds, setDedupeWindowSeconds] = useState(String(existing.dedupeWindowSeconds ?? 300));
-  const [telegramBotToken, setTelegramBotToken] = useState(existing.telegramBotToken || "");
-  const [telegramChatId, setTelegramChatId] = useState(existing.telegramChatId || "");
-  const [whatsappWebhookUrl, setWhatsappWebhookUrl] = useState(existing.whatsappWebhookUrl || "");
-  const [slackWebhookUrl, setSlackWebhookUrl] = useState(existing.slackWebhookUrl || "");
-  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState(existing.teamsWebhookUrl || "");
-  const [webhookUrl, setWebhookUrl] = useState(existing.webhookUrl || "");
-  const [emailRecipients, setEmailRecipients] = useState(existing.emailRecipients || "");
-  const [pagerdutyRoutingKey, setPagerdutyRoutingKey] = useState(existing.pagerdutyRoutingKey || "");
+  const [form, setForm] = useState<AlertingFormState>(() => buildAlertingFormState(existing));
   const [channelToAdd, setChannelToAdd] = useState<AlertChannel | "">("");
 
-  useEffect(() => {
-    if (!open) return;
+  // Derive-state-from-props: reset form when dialog opens with new config
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevConfig, setPrevConfig] = useState(integration.config);
+  if (open !== prevOpen || integration.config !== prevConfig) {
+    setPrevOpen(open);
+    setPrevConfig(integration.config);
+    if (open) {
+      setForm(buildAlertingFormState((integration.config || {}) as Partial<AlertingConfig>));
+      setChannelToAdd("");
+    }
+  }
 
-    const cfg = (integration.config || {}) as Partial<AlertingConfig>;
-    setChannels(toStringArray(cfg.channels) as AlertChannel[]);
+  // Convenience destructure so the JSX below is unchanged
+  const {
+    channels, enabledEvents, sendResolved, dedupeWindowSeconds,
+    telegramBotToken, telegramChatId, whatsappWebhookUrl, slackWebhookUrl,
+    teamsWebhookUrl, webhookUrl, emailRecipients, pagerdutyRoutingKey,
+  } = form;
 
-    const events = toStringArray(cfg.enabledEvents);
-    setEnabledEvents(
-      (events.length
-        ? events
-        : ["stage_failed", "stage_rerun_manual", "stage_skipped_manual", "worker_failed", "policy_triggered"]) as AlertEvent[],
-    );
-    setSendResolved(Boolean(cfg.sendResolved ?? true));
-    setDedupeWindowSeconds(String(cfg.dedupeWindowSeconds ?? 300));
-    setTelegramBotToken(cfg.telegramBotToken || "");
-    setTelegramChatId(cfg.telegramChatId || "");
-    setWhatsappWebhookUrl(cfg.whatsappWebhookUrl || "");
-    setSlackWebhookUrl(cfg.slackWebhookUrl || "");
-    setTeamsWebhookUrl(cfg.teamsWebhookUrl || "");
-    setWebhookUrl(cfg.webhookUrl || "");
-    setEmailRecipients(cfg.emailRecipients || "");
-    setPagerdutyRoutingKey(cfg.pagerdutyRoutingKey || "");
-    setChannelToAdd("");
-  }, [open, integration.config]);
+  const setChannels = (updater: AlertChannel[] | ((prev: AlertChannel[]) => AlertChannel[])) =>
+    setForm(p => ({ ...p, channels: typeof updater === "function" ? updater(p.channels) : updater }));
+  const setEnabledEvents = (updater: AlertEvent[] | ((prev: AlertEvent[]) => AlertEvent[])) =>
+    setForm(p => ({ ...p, enabledEvents: typeof updater === "function" ? updater(p.enabledEvents) : updater }));
+  const setSendResolved = (v: boolean) => setForm(p => ({ ...p, sendResolved: v }));
+  const setDedupeWindowSeconds = (v: string) => setForm(p => ({ ...p, dedupeWindowSeconds: v }));
+  const setTelegramBotToken = (v: string) => setForm(p => ({ ...p, telegramBotToken: v }));
+  const setTelegramChatId = (v: string) => setForm(p => ({ ...p, telegramChatId: v }));
+  const setWhatsappWebhookUrl = (v: string) => setForm(p => ({ ...p, whatsappWebhookUrl: v }));
+  const setSlackWebhookUrl = (v: string) => setForm(p => ({ ...p, slackWebhookUrl: v }));
+  const setTeamsWebhookUrl = (v: string) => setForm(p => ({ ...p, teamsWebhookUrl: v }));
+  const setWebhookUrl = (v: string) => setForm(p => ({ ...p, webhookUrl: v }));
+  const setEmailRecipients = (v: string) => setForm(p => ({ ...p, emailRecipients: v }));
+  const setPagerdutyRoutingKey = (v: string) => setForm(p => ({ ...p, pagerdutyRoutingKey: v }));
 
   const saveMutation = useSaveIntegrationConfig();
   const testMutation = useTestConnection();

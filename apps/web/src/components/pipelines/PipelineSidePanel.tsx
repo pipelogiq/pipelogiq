@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { X, Clock, ChevronDown, Copy, Check, CheckCircle2, XCircle, AlertCircle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban } from "lucide-react";
+import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { PipelineExecution, PipelineAction } from "./PipelineDetailPanel";
+import { PipelineAction } from "./PipelineDetailPanel";
 import {
   Collapsible,
   CollapsibleContent,
@@ -20,7 +20,6 @@ type TabType = "stages" | "logs" | "context";
 
 export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProps) {
   const { data: pipeline, isLoading, error } = usePipeline(pipelineId);
-  const [copied, setCopied] = useState(false);
   const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<TabType>("stages");
 
@@ -59,12 +58,6 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
       </div>
     );
   }
-
-  const copyId = () => {
-    navigator.clipboard.writeText(pipeline.correlationId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const toggleAction = (actionId: string) => {
     setExpandedActions(prev => {

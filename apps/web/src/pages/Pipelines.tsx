@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PipelineSearchBar, SearchFilters } from "@/components/pipelines/PipelineSearchBar";
 import { PipelineTable } from "@/components/pipelines/PipelineTable";
@@ -124,14 +124,14 @@ export default function Pipelines() {
 
       return true;
     });
-  }, [data?.items, filters.environment, filters.owner, filters.contextFilters]);
+  }, [data, filters.environment, filters.owner, filters.contextFilters]);
 
-  // Close detail panel if selected pipeline is no longer in results
-  useEffect(() => {
-    if (selectedPipelineId && filteredPipelines.length > 0 && !filteredPipelines.some(p => p.id === selectedPipelineId)) {
-      setSelectedPipelineId(null);
-    }
-  }, [filteredPipelines, selectedPipelineId]);
+  // Derive effective selected ID — clears selection when pipeline is no longer in results
+  const effectiveSelectedPipelineId = useMemo(() => {
+    if (!selectedPipelineId) return null;
+    if (filteredPipelines.length > 0 && !filteredPipelines.some(p => p.id === selectedPipelineId)) return null;
+    return selectedPipelineId;
+  }, [selectedPipelineId, filteredPipelines]);
 
   const totalResults = data?.totalCount || 0;
 
@@ -195,9 +195,9 @@ export default function Pipelines() {
               <ScrollArea className="flex-1">
                 <PipelineTable
                   pipelines={filteredPipelines}
-                  selectedId={selectedPipelineId}
+                  selectedId={effectiveSelectedPipelineId}
                   onSelect={(pipeline) => setSelectedPipelineId(pipeline.id)}
-                  isPanelOpen={!!selectedPipelineId}
+                  isPanelOpen={!!effectiveSelectedPipelineId}
                 />
               </ScrollArea>
 
@@ -215,10 +215,10 @@ export default function Pipelines() {
         </div>
 
         {/* Side Panel Card */}
-        {selectedPipelineId && (
+        {effectiveSelectedPipelineId && (
           <div className="w-[40%] min-w-[480px] max-w-[600px] shrink-0 rounded-lg border border-border bg-card overflow-hidden shadow-sm">
             <PipelineSidePanel
-              pipelineId={Number(selectedPipelineId)}
+              pipelineId={Number(effectiveSelectedPipelineId)}
               onClose={() => setSelectedPipelineId(null)}
             />
           </div>

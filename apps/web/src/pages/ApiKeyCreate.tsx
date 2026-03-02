@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppHeader } from '@/components/layout/AppHeader';
@@ -24,8 +24,15 @@ export default function ApiKeyCreate() {
 
   const hasApplications = (applications?.length ?? 0) > 0;
 
-  const [applicationMode, setApplicationMode] = useState<'existing' | 'new'>('new');
+  const [applicationMode, setApplicationMode] = useState<'existing' | 'new'>('existing');
   const [selectedApplicationId, setSelectedApplicationId] = useState<string>('');
+
+  // Derive effective values without effects
+  const effectiveApplicationMode: 'existing' | 'new' = hasApplications ? applicationMode : 'new';
+  const effectiveSelectedApplicationId =
+    effectiveApplicationMode === 'existing' && !selectedApplicationId && applications?.length
+      ? String(applications[0].id)
+      : selectedApplicationId;
 
   // New application fields
   const [appName, setAppName] = useState('');
@@ -44,25 +51,14 @@ export default function ApiKeyCreate() {
     mutationFn: apiKeysApi.generate,
   });
 
-  useEffect(() => {
-    if (!hasApplications) {
-      setApplicationMode('new');
-      setSelectedApplicationId('');
-      return;
-    }
-    if (!selectedApplicationId && applications && applications.length > 0) {
-      setSelectedApplicationId(String(applications[0].id));
-    }
-  }, [applications, hasApplications, selectedApplicationId]);
-
   const isLoading = generateKeyMutation.isPending;
 
   const canGenerate = useMemo(() => {
-    if (applicationMode === 'existing') {
-      return selectedApplicationId !== '';
+    if (effectiveApplicationMode === 'existing') {
+      return effectiveSelectedApplicationId !== '';
     }
     return appName.trim() !== '';
-  }, [applicationMode, appName, selectedApplicationId]);
+  }, [effectiveApplicationMode, appName, effectiveSelectedApplicationId]);
 
   const handleGenerate = async () => {
     if (!canGenerate) return;
@@ -86,9 +82,9 @@ export default function ApiKeyCreate() {
         expiresAt = now.toISOString();
       }
 
-      const payload = applicationMode === 'existing'
+      const payload = effectiveApplicationMode === 'existing'
         ? {
-            applicationId: Number(selectedApplicationId),
+            applicationId: Number(effectiveSelectedApplicationId),
             name: keyName.trim() || undefined,
             expiresAt,
           }
@@ -192,7 +188,7 @@ export default function ApiKeyCreate() {
                 <div className="flex items-center gap-2">
                   <Button
                     type="button"
-                    variant={applicationMode === 'existing' ? 'default' : 'outline'}
+                    variant={effectiveApplicationMode === 'existing' ? 'default' : 'outline'}
                     size="sm"
                     disabled={isLoading}
                     onClick={() => setApplicationMode('existing')}
@@ -201,7 +197,7 @@ export default function ApiKeyCreate() {
                   </Button>
                   <Button
                     type="button"
-                    variant={applicationMode === 'new' ? 'default' : 'outline'}
+                    variant={effectiveApplicationMode === 'new' ? 'default' : 'outline'}
                     size="sm"
                     disabled={isLoading}
                     onClick={() => setApplicationMode('new')}
@@ -211,11 +207,11 @@ export default function ApiKeyCreate() {
                 </div>
               )}
 
-              {applicationMode === 'existing' ? (
+              {effectiveApplicationMode === 'existing' ? (
                 <div className="space-y-2">
                   <Label htmlFor="existingApplication">Choose Existing Application *</Label>
                   <Select
-                    value={selectedApplicationId}
+                    value={effectiveSelectedApplicationId}
                     onValueChange={setSelectedApplicationId}
                     disabled={isLoading || !hasApplications}
                   >

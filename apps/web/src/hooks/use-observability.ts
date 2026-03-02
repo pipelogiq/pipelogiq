@@ -92,7 +92,7 @@ const MOCK_INSIGHTS: ObservabilityInsights = {
 };
 
 // In-memory config store for mock mode (persists across re-renders within session)
-let mockConfigStore: ObservabilityConfig = {
+const mockConfigStore: ObservabilityConfig = {
   integrations: [...MOCK_INTEGRATIONS],
 };
 

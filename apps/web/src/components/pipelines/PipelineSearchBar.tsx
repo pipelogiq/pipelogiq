@@ -87,13 +87,6 @@ export function PipelineSearchBar({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleTagToggle = (tag: string) => {
-    const newTags = filters.tags.includes(tag)
-      ? filters.tags.filter((t) => t !== tag)
-      : [...filters.tags, tag];
-    updateFilters({ tags: newTags });
-  };
-
   const parseAndApplySearch = (input: string, apply = false) => {
     const keyValuePattern = /(\w+):([^\s]+)/g;
     const contextFilters: ContextKeyFilter[] = [];

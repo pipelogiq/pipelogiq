@@ -1,12 +1,10 @@
 import { cn } from "@/lib/utils";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   CheckCircle2,
   XCircle,
   Clock,
   PlayCircle,
   Timer,
-  AlertCircle,
 } from "lucide-react";
 
 interface ActivityItem {

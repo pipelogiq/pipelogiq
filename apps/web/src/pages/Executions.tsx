@@ -34,12 +34,6 @@ import {
   FileText,
   ArrowRight,
   Box,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  Pause,
-  Timer,
-  Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 

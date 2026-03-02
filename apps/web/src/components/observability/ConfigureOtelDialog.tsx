@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -29,27 +29,48 @@ interface ConfigureOtelDialogProps {
   integration: Integration;
 }
 
-export function ConfigureOtelDialog({ open, onOpenChange, integration }: ConfigureOtelDialogProps) {
-  const existing = (integration.config || {}) as Partial<OtelConfig>;
+type OtelFormState = {
+  endpoint: string;
+  protocol: "grpc" | "http";
+  headers: string;
+  samplingRate: string;
+  traceLinkTemplate: string;
+};
 
-  const [endpoint, setEndpoint] = useState(existing.endpoint || "");
-  const [protocol, setProtocol] = useState<"grpc" | "http">(existing.protocol || "grpc");
-  const [headers, setHeaders] = useState(existing.headers || "");
-  const [samplingRate, setSamplingRate] = useState(String(existing.samplingRate ?? 100));
-  const [traceLinkTemplate, setTraceLinkTemplate] = useState(existing.traceLinkTemplate || "");
+function buildOtelFormState(cfg: Partial<OtelConfig>): OtelFormState {
+  return {
+    endpoint: cfg.endpoint || "",
+    protocol: cfg.protocol || "grpc",
+    headers: cfg.headers || "",
+    samplingRate: String(cfg.samplingRate ?? 100),
+    traceLinkTemplate: cfg.traceLinkTemplate || "",
+  };
+}
+
+export function ConfigureOtelDialog({ open, onOpenChange, integration }: ConfigureOtelDialogProps) {
+  const [form, setForm] = useState<OtelFormState>(() =>
+    buildOtelFormState((integration.config || {}) as Partial<OtelConfig>)
+  );
   const [copied, setCopied] = useState(false);
 
-  // Sync form state from latest integration config each time the dialog opens
-  useEffect(() => {
+  // Derive-state-from-props: reset form when dialog opens with new config
+  const [prevOpen, setPrevOpen] = useState(open);
+  const [prevConfig, setPrevConfig] = useState(integration.config);
+  if (open !== prevOpen || integration.config !== prevConfig) {
+    setPrevOpen(open);
+    setPrevConfig(integration.config);
     if (open) {
-      const cfg = (integration.config || {}) as Partial<OtelConfig>;
-      setEndpoint(cfg.endpoint || "");
-      setProtocol(cfg.protocol || "grpc");
-      setHeaders(cfg.headers || "");
-      setSamplingRate(String(cfg.samplingRate ?? 100));
-      setTraceLinkTemplate(cfg.traceLinkTemplate || "");
+      setForm(buildOtelFormState((integration.config || {}) as Partial<OtelConfig>));
     }
-  }, [open, integration.config]);
+  }
+
+  // Convenience destructure so JSX below is unchanged
+  const { endpoint, protocol, headers, samplingRate, traceLinkTemplate } = form;
+  const setEndpoint = (v: string) => setForm(p => ({ ...p, endpoint: v }));
+  const setProtocol = (v: "grpc" | "http") => setForm(p => ({ ...p, protocol: v }));
+  const setHeaders = (v: string) => setForm(p => ({ ...p, headers: v }));
+  const setSamplingRate = (v: string) => setForm(p => ({ ...p, samplingRate: v }));
+  const setTraceLinkTemplate = (v: string) => setForm(p => ({ ...p, traceLinkTemplate: v }));
 
   const saveMutation = useSaveIntegrationConfig();
   const testMutation = useTestConnection();
