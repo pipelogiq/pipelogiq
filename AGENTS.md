@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - Go entrypoints: `cmd/api` and `cmd/worker`; shared logic under `internal/` (config, db, mq, store, api, worker, etc.).
 - Frontend (Vue 3 + Vite) lives in `frontend/`; generated API client targets `frontend/src/shared/api/generated`.
-- Local infra via `docker-compose.yml` (Postgres, RabbitMQ, API, worker). Persistent volumes in `data/` and `redisdata/`—leave them uncommitted.
+- Local infra via `docker-compose.build.yml` (Postgres, RabbitMQ, API, worker). Persistent volumes in `data/` and `redisdata/`—leave them uncommitted.
 - Utility: `scripts/init-admin.sh` seeds the default admin user.
 
 ## Build, Test, and Development Commands

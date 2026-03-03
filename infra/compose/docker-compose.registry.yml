@@ -1,14 +1,15 @@
 version: "3.9"
 
-# Full stack — builds all images from source.
-# Requires the external "pipelogiq" network:
-#   docker network create pipelogiq 2>/dev/null || true
+# Full stack using pre-built images from GitHub Container Registry.
+# No local build required — pulls ghcr.io/pipelogiq/* images.
 #
-# For pre-built images from GHCR use docker-compose.latest.yml instead.
-# For component-level control use the individual compose files:
-#   docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
-#   docker-compose.app.yml     — pipelogiq-app (web + API)
-#   docker-compose.worker.yml  — pipelogiq-worker
+# Usage:
+#   docker network create pipelogiq 2>/dev/null || true
+#   cp .env.example .env
+#   docker compose -f infra/compose/docker-compose.registry.yml up -d
+#
+# Pin a specific release with PIPELOGIQ_VERSION:
+#   PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
 
 networks:
   pipelogiq:
@@ -85,9 +86,7 @@ services:
       - pipelogiq
 
   pipelogiq-app:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.app
+    image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-latest}
     container_name: pipelogiq-app
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
@@ -132,9 +131,7 @@ services:
     restart: unless-stopped
 
   pipelogiq-worker:
-    build:
-      context: ../..
-      dockerfile: infra/docker/Dockerfile.worker
+    image: ghcr.io/pipelogiq/pipelogiq-worker:${PIPELOGIQ_VERSION:-latest}
     container_name: pipelogiq-worker
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
@@ -160,7 +157,7 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      pipelogiq-tempo:
+      tempo:
         condition: service_started
     ports:
       - "9090:9090"

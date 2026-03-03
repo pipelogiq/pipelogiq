@@ -83,7 +83,7 @@ External workers connect to the external API (`:8081`) to:
 
 ### Database
 
-PostgreSQL is the primary datastore. Schema is managed by Liquibase (`database/changelog.xml`) and auto-migrated by the `pipelogiq-migrate` init container on stack startup.
+PostgreSQL is the primary datastore. Schema is managed by Liquibase (`database/changelog.xml`) and migrated automatically by `pipelogiq-app` on startup via `pipelogiq-app-entrypoint.sh` (controlled by the `LIQUIBASE_ENABLED` env var).
 
 For local development, SQLite is available as a fallback when `DATABASE_URL` is not set.
 
@@ -112,6 +112,6 @@ Single-page app built with React 19, TypeScript, Vite, TanStack Query, Tailwind 
 
 ## Deployment
 
-The provided Docker Compose file (`infra/compose/docker-compose.yml`) runs the full stack with two application containers: `pipelogiq-app` and `pipelogiq-worker`. For production, the API and worker binaries can be deployed independently — they only need access to PostgreSQL and RabbitMQ.
+The provided Docker Compose file (`infra/compose/docker-compose.build.yml`) runs the full stack with two application containers: `pipelogiq-app` and `pipelogiq-worker`. For production, the API and worker binaries can be deployed independently — they only need access to PostgreSQL and RabbitMQ.
 
 Build metadata (version, commit, date) is injected at build time via `ldflags`. Use `make build` to produce binaries with version info, or `curl localhost:8080/version` to check a running instance.

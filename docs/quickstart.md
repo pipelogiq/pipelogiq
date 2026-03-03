@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.latest.yml up -d
+PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:
@@ -110,10 +110,12 @@ Once startup completes, check that services are running:
 
 | Check | Command |
 |---|---|
-| API health | `curl http://localhost:8080/healthz` |
+| API health (via nginx) | `curl http://localhost:3300/api/healthz` |
 | External API health | `curl http://localhost:8081/healthz` |
-| API version | `curl http://localhost:8080/version` |
+| API version (via nginx) | `curl http://localhost:3300/api/version` |
 | Worker metrics | `curl http://localhost:9090/metrics` |
+
+> **Note:** Port `8080` (internal API) is not exposed from the `pipelogiq-app` container. The internal API is accessible through nginx on port `3300` under the `/api/` prefix. When running without Docker, `localhost:8080` is accessible directly.
 
 Management UIs:
 
@@ -127,15 +129,15 @@ Management UIs:
 
 ## Compose files reference
 
-| File | Description |
-|---|---|
-| `docker-compose.yml` | Full stack — builds all images from source |
-| `docker-compose.latest.yml` | Full stack — pulls pre-built images from `ghcr.io/pipelogiq` |
-| `docker-compose.infra.yml` | Infrastructure only (Postgres, RabbitMQ, Tempo, Grafana) |
-| `docker-compose.app.yml` | `pipelogiq-app` only (web + API, build from source) |
-| `docker-compose.worker.yml` | `pipelogiq-worker` only (build from source) |
+| File                          | Description |
+|-------------------------------|---|
+| `docker-compose.build.yml`    | Full stack — builds all images from source |
+| `docker-compose.registry.yml` | Full stack — pulls pre-built images from `ghcr.io/pipelogiq` |
+| `docker-compose.infra.yml`    | Infrastructure only (Postgres, RabbitMQ, Tempo, Grafana) |
+| `docker-compose.app.yml`      | `pipelogiq-app` only (web + API, build from source) |
+| `docker-compose.worker.yml`   | `pipelogiq-worker` only (build from source) |
 
-All files use the external `pipelogiq` Docker network. The `docker-compose.latest.yml` file
+All files use the external `pipelogiq` Docker network. The `docker-compose.registry.yml` file
 supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `latest`).
 
 ---

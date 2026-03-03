@@ -65,7 +65,7 @@ Path alias: `@/` maps to `apps/web/src/`.
 
 ### Database
 
-PostgreSQL 16 in production; SQLite fallback for local dev (at `apps/go/data/pipelogiq.db` when `DATABASE_URL` is unset). Schema managed by Liquibase (`database/changelog.xml`). Migrations run automatically in the API Docker container on startup.
+PostgreSQL 16 in production; SQLite fallback for local dev (at `apps/go/data/pipelogiq.db` when `DATABASE_URL` is unset). Schema managed by Liquibase (`database/changelog.xml`). Migrations run automatically inside the `pipelogiq-app` container on startup via `pipelogiq-app-entrypoint.sh` (controlled by `LIQUIBASE_ENABLED`).
 
 ### Infrastructure (`infra/`)
 
@@ -76,7 +76,7 @@ Docker Compose stack: Postgres (:5441), RabbitMQ (:5672/:15672), Grafana Tempo (
 GitHub Actions CI (`.github/workflows/ci.yml`) runs on PRs and pushes to main:
 - Go: formatting check, `go vet`, `go test`
 - Web: `npm ci`, lint, build
-- Docker: build both Dockerfiles
+- Docker: build `Dockerfile.app` and `Dockerfile.worker`
 
 Release workflow (`.github/workflows/release.yml`) triggers on `v*` tags: builds cross-platform binaries and creates a GitHub Release with changelog notes.
 

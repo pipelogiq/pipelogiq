@@ -39,7 +39,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.latest.yml up -d
+PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source
@@ -60,7 +60,7 @@ Once running:
 | Grafana | http://localhost:3000 (admin/admin) |
 | Worker metrics | http://localhost:9090/metrics |
 
-Health checks: `GET /healthz` and `GET /readyz` on both API ports (`:8080` internal, `:8081` external).
+Health checks: `GET /healthz` and `GET /readyz` on both API ports. When using Docker Compose, reach the internal API via nginx on `:3300` (e.g. `curl http://localhost:3300/api/healthz`) or use the external API directly on `:8081`. Port `:8080` is internal to the `pipelogiq-app` container.
 
 Stop everything:
 
@@ -98,7 +98,7 @@ See [docs/quickstart.md](docs/quickstart.md) for local development without Docke
 - **pipelogiq-app** — single container with the React dashboard (nginx) and the API. nginx proxies `/api/` and `/ws` to the co-located API at `localhost:8080`. Exposes the dashboard on `:3300` and the external API on `:8081`
 - **pipelogiq-worker** — polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state; Prometheus metrics on `:9090`
 - **External workers** — pull jobs from the external API, execute stage logic, and report results back
-- **Database migrations** — managed by Liquibase (`database/changelog.xml`); run automatically via the `pipelogiq-migrate` init container on stack startup
+- **Database migrations** — managed by Liquibase (`database/changelog.xml`); run automatically by `pipelogiq-app` on startup via its entrypoint script
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
@@ -109,11 +109,11 @@ apps/go/         Go services (API binary, worker binary)
 apps/web/        React + Vite dashboard
 database/        Liquibase changelog
 infra/           Dockerfiles, Docker Compose files, observability config
-  compose/         docker-compose.yml         — full stack (build from source)
-                   docker-compose.latest.yml  — full stack (pre-built GHCR images)
+  compose/         docker-compose.build.yml         — full stack (build from source)
+                   docker-compose.registry.yml  — full stack (pre-built GHCR images)
                    docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
-                   docker-compose.app.yml     — pipelogiq-app only
-                   docker-compose.worker.yml  — pipelogiq-worker only
+                   docker-compose.app.yml     — pipelogiq-app only (build from source)
+                   docker-compose.worker.yml  — pipelogiq-worker only (build from source)
   docker/          Dockerfiles and nginx config
 docs/            Documentation
 ```

@@ -8,11 +8,11 @@ GOFLAGS ?=
 BIN_DIR := bin
 BINS := api worker
 
-COMPOSE_FILE    := infra/compose/docker-compose.yml
+COMPOSE_FILE    := infra/compose/docker-compose.build.yml
 COMPOSE_INFRA   := infra/compose/docker-compose.infra.yml
 COMPOSE_APP     := infra/compose/docker-compose.app.yml
 COMPOSE_WORKER  := infra/compose/docker-compose.worker.yml
-COMPOSE_LATEST  := infra/compose/docker-compose.latest.yml
+COMPOSE_LATEST  := infra/compose/docker-compose.registry.yml
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
