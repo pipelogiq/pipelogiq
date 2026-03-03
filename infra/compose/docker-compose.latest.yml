@@ -52,9 +52,10 @@ services:
       timeout: 5s
       retries: 5
 
-  tempo:
+  pipelogiq-tempo:
     image: grafana/tempo:2.7.2
     container_name: pipelogiq-tempo
+    user: root
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
@@ -66,7 +67,7 @@ services:
     networks:
       - pipelogiq
 
-  grafana:
+  pipelogiq-grafana:
     image: grafana/grafana:11.2.2
     container_name: pipelogiq-grafana
     environment:
@@ -74,7 +75,7 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     depends_on:
-      tempo:
+      pipelogiq-tempo:
         condition: service_started
     ports:
       - "3000:3000"
@@ -84,9 +85,9 @@ services:
     networks:
       - pipelogiq
 
-  pipelogiq-api:
-    image: ghcr.io/pipelogiq/pipelogiq-api:${PIPELOGIQ_VERSION:-latest}
-    container_name: pipelogiq-api
+  pipelogiq-app:
+    image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-latest}
+    container_name: pipelogiq-app
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
@@ -104,7 +105,7 @@ services:
       LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
       LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
       LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_API:-pipelogiq-api}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-pipelogiq-app}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
@@ -115,10 +116,10 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      tempo:
+      pipelogiq-tempo:
         condition: service_started
     ports:
-      - "8080:8080"
+      - "3300:80"
       - "8081:8081"
     networks:
       - pipelogiq
@@ -127,6 +128,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   pipelogiq-worker:
     image: ghcr.io/pipelogiq/pipelogiq-worker:${PIPELOGIQ_VERSION:-latest}
@@ -149,11 +151,11 @@ services:
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
     depends_on:
+      pipelogiq-app:
+        condition: service_healthy
       pipelogiq-postgres:
         condition: service_healthy
       pipelogiq-rabbitmq:
-        condition: service_healthy
-      pipelogiq-api:
         condition: service_healthy
       tempo:
         condition: service_started
@@ -166,18 +168,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
-
-  pipelogiq-web:
-    image: ghcr.io/pipelogiq/pipelogiq-web:${PIPELOGIQ_VERSION:-latest}
-    container_name: pipelogiq-web
-    depends_on:
-      pipelogiq-api:
-        condition: service_healthy
-    ports:
-      - "3300:80"
-    networks:
-      - pipelogiq
-    restart: unless-stopped
 
 volumes:
   pgdata:

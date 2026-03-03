@@ -12,16 +12,15 @@ is_enabled() {
 
 if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
   LIQUIBASE_CHANGELOG_FILE="${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}"
-  LIQUIBASE_SEARCH_PATH_VALUE="${LIQUIBASE_SEARCH_PATH:-/app}"
   LIQUIBASE_URL_VALUE="${LIQUIBASE_URL:-}"
 
   if [ -z "$LIQUIBASE_URL_VALUE" ]; then
-    echo "[pipelogiq-api-entrypoint] LIQUIBASE_URL is required when LIQUIBASE_ENABLED=true" >&2
+    echo "[pipelogiq-app] LIQUIBASE_URL is required when LIQUIBASE_ENABLED=true" >&2
     exit 1
   fi
 
   if [ ! -f "$LIQUIBASE_CHANGELOG_FILE" ]; then
-    echo "[pipelogiq-api-entrypoint] changelog file not found: $LIQUIBASE_CHANGELOG_FILE" >&2
+    echo "[pipelogiq-app] changelog file not found: $LIQUIBASE_CHANGELOG_FILE" >&2
     exit 1
   fi
 
@@ -32,8 +31,8 @@ if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
       ;;
   esac
 
-  echo "[pipelogiq-api-entrypoint] running liquibase migrations"
-  set -- --url="$LIQUIBASE_URL_VALUE" --searchPath="$LIQUIBASE_SEARCH_PATH_VALUE" --changeLogFile="$LIQUIBASE_CHANGELOG_ARG"
+  echo "[pipelogiq-app] running liquibase migrations"
+  set -- --url="$LIQUIBASE_URL_VALUE" --searchPath="/app" --changeLogFile="$LIQUIBASE_CHANGELOG_ARG"
 
   if [ -n "${LIQUIBASE_USERNAME:-}" ]; then
     set -- "$@" --username="${LIQUIBASE_USERNAME}"
@@ -43,9 +42,9 @@ if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
   fi
 
   liquibase "$@" update
-  echo "[pipelogiq-api-entrypoint] liquibase migration completed"
+  echo "[pipelogiq-app] liquibase migration completed"
 else
-  echo "[pipelogiq-api-entrypoint] skipping liquibase migration (LIQUIBASE_ENABLED=$LIQUIBASE_ENABLED_VALUE)"
+  echo "[pipelogiq-app] skipping liquibase migration (LIQUIBASE_ENABLED=$LIQUIBASE_ENABLED_VALUE)"
 fi
 
-exec /usr/local/bin/pipelogiq-api
+exec /usr/bin/supervisord -c /etc/supervisord.conf

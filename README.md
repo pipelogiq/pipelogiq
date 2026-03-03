@@ -55,13 +55,12 @@ Once running:
 | Service | URL |
 |---|---|
 | Dashboard | http://localhost:3300 |
-| Dashboard API | http://localhost:8080 |
 | External API | http://localhost:8081 |
 | RabbitMQ UI | http://localhost:15672 (guest/guest) |
 | Grafana | http://localhost:3000 (admin/admin) |
 | Worker metrics | http://localhost:9090/metrics |
 
-Health checks: `GET /healthz` and `GET /readyz` on both API ports.
+Health checks: `GET /healthz` and `GET /readyz` on both API ports (`:8080` internal, `:8081` external).
 
 Stop everything:
 
@@ -75,44 +74,46 @@ See [docs/quickstart.md](docs/quickstart.md) for local development without Docke
 ## Architecture
 
 ```
-                ┌─────────────┐
-                │  React UI   │ :3300 (Docker) / :3300 (dev)
-                └──────┬──────┘
-                       │ /api, /ws
-                       ▼
-              ┌────────────────┐    ┌─────────────────┐
-              │  pipelogiq-api  │───▶│    PostgreSQL    │
-              │  :8080 (int)   │    └─────────────────┘
-              │  :8081 (ext)   │───▶┌─────────────────┐
-              └───────┬────────┘    │    RabbitMQ      │
-                      │             └────────┬────────┘
-                      │                      │
-              ┌───────▼────────┐    ┌────────▼────────┐
-              │pipelogiq-worker │    │ External Workers │
-              │  (built-in)    │    │   (via SDK/API)  │
-              └────────────────┘    └─────────────────┘
+                ┌──────────────────────────┐
+                │      pipelogiq-app        │
+                │  ┌──────────┐            │
+                │  │ React UI │ :3300       │
+                │  └────┬─────┘            │
+                │       │ nginx proxy       │
+                │  ┌────▼──────────────┐   │
+                │  │  pipelogiq-api    │   │──── PostgreSQL
+                │  │  :8080 (int)      │   │──── RabbitMQ
+                │  │  :8081 (ext)      │   │
+                │  └───────────────────┘   │
+                └──────────────────────────┘
+                              │
+              ┌───────────────┴──────────────┐
+              ▼                              ▼
+   ┌────────────────────┐        ┌─────────────────┐
+   │  pipelogiq-worker  │        │ External Workers │
+   │  :9090 (metrics)   │        │  (via SDK/API)   │
+   └────────────────────┘        └─────────────────┘
 ```
 
-- **pipelogiq-api** exposes two HTTP servers: an internal API (JWT/cookie auth for the dashboard) and an external API (API-key auth for SDKs and workers)
-- **pipelogiq-worker** polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state
-- **External workers** pull jobs from the external API, execute stage logic, and report results back
-- **Database migrations** are managed by Liquibase (`database/changelog.xml`) and run automatically on API startup
+- **pipelogiq-app** — single container with the React dashboard (nginx) and the API. nginx proxies `/api/` and `/ws` to the co-located API at `localhost:8080`. Exposes the dashboard on `:3300` and the external API on `:8081`
+- **pipelogiq-worker** — polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state; Prometheus metrics on `:9090`
+- **External workers** — pull jobs from the external API, execute stage logic, and report results back
+- **Database migrations** — managed by Liquibase (`database/changelog.xml`); run automatically via the `pipelogiq-migrate` init container on stack startup
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
 ## Repository Structure
 
 ```
-apps/go/         Go services (pipelogiq-api, pipelogiq-worker)
+apps/go/         Go services (API binary, worker binary)
 apps/web/        React + Vite dashboard
 database/        Liquibase changelog
 infra/           Dockerfiles, Docker Compose files, observability config
   compose/         docker-compose.yml         — full stack (build from source)
                    docker-compose.latest.yml  — full stack (pre-built GHCR images)
                    docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
-                   docker-compose.api.yml     — pipelogiq-api only
+                   docker-compose.app.yml     — pipelogiq-app only
                    docker-compose.worker.yml  — pipelogiq-worker only
-                   docker-compose.web.yml     — React dashboard only
   docker/          Dockerfiles and nginx config
 docs/            Documentation
 ```

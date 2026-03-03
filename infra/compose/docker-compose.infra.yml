@@ -44,6 +44,7 @@ services:
   tempo:
     image: grafana/tempo:2.7.2
     container_name: pipelogiq-tempo
+    user: root
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro

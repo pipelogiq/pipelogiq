@@ -59,7 +59,7 @@ Builds all images locally and starts the complete stack.
 make compose-up
 ```
 
-This builds and starts: PostgreSQL, RabbitMQ, Grafana Tempo, Grafana, pipelogiq-api, pipelogiq-worker, and the React dashboard.
+This builds and starts: PostgreSQL, RabbitMQ, Grafana Tempo, Grafana, pipelogiq-app, and pipelogiq-worker.
 
 Stop:
 
@@ -79,22 +79,18 @@ Start components independently. All share the `pipelogiq` network so they can co
 # 1. Infrastructure (Postgres, RabbitMQ, Tempo, Grafana)
 make compose-infra-up
 
-# 2. API (waits for Postgres and RabbitMQ to be healthy)
-make compose-api-up
+# 2. App — web dashboard + API (runs migrations automatically)
+make compose-app-up
 
-# 3. Worker (waits for API to be healthy)
+# 3. Worker
 make compose-worker-up
-
-# 4. Web dashboard
-make compose-web-up
 ```
 
 **Stop individual components:**
 
 ```bash
-make compose-web-down
 make compose-worker-down
-make compose-api-down
+make compose-app-down
 make compose-infra-down
 ```
 
@@ -102,9 +98,8 @@ You can also use `docker compose` directly:
 
 ```bash
 docker compose -f infra/compose/docker-compose.infra.yml up -d
-docker compose -f infra/compose/docker-compose.api.yml up --build -d
+docker compose -f infra/compose/docker-compose.app.yml up --build -d
 docker compose -f infra/compose/docker-compose.worker.yml up --build -d
-docker compose -f infra/compose/docker-compose.web.yml up --build -d
 ```
 
 ---
@@ -137,9 +132,8 @@ Management UIs:
 | `docker-compose.yml` | Full stack — builds all images from source |
 | `docker-compose.latest.yml` | Full stack — pulls pre-built images from `ghcr.io/pipelogiq` |
 | `docker-compose.infra.yml` | Infrastructure only (Postgres, RabbitMQ, Tempo, Grafana) |
-| `docker-compose.api.yml` | `pipelogiq-api` only (build from source) |
+| `docker-compose.app.yml` | `pipelogiq-app` only (web + API, build from source) |
 | `docker-compose.worker.yml` | `pipelogiq-worker` only (build from source) |
-| `docker-compose.web.yml` | React dashboard only (build from source) |
 
 All files use the external `pipelogiq` Docker network. The `docker-compose.latest.yml` file
 supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `latest`).

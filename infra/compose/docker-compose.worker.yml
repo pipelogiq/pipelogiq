@@ -1,8 +1,8 @@
 version: "3.9"
 
-# Requires infra and API services to be running first:
+# Requires infra and app to be running first:
 #   docker compose -f infra/compose/docker-compose.infra.yml up -d
-#   docker compose -f infra/compose/docker-compose.api.yml up -d
+#   docker compose -f infra/compose/docker-compose.app.yml up -d
 # All services must share the external "pipelogiq" network:
 #   docker network create pipelogiq 2>/dev/null || true
 
@@ -14,7 +14,7 @@ services:
   pipelogiq-worker:
     build:
       context: ../..
-      dockerfile: infra/docker/Dockerfile.pipelogiq-worker
+      dockerfile: infra/docker/Dockerfile.worker
     container_name: pipelogiq-worker
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}

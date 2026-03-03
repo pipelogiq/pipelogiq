@@ -69,7 +69,7 @@ PostgreSQL 16 in production; SQLite fallback for local dev (at `apps/go/data/pip
 
 ### Infrastructure (`infra/`)
 
-Docker Compose stack: Postgres (:5441), RabbitMQ (:5672/:15672), Grafana Tempo (:4317/:3200), Grafana (:3000), pipelogiq-api, pipelogiq-worker.
+Docker Compose stack: Postgres (:5441), RabbitMQ (:5672/:15672), Grafana Tempo (:4317/:3200), Grafana (:3000), pipelogiq-app, pipelogiq-worker.
 
 ## CI
 

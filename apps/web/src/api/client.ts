@@ -42,7 +42,7 @@ import type {
   Policy,
 } from '@/types/policies';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_BASE = '/api';
 console.log('[API] Base URL:', API_BASE);
 
 class ApiError extends Error {

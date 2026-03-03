@@ -4,32 +4,37 @@
 
 Pipelogiq has two planes:
 
-- **Control plane** — the API server and built-in worker that manage pipeline state, stage execution ordering, and real-time updates
+- **Control plane** — the app server and built-in worker that manage pipeline state, stage execution ordering, and real-time updates
 - **Data plane** — external workers (connected via SDK or raw HTTP) that pull stage jobs, execute domain logic, and report results
 
 ```
-                ┌─────────────┐
-                │  React UI   │ :3300 (dev)
-                └──────┬──────┘
-                       │ /api, /ws
-                       ▼
-              ┌────────────────┐
-              │  pipelogiq-api  │
-              │  :8080 (int)   │──── PostgreSQL
-              │  :8081 (ext)   │──── RabbitMQ
-              └───────┬────────┘
+        ┌──────────────────────────────┐
+        │        pipelogiq-app          │
+        │  ┌──────────────────────┐    │
+        │  │      React UI        │    │
+        │  │  :3300 (dashboard)   │    │
+        │  └──────────┬───────────┘    │
+        │    nginx proxy /api, /ws     │
+        │  ┌──────────▼───────────┐    │
+        │  │    pipelogiq-api     │    │──── PostgreSQL
+        │  │    :8080 (int)       │    │──── RabbitMQ
+        │  │    :8081 (ext)       │    │
+        │  └──────────────────────┘    │
+        └──────────────────────────────┘
                       │
-         ┌────────────┼────────────┐
-         ▼                         ▼
-  ┌──────────────┐       ┌─────────────────┐
-  │pipelogiq-worker│       │ External Workers │
-  │  (built-in)  │       │   (via SDK/API)  │
-  └──────────────┘       └─────────────────┘
+       ┌──────────────┴──────────────┐
+       ▼                             ▼
+┌─────────────────┐       ┌──────────────────┐
+│pipelogiq-worker │       │ External Workers  │
+│ :9090 (metrics) │       │  (via SDK/API)    │
+└─────────────────┘       └──────────────────┘
 ```
 
 ## Components
 
-### pipelogiq-api
+### pipelogiq-app
+
+A single container that bundles the React dashboard and the API server together. nginx serves the dashboard on `:3300` and proxies `/api/` and `/ws` to the API running at `localhost:8080` inside the same container.
 
 The API server exposes two HTTP servers on separate ports:
 
@@ -57,7 +62,7 @@ The API server exposes two HTTP servers on separate ports:
 
 ### pipelogiq-worker
 
-The built-in worker runs inside the control plane and handles:
+The built-in worker runs alongside the app and handles:
 
 - **Publisher** — polls the database for stages ready to execute and publishes them to RabbitMQ queues
 - **Result consumer** — processes stage results from workers, updates pipeline state, and triggers the next stage
@@ -78,7 +83,7 @@ External workers connect to the external API (`:8081`) to:
 
 ### Database
 
-PostgreSQL is the primary datastore. Schema is managed by Liquibase (`database/changelog.xml`) and auto-migrated on API startup.
+PostgreSQL is the primary datastore. Schema is managed by Liquibase (`database/changelog.xml`) and auto-migrated by the `pipelogiq-migrate` init container on stack startup.
 
 For local development, SQLite is available as a fallback when `DATABASE_URL` is not set.
 
@@ -107,6 +112,6 @@ Single-page app built with React 19, TypeScript, Vite, TanStack Query, Tailwind 
 
 ## Deployment
 
-The provided Docker Compose file (`infra/compose/docker-compose.yml`) runs the full stack. For production, the API and worker binaries can be deployed independently — they only need access to PostgreSQL and RabbitMQ.
+The provided Docker Compose file (`infra/compose/docker-compose.yml`) runs the full stack with two application containers: `pipelogiq-app` and `pipelogiq-worker`. For production, the API and worker binaries can be deployed independently — they only need access to PostgreSQL and RabbitMQ.
 
 Build metadata (version, commit, date) is injected at build time via `ldflags`. Use `make build` to produce binaries with version info, or `curl localhost:8080/version` to check a running instance.

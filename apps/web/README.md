@@ -39,7 +39,6 @@ npm run dev
 
 `VITE_API_BASE_URL` controls API requests.
 
-- If set to absolute URL (example: `http://localhost:8080`), the app calls that host directly.
 - If set to relative path (example: `/api`), requests go through Vite (or reverse-proxy) path rewriting.
 
 WebSocket URL is derived automatically:

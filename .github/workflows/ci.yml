@@ -61,12 +61,10 @@ jobs:
     strategy:
       matrix:
         dockerfile:
-          - infra/docker/Dockerfile.pipelogiq-api
-          - infra/docker/Dockerfile.pipelogiq-worker
-          - infra/docker/Dockerfile.web
+          - infra/docker/Dockerfile.app
+          - infra/docker/Dockerfile.worker
     steps:
       - uses: actions/checkout@v4
 
       - name: Build image
         run: docker build -f ${{ matrix.dockerfile }} .
-

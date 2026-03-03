@@ -73,26 +73,18 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: infra/docker/Dockerfile.pipelogiq-api
+          file: infra/docker/Dockerfile.app
           push: true
           tags: |
-            ghcr.io/pipelogiq/pipelogiq-api:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipelogiq-api:latest
+            ghcr.io/pipelogiq/pipelogiq-app:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipelogiq-app:latest
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: infra/docker/Dockerfile.pipelogiq-worker
+          file: infra/docker/Dockerfile.worker
           push: true
           tags: |
             ghcr.io/pipelogiq/pipelogiq-worker:${{ steps.meta.outputs.version }}
             ghcr.io/pipelogiq/pipelogiq-worker:latest
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: infra/docker/Dockerfile.web
-          push: true
-          tags: |
-            ghcr.io/pipelogiq/pipelogiq-web:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipelogiq-web:latest

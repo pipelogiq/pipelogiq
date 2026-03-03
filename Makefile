@@ -10,9 +10,8 @@ BINS := api worker
 
 COMPOSE_FILE    := infra/compose/docker-compose.yml
 COMPOSE_INFRA   := infra/compose/docker-compose.infra.yml
-COMPOSE_API     := infra/compose/docker-compose.api.yml
+COMPOSE_APP     := infra/compose/docker-compose.app.yml
 COMPOSE_WORKER  := infra/compose/docker-compose.worker.yml
-COMPOSE_WEB     := infra/compose/docker-compose.web.yml
 COMPOSE_LATEST  := infra/compose/docker-compose.latest.yml
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -99,14 +98,14 @@ compose-infra-up: ## Start infra services (Postgres, RabbitMQ, Tempo, Grafana)
 compose-infra-down: ## Stop infra services
 	docker compose -f $(COMPOSE_INFRA) down
 
-.PHONY: compose-api-up
-compose-api-up: ## Build and start pipelogiq-api
+.PHONY: compose-app-up
+compose-app-up: ## Build and start pipelogiq-app (web + API)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_API) up --build -d
+	docker compose -f $(COMPOSE_APP) up --build -d
 
-.PHONY: compose-api-down
-compose-api-down: ## Stop pipelogiq-api
-	docker compose -f $(COMPOSE_API) down
+.PHONY: compose-app-down
+compose-app-down: ## Stop pipelogiq-app
+	docker compose -f $(COMPOSE_APP) down
 
 .PHONY: compose-worker-up
 compose-worker-up: ## Build and start pipelogiq-worker
@@ -116,15 +115,6 @@ compose-worker-up: ## Build and start pipelogiq-worker
 .PHONY: compose-worker-down
 compose-worker-down: ## Stop pipelogiq-worker
 	docker compose -f $(COMPOSE_WORKER) down
-
-.PHONY: compose-web-up
-compose-web-up: ## Build and start React web dashboard
-	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_WEB) up --build -d
-
-.PHONY: compose-web-down
-compose-web-down: ## Stop React web dashboard
-	docker compose -f $(COMPOSE_WEB) down
 
 ##@ Docker — pre-built images from ghcr.io
 .PHONY: compose-latest-up
@@ -138,7 +128,7 @@ compose-latest-down: ## Stop pre-built image stack
 
 .PHONY: compose-latest-pull
 compose-latest-pull: ## Pull latest images from ghcr.io/pipelogiq
-	docker compose -f $(COMPOSE_LATEST) pull pipelogiq-api pipelogiq-worker pipelogiq-web
+	docker compose -f $(COMPOSE_LATEST) pull pipelogiq-app pipelogiq-worker
 
 ##@ Docker — local dev helpers
 .PHONY: dev

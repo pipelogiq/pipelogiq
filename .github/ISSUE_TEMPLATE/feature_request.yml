@@ -31,7 +31,7 @@ body:
       label: Scope
       description: "Which part of the system does this affect?"
       options:
-        - API (pipelogiq-api)
+        - App / API (pipelogiq-app)
         - Worker (pipelogiq-worker)
         - Dashboard (web)
         - SDK / External API

@@ -21,7 +21,7 @@ The dashboard can link directly to traces in your tracing backend (Grafana Tempo
 
 ## OpenTelemetry
 
-Both `pipelogiq-api` and `pipelogiq-worker` initialize an OpenTelemetry trace exporter on startup. Configuration is via standard OTEL environment variables:
+Both `pipelogiq-app` and `pipelogiq-worker` initialize an OpenTelemetry trace exporter on startup. Configuration is via standard OTEL environment variables:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -52,7 +52,7 @@ Both services expose Prometheus-compatible metrics:
 
 | Service | Endpoint | Port |
 |---|---|---|
-| pipelogiq-api | `/metrics` | 8080 |
+| pipelogiq-app | `/metrics` | 8080 |
 | pipelogiq-worker | `/metrics` | 9090 |
 
 ### Available metrics
@@ -67,7 +67,7 @@ Both services expose Prometheus-compatible metrics:
 | `stage_status_updated_total` | Counter | Status update messages processed |
 | `pending_marked_failed_total` | Counter | Stages timed out in Pending |
 
-**External API (pipelogiq-api):**
+**External API (pipelogiq-app):**
 
 | Metric | Type | Description |
 |---|---|---|
