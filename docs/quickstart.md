@@ -59,7 +59,7 @@ Builds all images locally and starts the complete stack.
 make compose-up
 ```
 
-This builds and starts: PostgreSQL, RabbitMQ, Grafana Tempo, Grafana, pipeline-api, pipeline-worker, and the React dashboard.
+This builds and starts: PostgreSQL, RabbitMQ, Grafana Tempo, Grafana, pipelogiq-api, pipelogiq-worker, and the React dashboard.
 
 Stop:
 
@@ -137,8 +137,8 @@ Management UIs:
 | `docker-compose.yml` | Full stack — builds all images from source |
 | `docker-compose.latest.yml` | Full stack — pulls pre-built images from `ghcr.io/pipelogiq` |
 | `docker-compose.infra.yml` | Infrastructure only (Postgres, RabbitMQ, Tempo, Grafana) |
-| `docker-compose.api.yml` | `pipeline-api` only (build from source) |
-| `docker-compose.worker.yml` | `pipeline-worker` only (build from source) |
+| `docker-compose.api.yml` | `pipelogiq-api` only (build from source) |
+| `docker-compose.worker.yml` | `pipelogiq-worker` only (build from source) |
 | `docker-compose.web.yml` | React dashboard only (build from source) |
 
 All files use the external `pipelogiq` Docker network. The `docker-compose.latest.yml` file

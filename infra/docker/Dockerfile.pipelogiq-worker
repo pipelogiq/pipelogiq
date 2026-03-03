@@ -1,4 +1,4 @@
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 WORKDIR /src
 
 COPY apps/go/go.mod ./
@@ -17,12 +17,12 @@ RUN set -eux; \
 
 COPY apps/go ./
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/pipeline-worker ./cmd/pipeline-worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/pipelogiq-worker ./cmd/worker
 
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates curl
 WORKDIR /app
-COPY --from=builder /out/pipeline-worker /usr/local/bin/pipeline-worker
+COPY --from=builder /out/pipelogiq-worker /usr/local/bin/pipelogiq-worker
 USER nobody
 EXPOSE 9090
-ENTRYPOINT ["/usr/local/bin/pipeline-worker"]
+ENTRYPOINT ["/usr/local/bin/pipelogiq-worker"]

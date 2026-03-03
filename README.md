@@ -81,20 +81,20 @@ See [docs/quickstart.md](docs/quickstart.md) for local development without Docke
                        │ /api, /ws
                        ▼
               ┌────────────────┐    ┌─────────────────┐
-              │  pipeline-api  │───▶│    PostgreSQL    │
+              │  pipelogiq-api  │───▶│    PostgreSQL    │
               │  :8080 (int)   │    └─────────────────┘
               │  :8081 (ext)   │───▶┌─────────────────┐
               └───────┬────────┘    │    RabbitMQ      │
                       │             └────────┬────────┘
                       │                      │
               ┌───────▼────────┐    ┌────────▼────────┐
-              │pipeline-worker │    │ External Workers │
+              │pipelogiq-worker │    │ External Workers │
               │  (built-in)    │    │   (via SDK/API)  │
               └────────────────┘    └─────────────────┘
 ```
 
-- **pipeline-api** exposes two HTTP servers: an internal API (JWT/cookie auth for the dashboard) and an external API (API-key auth for SDKs and workers)
-- **pipeline-worker** polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state
+- **pipelogiq-api** exposes two HTTP servers: an internal API (JWT/cookie auth for the dashboard) and an external API (API-key auth for SDKs and workers)
+- **pipelogiq-worker** polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state
 - **External workers** pull jobs from the external API, execute stage logic, and report results back
 - **Database migrations** are managed by Liquibase (`database/changelog.xml`) and run automatically on API startup
 
@@ -103,15 +103,15 @@ See [docs/architecture.md](docs/architecture.md) for details.
 ## Repository Structure
 
 ```
-apps/go/         Go services (pipeline-api, pipeline-worker)
+apps/go/         Go services (pipelogiq-api, pipelogiq-worker)
 apps/web/        React + Vite dashboard
 database/        Liquibase changelog
 infra/           Dockerfiles, Docker Compose files, observability config
   compose/         docker-compose.yml         — full stack (build from source)
                    docker-compose.latest.yml  — full stack (pre-built GHCR images)
                    docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
-                   docker-compose.api.yml     — pipeline-api only
-                   docker-compose.worker.yml  — pipeline-worker only
+                   docker-compose.api.yml     — pipelogiq-api only
+                   docker-compose.worker.yml  — pipelogiq-worker only
                    docker-compose.web.yml     — React dashboard only
   docker/          Dockerfiles and nginx config
 docs/            Documentation

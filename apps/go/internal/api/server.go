@@ -71,7 +71,7 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(middleware.RealIP)
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
-	router.Use(otelhttp.NewMiddleware("pipeline-api-internal"))
+	router.Use(otelhttp.NewMiddleware("pipelogiq-api-internal"))
 	router.Use(corsMiddleware)
 
 	// Health and version endpoints

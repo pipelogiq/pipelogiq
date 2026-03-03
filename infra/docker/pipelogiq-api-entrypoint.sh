@@ -16,12 +16,12 @@ if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
   LIQUIBASE_URL_VALUE="${LIQUIBASE_URL:-}"
 
   if [ -z "$LIQUIBASE_URL_VALUE" ]; then
-    echo "[pipeline-api-entrypoint] LIQUIBASE_URL is required when LIQUIBASE_ENABLED=true" >&2
+    echo "[pipelogiq-api-entrypoint] LIQUIBASE_URL is required when LIQUIBASE_ENABLED=true" >&2
     exit 1
   fi
 
   if [ ! -f "$LIQUIBASE_CHANGELOG_FILE" ]; then
-    echo "[pipeline-api-entrypoint] changelog file not found: $LIQUIBASE_CHANGELOG_FILE" >&2
+    echo "[pipelogiq-api-entrypoint] changelog file not found: $LIQUIBASE_CHANGELOG_FILE" >&2
     exit 1
   fi
 
@@ -32,7 +32,7 @@ if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
       ;;
   esac
 
-  echo "[pipeline-api-entrypoint] running liquibase migrations"
+  echo "[pipelogiq-api-entrypoint] running liquibase migrations"
   set -- --url="$LIQUIBASE_URL_VALUE" --searchPath="$LIQUIBASE_SEARCH_PATH_VALUE" --changeLogFile="$LIQUIBASE_CHANGELOG_ARG"
 
   if [ -n "${LIQUIBASE_USERNAME:-}" ]; then
@@ -43,9 +43,9 @@ if is_enabled "$LIQUIBASE_ENABLED_VALUE"; then
   fi
 
   liquibase "$@" update
-  echo "[pipeline-api-entrypoint] liquibase migration completed"
+  echo "[pipelogiq-api-entrypoint] liquibase migration completed"
 else
-  echo "[pipeline-api-entrypoint] skipping liquibase migration (LIQUIBASE_ENABLED=$LIQUIBASE_ENABLED_VALUE)"
+  echo "[pipelogiq-api-entrypoint] skipping liquibase migration (LIQUIBASE_ENABLED=$LIQUIBASE_ENABLED_VALUE)"
 fi
 
-exec /usr/local/bin/pipeline-api
+exec /usr/local/bin/pipelogiq-api

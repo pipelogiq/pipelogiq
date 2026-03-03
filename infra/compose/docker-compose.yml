@@ -7,8 +7,8 @@ version: "3.9"
 # For pre-built images from GHCR use docker-compose.latest.yml instead.
 # For component-level control use the individual compose files:
 #   docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
-#   docker-compose.api.yml     — pipeline-api
-#   docker-compose.worker.yml  — pipeline-worker
+#   docker-compose.api.yml     — pipelogiq-api
+#   docker-compose.worker.yml  — pipelogiq-worker
 #   docker-compose.web.yml     — React dashboard
 
 networks:
@@ -84,10 +84,10 @@ services:
     networks:
       - pipelogiq
 
-  pipeline-api:
+  pipelogiq-api:
     build:
       context: ../..
-      dockerfile: infra/docker/Dockerfile.pipeline-api
+      dockerfile: infra/docker/Dockerfile.pipelogiq-api
     container_name: pipelogiq-api
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
@@ -106,7 +106,7 @@ services:
       LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
       LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
       LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_API:-pipeline-api}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_API:-pipelogiq-api}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
@@ -130,10 +130,10 @@ services:
       timeout: 5s
       retries: 5
 
-  pipeline-worker:
+  pipelogiq-worker:
     build:
       context: ../..
-      dockerfile: infra/docker/Dockerfile.pipeline-worker
+      dockerfile: infra/docker/Dockerfile.pipelogiq-worker
     container_name: pipelogiq-worker
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
@@ -146,7 +146,7 @@ services:
       RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}
       METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
       LOG_LEVEL: ${LOG_LEVEL:-info}
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipeline-worker}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipelogiq-worker}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
@@ -157,7 +157,7 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      pipeline-api:
+      pipelogiq-api:
         condition: service_healthy
       tempo:
         condition: service_started
@@ -171,13 +171,13 @@ services:
       timeout: 5s
       retries: 5
 
-  pipeline-web:
+  pipelogiq-web:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.web
     container_name: pipelogiq-web
     depends_on:
-      pipeline-api:
+      pipelogiq-api:
         condition: service_healthy
     ports:
       - "3300:80"

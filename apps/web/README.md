@@ -15,7 +15,7 @@ Frontend dashboard for Pipelogiq, built with React + TypeScript + Vite.
 
 - Node.js 20+ (or current LTS)
 - npm
-- Running backend API (`pipeline-api`)
+- Running backend API (`pipelogiq-api`)
 
 ## Install
 

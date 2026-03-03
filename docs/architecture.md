@@ -14,7 +14,7 @@ Pipelogiq has two planes:
                        │ /api, /ws
                        ▼
               ┌────────────────┐
-              │  pipeline-api  │
+              │  pipelogiq-api  │
               │  :8080 (int)   │──── PostgreSQL
               │  :8081 (ext)   │──── RabbitMQ
               └───────┬────────┘
@@ -22,14 +22,14 @@ Pipelogiq has two planes:
          ┌────────────┼────────────┐
          ▼                         ▼
   ┌──────────────┐       ┌─────────────────┐
-  │pipeline-worker│       │ External Workers │
+  │pipelogiq-worker│       │ External Workers │
   │  (built-in)  │       │   (via SDK/API)  │
   └──────────────┘       └─────────────────┘
 ```
 
 ## Components
 
-### pipeline-api
+### pipelogiq-api
 
 The API server exposes two HTTP servers on separate ports:
 
@@ -55,7 +55,7 @@ The API server exposes two HTTP servers on separate ports:
 - `POST /workers/events` — submit worker events
 - `POST /workers/shutdown` — graceful shutdown notification
 
-### pipeline-worker
+### pipelogiq-worker
 
 The built-in worker runs inside the control plane and handles:
 

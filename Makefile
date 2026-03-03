@@ -6,7 +6,7 @@ WEB_DIR := apps/web
 GO ?= go
 GOFLAGS ?=
 BIN_DIR := bin
-BINS := pipeline-api pipeline-worker
+BINS := api worker
 
 COMPOSE_FILE    := infra/compose/docker-compose.yml
 COMPOSE_INFRA   := infra/compose/docker-compose.infra.yml
@@ -42,11 +42,11 @@ $(BIN_DIR)/%: $(GO_DIR)/cmd/%/main.go
 
 .PHONY: run-api
 run-api: ## Run API from source
-	cd $(GO_DIR) && $(GO) run ./cmd/pipeline-api
+	cd $(GO_DIR) && $(GO) run ./cmd/api
 
 .PHONY: run-worker
 run-worker: ## Run worker from source
-	cd $(GO_DIR) && $(GO) run ./cmd/pipeline-worker
+	cd $(GO_DIR) && $(GO) run ./cmd/worker
 
 .PHONY: run-web
 run-web: ## Run React app in dev mode
@@ -56,8 +56,8 @@ run-web: ## Run React app in dev mode
 run: build ## Run API and worker binaries until interrupted
 	@set -e; \
 	cd $(GO_DIR); \
-	./$(BIN_DIR)/pipeline-api & API_PID=$$!; \
-	./$(BIN_DIR)/pipeline-worker & WORKER_PID=$$!; \
+	./$(BIN_DIR)/api & API_PID=$$!; \
+	./$(BIN_DIR)/worker & WORKER_PID=$$!; \
 	trap 'kill $$API_PID $$WORKER_PID' INT TERM EXIT; \
 	wait $$API_PID $$WORKER_PID
 
@@ -100,21 +100,21 @@ compose-infra-down: ## Stop infra services
 	docker compose -f $(COMPOSE_INFRA) down
 
 .PHONY: compose-api-up
-compose-api-up: ## Build and start pipeline-api
+compose-api-up: ## Build and start pipelogiq-api
 	docker network create pipelogiq 2>/dev/null || true
 	docker compose -f $(COMPOSE_API) up --build -d
 
 .PHONY: compose-api-down
-compose-api-down: ## Stop pipeline-api
+compose-api-down: ## Stop pipelogiq-api
 	docker compose -f $(COMPOSE_API) down
 
 .PHONY: compose-worker-up
-compose-worker-up: ## Build and start pipeline-worker
+compose-worker-up: ## Build and start pipelogiq-worker
 	docker network create pipelogiq 2>/dev/null || true
 	docker compose -f $(COMPOSE_WORKER) up --build -d
 
 .PHONY: compose-worker-down
-compose-worker-down: ## Stop pipeline-worker
+compose-worker-down: ## Stop pipelogiq-worker
 	docker compose -f $(COMPOSE_WORKER) down
 
 .PHONY: compose-web-up
@@ -138,7 +138,7 @@ compose-latest-down: ## Stop pre-built image stack
 
 .PHONY: compose-latest-pull
 compose-latest-pull: ## Pull latest images from ghcr.io/pipelogiq
-	docker compose -f $(COMPOSE_LATEST) pull pipeline-api pipeline-worker pipeline-web
+	docker compose -f $(COMPOSE_LATEST) pull pipelogiq-api pipelogiq-worker pipelogiq-web
 
 ##@ Docker — local dev helpers
 .PHONY: dev

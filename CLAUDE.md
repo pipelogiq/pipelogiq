@@ -36,10 +36,10 @@ Docker Compose requires a pre-existing network: `docker network create pipelogiq
 
 Go 1.22 module named `pipelogiq` with two binaries:
 
-- **pipeline-api** (`cmd/pipeline-api`) — Two HTTP servers:
+- **pipelogiq-api** (`cmd/api`) — Two HTTP servers:
   - Internal API (`:8080`): JWT/cookie auth, serves the web dashboard. Routes: auth, pipelines, stages, applications, API keys, workers, policies, observability, WebSocket at `/ws`, version at `/version`.
   - External API (`:8081`): API-key auth (`X-API-Key` header), for SDK clients and external workers. Routes: pipeline creation, job pull/ack, log submission, worker lifecycle, version at `/version`.
-- **pipeline-worker** (`cmd/pipeline-worker`) — Processes stage jobs from RabbitMQ queues, exposes Prometheus metrics on `:9090`.
+- **pipelogiq-worker** (`cmd/worker`) — Processes stage jobs from RabbitMQ queues, exposes Prometheus metrics on `:9090`.
 
 Key packages under `internal/`:
 - `api/` — HTTP handlers, auth middleware, WebSocket hub
@@ -69,7 +69,7 @@ PostgreSQL 16 in production; SQLite fallback for local dev (at `apps/go/data/pip
 
 ### Infrastructure (`infra/`)
 
-Docker Compose stack: Postgres (:5441), RabbitMQ (:5672/:15672), Grafana Tempo (:4317/:3200), Grafana (:3000), pipeline-api, pipeline-worker.
+Docker Compose stack: Postgres (:5441), RabbitMQ (:5672/:15672), Grafana Tempo (:4317/:3200), Grafana (:3000), pipelogiq-api, pipelogiq-worker.
 
 ## CI
 

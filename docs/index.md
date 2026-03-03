@@ -20,4 +20,4 @@ Pipelogiq is designed for platform engineers, backend developers, and DevOps tea
 
 ## Status
 
-Pipelogiq is in preview (v0.x). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.
+Pipelogiq is in preview (v0.1.0). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.

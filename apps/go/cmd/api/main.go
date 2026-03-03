@@ -9,29 +9,27 @@ import (
 	"syscall"
 	"time"
 
-	"pipelogiq/internal/alerts"
+	"pipelogiq/internal/api"
 	"pipelogiq/internal/config"
 	"pipelogiq/internal/db"
 	"pipelogiq/internal/logger"
 	"pipelogiq/internal/mq"
-	observabilityrepo "pipelogiq/internal/observability/repo"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/telemetry"
-	"pipelogiq/internal/worker"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	cfg, err := config.LoadWorker()
+	cfg, err := config.LoadAPI()
 	if err != nil {
 		slog.Error("config error", "err", err)
 		os.Exit(1)
 	}
 
 	logg := logger.New(cfg.LogLevel)
-	otelShutdown, err := telemetry.Init(ctx, "pipeline-worker", logg)
+	otelShutdown, err := telemetry.Init(ctx, "pipelogiq-api", logg)
 	if err != nil {
 		logg.Error("opentelemetry init failed", "err", err)
 		os.Exit(1)
@@ -54,13 +52,31 @@ func main() {
 	mqClient := mq.NewClient(cfg.RabbitURL, logg)
 	defer mqClient.Close()
 
-	store := store.New(dbConn, logg)
-	alertsNotifier := alerts.New(observabilityrepo.NewSQLRepository(store.DB()), logg)
-	store.SetAlertSink(alertsNotifier)
-	w := worker.New(cfg, store, mqClient, logg)
+	st := store.New(dbConn, logg)
 
-	if err := w.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		logg.Error("worker exited", "err", err)
+	// Internal API (JWT-protected, for web dashboard)
+	internalServer := api.NewServer(cfg, st, mqClient, logg)
+
+	// External API (API-key auth, for SDK clients and workers)
+	externalServer := api.NewExternalServer(cfg, st, mqClient, logg)
+
+	errCh := make(chan error, 2)
+	go func() {
+		if err := internalServer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+		}
+	}()
+	go func() {
+		if err := externalServer.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		logg.Info("shutting down")
+	case err := <-errCh:
+		logg.Error("server exited with error", "err", err)
 		os.Exit(1)
 	}
 }

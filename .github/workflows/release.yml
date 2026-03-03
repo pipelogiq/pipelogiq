@@ -32,8 +32,8 @@ jobs:
           for GOOS in linux darwin; do
             for GOARCH in amd64 arm64; do
               mkdir -p dist
-              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipeline-api-${GOOS}-${GOARCH} ./cmd/pipeline-api
-              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipeline-worker-${GOOS}-${GOARCH} ./cmd/pipeline-worker
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipelogiq-api-${GOOS}-${GOARCH} ./cmd/api
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipelogiq-worker-${GOOS}-${GOARCH} ./cmd/worker
             done
           done
 
@@ -73,20 +73,20 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: infra/docker/Dockerfile.pipeline-api
+          file: infra/docker/Dockerfile.pipelogiq-api
           push: true
           tags: |
-            ghcr.io/pipelogiq/pipeline-api:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipeline-api:latest
+            ghcr.io/pipelogiq/pipelogiq-api:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipelogiq-api:latest
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          file: infra/docker/Dockerfile.pipeline-worker
+          file: infra/docker/Dockerfile.pipelogiq-worker
           push: true
           tags: |
-            ghcr.io/pipelogiq/pipeline-worker:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipeline-worker:latest
+            ghcr.io/pipelogiq/pipelogiq-worker:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipelogiq-worker:latest
 
       - uses: docker/build-push-action@v6
         with:
@@ -94,5 +94,5 @@ jobs:
           file: infra/docker/Dockerfile.web
           push: true
           tags: |
-            ghcr.io/pipelogiq/pipeline-web:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipeline-web:latest
+            ghcr.io/pipelogiq/pipelogiq-web:${{ steps.meta.outputs.version }}
+            ghcr.io/pipelogiq/pipelogiq-web:latest
