@@ -157,7 +157,7 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      tempo:
+      pipelogiq-tempo:
         condition: service_started
     ports:
       - "9090:9090"
