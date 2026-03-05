@@ -48,6 +48,16 @@ func NewClient(url string, logger *slog.Logger) *Client {
 	return &Client{url: url, logger: logger}
 }
 
+func (c *Client) deleteQueue(ctx context.Context, name string) error {
+	ch, err := c.channel(ctx)
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+	_, err = ch.QueueDelete(name, false, false, false)
+	return err
+}
+
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -83,6 +93,10 @@ func (c *Client) PublishWithRetry(ctx context.Context, queue string, body []byte
 
 		if err := declareQueue(ch, queue, opts); err != nil {
 			span.RecordError(err)
+			if isPreconditionFailed(err) {
+				c.logger.Warn("rabbitmq: queue args mismatch, deleting and recreating", "queue", queue)
+				_ = c.deleteQueue(ctx, queue)
+			}
 			return err
 		}
 
@@ -141,7 +155,12 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 
 		if err := declareQueue(ch, queue, opts.QueueOptions); err != nil {
 			ch.Close()
-			c.logger.Error("rabbitmq: declare queue failed", "queue", queue, "err", err)
+			if isPreconditionFailed(err) {
+				c.logger.Warn("rabbitmq: queue args mismatch, deleting and recreating", "queue", queue)
+				_ = c.deleteQueue(ctx, queue)
+			} else {
+				c.logger.Error("rabbitmq: declare queue failed", "queue", queue, "err", err)
+			}
 			time.Sleep(time.Second)
 			continue
 		}
@@ -503,13 +522,11 @@ func declareQueue(ch *amqp.Channel, name string, opts QueueOptions) error {
 }
 
 func declareRawQueue(ch *amqp.Channel, name string, durable, autoDelete bool, args amqp.Table) error {
-	_, err := ch.QueueDeclare(
-		name,
-		durable,
-		autoDelete,
-		false,
-		false,
-		args,
-	)
+	_, err := ch.QueueDeclare(name, durable, autoDelete, false, false, args)
 	return err
+}
+
+func isPreconditionFailed(err error) bool {
+	var amqpErr *amqp.Error
+	return errors.As(err, &amqpErr) && amqpErr.Code == amqp.PreconditionFailed
 }

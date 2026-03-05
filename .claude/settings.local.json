@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(export PATH=\"/opt/homebrew/opt/go/bin:$PATH\")",
-      "Bash(go build:*)"
+      "Bash(go build:*)",
+      "Bash(export PATH=$PATH:/usr/local/go/bin && cd /Users/sergeifedulov/Documents/Dev/Pipelogiq/pipelogiq/apps/go && go build ./cmd/worker/...)",
+      "Bash(make build 2>&1 | head -20)"
     ]
   }
 }

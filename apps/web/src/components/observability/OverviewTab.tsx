@@ -213,7 +213,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
               </div>
               <div className="text-sm">
                 <p className="text-muted-foreground text-xs">Dashboard URL</p>
-                <p className="text-xs font-mono">{grafanaConfig.dashboardUrl || "http://localhost:3000"}</p>
+                <p className="text-xs font-mono">{grafanaConfig.dashboardUrl || "http://localhost:3100"}</p>
               </div>
               <div className="flex gap-2">
                 {grafanaConfig.dashboardUrl && (

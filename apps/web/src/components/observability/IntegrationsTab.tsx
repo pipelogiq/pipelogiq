@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 const localTempoTraceLinkTemplate =
-  "http://localhost:3000/explore?orgId=1&left=%7B%22datasource%22:%22Tempo%22,%22queries%22:%5B%7B%22query%22:%22${traceId}%22,%22queryType%22:%22traceql%22%7D%5D%7D";
+  "http://localhost:3100/explore?orgId=1&left=%7B%22datasource%22:%22Tempo%22,%22queries%22:%5B%7B%22query%22:%22${traceId}%22,%22queryType%22:%22traceql%22%7D%5D%7D";
 
 export function IntegrationsTab() {
   const { data: config, isLoading } = useObservabilityConfig();
@@ -91,7 +91,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
     saveMutation.mutate({
       type: "grafana",
       config: {
-        dashboardUrl: "http://localhost:3000",
+        dashboardUrl: "http://localhost:3100",
       },
     });
   };

@@ -180,7 +180,7 @@ OTEL_SERVICE_NAME=pipelogiq${headers ? `\nOTEL_EXPORTER_OTLP_HEADERS=${headers.s
             <Label htmlFor="otel-trace-link">Trace Link Template</Label>
             <Input
               id="otel-trace-link"
-              placeholder="http://localhost:3000/explore?...${traceId}"
+              placeholder="http://localhost:3100/explore?...${traceId}"
               value={traceLinkTemplate}
               onChange={(e) => setTraceLinkTemplate(e.target.value)}
             />

@@ -23,7 +23,7 @@ interface ConfigureGrafanaDialogProps {
 
 export function ConfigureGrafanaDialog({ open, onOpenChange, integration }: ConfigureGrafanaDialogProps) {
   const existing = (integration.config || {}) as Partial<GrafanaConfig>;
-  const [dashboardUrl, setDashboardUrl] = useState(existing.dashboardUrl || "http://localhost:3000");
+  const [dashboardUrl, setDashboardUrl] = useState(existing.dashboardUrl || "http://localhost:3100");
 
   const saveMutation = useSaveIntegrationConfig();
 
@@ -53,7 +53,7 @@ export function ConfigureGrafanaDialog({ open, onOpenChange, integration }: Conf
               <Label htmlFor="grafana-dashboard-url">Dashboard URL</Label>
               <Input
                 id="grafana-dashboard-url"
-                placeholder="http://localhost:3000"
+                placeholder="http://localhost:3100"
                 value={dashboardUrl}
                 onChange={(e) => setDashboardUrl(e.target.value)}
               />
@@ -75,7 +75,7 @@ export function ConfigureGrafanaDialog({ open, onOpenChange, integration }: Conf
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Local Docker Compose defaults: Grafana at <code>http://localhost:3000</code>, Tempo API at <code>http://localhost:3200</code>.
+            Local Docker Compose defaults: Grafana at <code>http://localhost:3100</code>, Tempo API at <code>http://localhost:3200</code>.
           </p>
         </div>
 

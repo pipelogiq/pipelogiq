@@ -119,11 +119,11 @@ Once startup completes, check that services are running:
 
 Management UIs:
 
-| Service | URL | Credentials |
-|---|---|---|
-| Dashboard | http://localhost:3300 | admin / admin123 (from `.env`) |
+| Service | URL                    | Credentials |
+|---|------------------------|---|
+| Dashboard | http://localhost:3300  | admin / admin123 (from `.env`) |
 | RabbitMQ Management | http://localhost:15672 | guest / guest |
-| Grafana | http://localhost:3000 | admin / admin |
+| Grafana | http://localhost:3100  | admin / admin |
 
 ---
 

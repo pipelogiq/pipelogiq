@@ -16,7 +16,7 @@ When a pipeline is created with a `traceparent` header or field, Pipelogiq extra
 The dashboard can link directly to traces in your tracing backend (Grafana Tempo, Jaeger, etc.). This is configured through the observability integration settings:
 
 1. Configure an OpenTelemetry integration via the dashboard or API (`POST /observability/config`)
-2. Set the trace link template, e.g.: `http://localhost:3000/explore?left=["now-1h","now","Tempo",{"query":"${traceId}"}]`
+2. Set the trace link template, e.g.: `http://localhost:3100/explore?left=["now-1h","now","Tempo",{"query":"${traceId}"}]`
 3. The dashboard substitutes `${traceId}` with the pipeline's trace ID to generate clickable links
 
 ## OpenTelemetry

@@ -41,7 +41,7 @@ services:
       timeout: 5s
       retries: 5
 
-  tempo:
+  pipelogiq-tempo:
     image: grafana/tempo:2.7.2
     container_name: pipelogiq-tempo
     user: root
@@ -56,7 +56,7 @@ services:
     networks:
       - pipelogiq
 
-  grafana:
+  pipelogiq-grafana:
     image: grafana/grafana:11.2.2
     container_name: pipelogiq-grafana
     environment:
@@ -64,10 +64,10 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
     depends_on:
-      tempo:
+      pipelogiq-tempo:
         condition: service_started
     ports:
-      - "3000:3000"
+      - "3100:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro

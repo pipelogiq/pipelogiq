@@ -78,7 +78,7 @@ services:
       pipelogiq-tempo:
         condition: service_started
     ports:
-      - "3000:3000"
+      - "3100:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -106,7 +106,7 @@ services:
       LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
       LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-pipelogiq-app}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-pipelogiq-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
@@ -145,7 +145,7 @@ services:
       METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipelogiq-worker}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-tempo:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-pipelogiq-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
