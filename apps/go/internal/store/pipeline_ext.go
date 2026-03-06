@@ -92,7 +92,11 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 				JOIN keyword k ON k.id = pk.keyword_id
 				WHERE pk.pipeline_id = p.id AND k.value ILIKE $%d
 			)
-		)`, argNum, argNum, argNum, argNum))
+			OR EXISTS (
+				SELECT 1 FROM pipeline_context_item pci
+				WHERE pci.pipeline_id = p.id AND (pci.key ILIKE $%d OR pci.value ILIKE $%d)
+			)
+		)`, argNum, argNum, argNum, argNum, argNum, argNum))
 		args = append(args, searchPattern)
 		argNum++
 	}
