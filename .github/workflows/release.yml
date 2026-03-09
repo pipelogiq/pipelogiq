@@ -70,7 +70,7 @@ jobs:
         id: meta
         run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/Dockerfile.app
@@ -79,7 +79,7 @@ jobs:
             ghcr.io/pipelogiq/pipelogiq-app:${{ steps.meta.outputs.version }}
             ghcr.io/pipelogiq/pipelogiq-app:latest
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/docker/Dockerfile.worker
