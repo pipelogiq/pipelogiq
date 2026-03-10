@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-const defaultDevDatabaseURL = "sqlite://../../data/pipelogiq.db"
+const (
+	defaultDevDatabaseURL = "sqlite://../../data/pipelogiq.db"
+
+	TopologyOwnershipServer = "server-owned"
+	TopologyOwnershipClient = "client-owned"
+)
 
 type Common struct {
 	AppID        string
@@ -29,6 +34,7 @@ type APIConfig struct {
 	GatewayVisibilityTTL    time.Duration
 	GatewayMaxInFlight      int
 	QueuePrefetch           int
+	QueueTopologyOwnership  string
 	QueueDLQEnabled         bool
 	QueueDLQMessageTTL      time.Duration
 	WorkerHeartbeatInterval time.Duration
@@ -41,11 +47,12 @@ type APIConfig struct {
 
 type WorkerConfig struct {
 	Common
-	PollInterval        time.Duration
-	StagePendingTimeout time.Duration
-	Prefetch            int
-	QueueDLQEnabled     bool
-	QueueDLQMessageTTL  time.Duration
+	PollInterval           time.Duration
+	StagePendingTimeout    time.Duration
+	Prefetch               int
+	QueueTopologyOwnership string
+	QueueDLQEnabled        bool
+	QueueDLQMessageTTL     time.Duration
 }
 
 func LoadAPI() (APIConfig, error) {
@@ -61,6 +68,7 @@ func LoadAPI() (APIConfig, error) {
 		GatewayVisibilityTTL:    getDuration("GATEWAY_VISIBILITY_TIMEOUT", time.Minute),
 		GatewayMaxInFlight:      getInt("GATEWAY_MAX_INFLIGHT", 128),
 		QueuePrefetch:           getInt("RABBIT_PREFETCH", 10),
+		QueueTopologyOwnership:  getTopologyOwnership("RABBIT_TOPOLOGY_OWNERSHIP", TopologyOwnershipServer),
 		QueueDLQEnabled:         getBool("RABBIT_DLQ_ENABLED", true),
 		QueueDLQMessageTTL:      getDuration("RABBIT_DLQ_TTL", 30*time.Second),
 		WorkerHeartbeatInterval: getDuration("WORKER_HEARTBEAT_INTERVAL", 15*time.Second),
@@ -81,12 +89,13 @@ func LoadWorker() (WorkerConfig, error) {
 	}
 
 	cfg := WorkerConfig{
-		Common:              common,
-		PollInterval:        getDuration("WORKER_POLL_INTERVAL", time.Second),
-		StagePendingTimeout: getDuration("STAGE_PENDING_TIMEOUT", 5*time.Minute),
-		Prefetch:            getInt("RABBIT_PREFETCH", 5),
-		QueueDLQEnabled:     getBool("RABBIT_DLQ_ENABLED", true),
-		QueueDLQMessageTTL:  getDuration("RABBIT_DLQ_TTL", 30*time.Second),
+		Common:                 common,
+		PollInterval:           getDuration("WORKER_POLL_INTERVAL", time.Second),
+		StagePendingTimeout:    getDuration("STAGE_PENDING_TIMEOUT", 5*time.Minute),
+		Prefetch:               getInt("RABBIT_PREFETCH", 5),
+		QueueTopologyOwnership: getTopologyOwnership("RABBIT_TOPOLOGY_OWNERSHIP", TopologyOwnershipServer),
+		QueueDLQEnabled:        getBool("RABBIT_DLQ_ENABLED", true),
+		QueueDLQMessageTTL:     getDuration("RABBIT_DLQ_TTL", 30*time.Second),
 	}
 
 	return cfg, nil
@@ -123,7 +132,7 @@ func loadCommon() (Common, error) {
 		dbURL = defaultDevDatabaseURL
 	}
 	if rabbitURL == "" {
-		rabbitURL = "amqp://guest:guest@rabbitmq:5672/"
+		rabbitURL = "amqp://guest:guest@rabbitmq:5672/%2Fdev"
 	}
 
 	logLevel := strings.ToLower(getEnv("LOG_LEVEL", "info"))
@@ -173,6 +182,21 @@ func getDuration(key string, def time.Duration) time.Duration {
 		}
 	}
 	return def
+}
+
+func getTopologyOwnership(key, def string) string {
+	def = strings.ToLower(strings.TrimSpace(def))
+	if def != TopologyOwnershipClient {
+		def = TopologyOwnershipServer
+	}
+
+	val := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch val {
+	case TopologyOwnershipServer, TopologyOwnershipClient:
+		return val
+	default:
+		return def
+	}
 }
 
 func firstNonEmpty(values ...string) string {

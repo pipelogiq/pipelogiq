@@ -48,16 +48,6 @@ func NewClient(url string, logger *slog.Logger) *Client {
 	return &Client{url: url, logger: logger}
 }
 
-func (c *Client) deleteQueue(ctx context.Context, name string) error {
-	ch, err := c.channel(ctx)
-	if err != nil {
-		return err
-	}
-	defer ch.Close()
-	_, err = ch.QueueDelete(name, false, false, false)
-	return err
-}
-
 func (c *Client) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -92,11 +82,13 @@ func (c *Client) PublishWithRetry(ctx context.Context, queue string, body []byte
 		defer ch.Close()
 
 		if err := declareQueue(ch, queue, opts); err != nil {
-			span.RecordError(err)
 			if isPreconditionFailed(err) {
-				c.logger.Warn("rabbitmq: queue args mismatch, deleting and recreating", "queue", queue)
-				_ = c.deleteQueue(ctx, queue)
+				err = newQueueTopologyMismatchError(queue, err)
+				c.logger.Error("rabbitmq: queue topology mismatch, stopping publisher", "queue", queue, "err", err)
+				span.RecordError(err)
+				return backoff.Permanent(err)
 			}
+			span.RecordError(err)
 			return err
 		}
 
@@ -156,11 +148,11 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 		if err := declareQueue(ch, queue, opts.QueueOptions); err != nil {
 			ch.Close()
 			if isPreconditionFailed(err) {
-				c.logger.Warn("rabbitmq: queue args mismatch, deleting and recreating", "queue", queue)
-				_ = c.deleteQueue(ctx, queue)
-			} else {
-				c.logger.Error("rabbitmq: declare queue failed", "queue", queue, "err", err)
+				err = newQueueTopologyMismatchError(queue, err)
+				c.logger.Error("rabbitmq: queue topology mismatch, stopping consumer", "queue", queue, "err", err)
+				return err
 			}
+			c.logger.Error("rabbitmq: declare queue failed", "queue", queue, "err", err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -283,6 +275,9 @@ func (c *Client) Get(ctx context.Context, queue string, opts QueueOptions) (*Get
 
 	if err := declareQueue(ch, queue, opts); err != nil {
 		ch.Close()
+		if isPreconditionFailed(err) {
+			err = newQueueTopologyMismatchError(queue, err)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
@@ -529,4 +524,28 @@ func declareRawQueue(ch *amqp.Channel, name string, durable, autoDelete bool, ar
 func isPreconditionFailed(err error) bool {
 	var amqpErr *amqp.Error
 	return errors.As(err, &amqpErr) && amqpErr.Code == amqp.PreconditionFailed
+}
+
+type queueTopologyMismatchError struct {
+	queue string
+	err   error
+}
+
+func (e *queueTopologyMismatchError) Error() string {
+	return fmt.Sprintf(
+		"rabbitmq queue topology mismatch for %q: %v (existing queue args differ; align publisher/consumer args or migrate queue explicitly)",
+		e.queue,
+		e.err,
+	)
+}
+
+func (e *queueTopologyMismatchError) Unwrap() error {
+	return e.err
+}
+
+func newQueueTopologyMismatchError(queue string, err error) error {
+	return &queueTopologyMismatchError{
+		queue: queue,
+		err:   err,
+	}
 }

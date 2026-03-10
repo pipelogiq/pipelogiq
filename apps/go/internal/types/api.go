@@ -207,11 +207,12 @@ type WorkerApplicationInfo struct {
 }
 
 type WorkerBrokerInfo struct {
-	Type             string `json:"type"`
-	ConnectionString string `json:"connectionString"`
-	Prefetch         int    `json:"prefetch"`
-	DLQEnabled       bool   `json:"dlqEnabled"`
-	DLQTTLSec        int64  `json:"dlqTtlSec"`
+	Type              string `json:"type"`
+	ConnectionString  string `json:"connectionString"`
+	Prefetch          int    `json:"prefetch"`
+	TopologyOwnership string `json:"topologyOwnership"`
+	DLQEnabled        bool   `json:"dlqEnabled"`
+	DLQTTLSec         int64  `json:"dlqTtlSec"`
 }
 
 type WorkerQueueTopology struct {

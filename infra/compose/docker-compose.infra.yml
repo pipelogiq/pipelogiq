@@ -35,6 +35,8 @@ services:
       - "15672:15672"
     networks:
       - pipelogiq
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD-SHELL", "rabbitmq-diagnostics check_running"]
       interval: 10s
@@ -78,3 +80,4 @@ volumes:
   pg-data:
   tempo-data:
   grafana-data:
+  rabbitmq-data:

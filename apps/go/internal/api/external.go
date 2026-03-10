@@ -429,11 +429,12 @@ func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Re
 			AppID:           s.cfg.AppID,
 		},
 		MessageBroker: types.WorkerBrokerInfo{
-			Type:             "rabbitmq",
-			ConnectionString: s.cfg.RabbitURL,
-			Prefetch:         s.cfg.QueuePrefetch,
-			DLQEnabled:       s.cfg.QueueDLQEnabled,
-			DLQTTLSec:        int64(s.cfg.QueueDLQMessageTTL.Seconds()),
+			Type:              "rabbitmq",
+			ConnectionString:  s.cfg.RabbitURL,
+			Prefetch:          s.cfg.QueuePrefetch,
+			TopologyOwnership: s.cfg.QueueTopologyOwnership,
+			DLQEnabled:        s.cfg.QueueDLQEnabled,
+			DLQTTLSec:         int64(s.cfg.QueueDLQMessageTTL.Seconds()),
 		},
 		Queues: types.WorkerQueueTopology{
 			StageResult:        constants.StageResult,

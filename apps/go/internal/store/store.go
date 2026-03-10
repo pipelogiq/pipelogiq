@@ -2,14 +2,15 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
 	"pipelogiq/internal/types"
@@ -129,10 +130,7 @@ func (s *Store) CreatePipeline(ctx context.Context, req types.PipelineCreateRequ
 		}
 	}()
 
-	traceID := req.TraceID
-	if traceID == "" {
-		traceID = uuid.NewString()
-	}
+	traceID := resolveTraceID(req.TraceID, req.PipelineContext)
 
 	var pipelineID int
 	var createdAt time.Time
@@ -202,7 +200,9 @@ func (s *Store) insertContextItems(ctx context.Context, tx *sqlx.Tx, pipelineID 
 
 func (s *Store) insertStages(ctx context.Context, tx *sqlx.Tx, pipelineID int, stages []types.StageCreate) error {
 	for _, st := range stages {
-		spanID := uuid.NewString()
+		b := make([]byte, 8)
+		_, _ = rand.Read(b)
+		spanID := hex.EncodeToString(b)
 		var stageID int
 		var created time.Time
 		err := tx.QueryRowContext(ctx, `
@@ -851,4 +851,28 @@ func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusM
 	}
 
 	return s.GetPipelineWithStages(ctx, pipelineID)
+}
+
+// resolveTraceID returns a valid W3C trace ID (32 lowercase hex chars).
+// Priority: explicit traceId from request → extract from traceparent context item → generate new.
+func resolveTraceID(explicit string, contextItems []types.ContextItem) string {
+	if explicit != "" {
+		return explicit
+	}
+	for _, item := range contextItems {
+		if !strings.EqualFold(item.Key, "traceparent") {
+			continue
+		}
+		// W3C traceparent: "00-{traceId}-{spanId}-{flags}"
+		parts := strings.Split(item.Value, "-")
+		if len(parts) == 4 && len(parts[1]) == 32 {
+			return parts[1]
+		}
+	}
+	// Generate a proper 16-byte (128-bit) random trace ID.
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	return hex.EncodeToString([]byte("pipelogiq_trace_"))
 }

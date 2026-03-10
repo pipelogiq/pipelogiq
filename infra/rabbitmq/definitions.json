@@ -1,0 +1,36 @@
+{
+  "vhosts": [
+    {
+      "name": "/dev"
+    },
+    {
+      "name": "/test"
+    },
+    {
+      "name": "/prod"
+    }
+  ],
+  "permissions": [
+    {
+      "user": "guest",
+      "vhost": "/dev",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "guest",
+      "vhost": "/test",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    },
+    {
+      "user": "guest",
+      "vhost": "/prod",
+      "configure": ".*",
+      "write": ".*",
+      "read": ".*"
+    }
+  ]
+}
