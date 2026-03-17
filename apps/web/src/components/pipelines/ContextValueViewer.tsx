@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Braces, Check, Copy, Eye, Type } from "lucide-react";
+import { Check, Copy } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -36,18 +36,19 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
     return () => window.clearTimeout(timeoutId);
   }, [copied]);
 
-  useEffect(() => {
-    if (!open) {
-      setShowRaw(false);
-    }
-  }, [open]);
-
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(item.value);
       setCopied(true);
     } catch {
       setCopied(false);
+    }
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setShowRaw(false);
     }
   };
 
@@ -81,7 +82,7 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
         </Button>
       </div>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-5xl gap-0 overflow-hidden p-0">
           <DialogHeader className="border-b border-slate-200 bg-slate-50 px-6 py-5">
             <div className="flex items-start justify-between gap-4 pr-8">

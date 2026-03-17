@@ -1,14 +1,14 @@
 package types
 
 const (
-	StageStatusNotStarted     = "NotStarted"
-	StageStatusRunning        = "Running"
-	StageStatusPending        = "Pending"
-	StageStatusRetryScheduled = "RetryScheduled"
+	StageStatusNotStarted      = "NotStarted"
+	StageStatusRunning         = "Running"
+	StageStatusPending         = "Pending"
+	StageStatusRetryScheduled  = "RetryScheduled"
 	StageStatusWaitingApproval = "WaitingForApproval"
-	StageStatusCompleted      = "Completed"
-	StageStatusFailed         = "Failed"
-	StageStatusSkipped        = "Skipped"
+	StageStatusCompleted       = "Completed"
+	StageStatusFailed          = "Failed"
+	StageStatusSkipped         = "Skipped"
 )
 
 const (
