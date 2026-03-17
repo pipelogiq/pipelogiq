@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { UIStatus } from "@/types/api";
+import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
 
 export interface PipelineAction {
   id: string;
@@ -27,6 +28,7 @@ export interface PipelineAction {
 export interface PipelineContext {
   key: string;
   value: string;
+  valueType?: string;
 }
 
 export interface PipelineExecution {
@@ -265,8 +267,8 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
                     <td className="px-4 py-2.5 font-mono text-sm text-foreground">
                       {ctx.key}
                     </td>
-                    <td className="px-4 py-2.5 font-mono text-sm text-muted-foreground break-all">
-                      {ctx.value}
+                    <td className="px-4 py-2.5 align-top">
+                      <ContextValueViewer item={ctx} />
                     </td>
                   </tr>
                 ))}

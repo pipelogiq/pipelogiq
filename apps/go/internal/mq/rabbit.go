@@ -40,8 +40,9 @@ type Client struct {
 	url    string
 	logger *slog.Logger
 
-	mu   sync.Mutex
-	conn *amqp.Connection
+	mu             sync.Mutex
+	conn           *amqp.Connection
+	topologyBypass sync.Map
 }
 
 func NewClient(url string, logger *slog.Logger) *Client {
@@ -74,23 +75,12 @@ func (c *Client) PublishWithRetry(ctx context.Context, queue string, body []byte
 	exp.MaxElapsedTime = 0 // never stop until ctx done
 
 	pub := func() error {
-		ch, err := c.channel(ctx)
+		ch, err := c.channelForQueue(ctx, queue, opts)
 		if err != nil {
 			span.RecordError(err)
 			return err
 		}
 		defer ch.Close()
-
-		if err := declareQueue(ch, queue, opts); err != nil {
-			if isPreconditionFailed(err) {
-				err = newQueueTopologyMismatchError(queue, err)
-				c.logger.Error("rabbitmq: queue topology mismatch, stopping publisher", "queue", queue, "err", err)
-				span.RecordError(err)
-				return backoff.Permanent(err)
-			}
-			span.RecordError(err)
-			return err
-		}
 
 		ct := opts.ContentType
 		if ct == "" {
@@ -99,16 +89,14 @@ func (c *Client) PublishWithRetry(ctx context.Context, queue string, body []byte
 		msgHeaders := telemetry.CloneAMQPTable(headers)
 		msgHeaders = telemetry.InjectAMQPContext(ctx, msgHeaders)
 
-		msg := amqp.Publishing{
+		if err := publishMessage(ctx, ch, queue, amqp.Publishing{
 			Body:         body,
 			ContentType:  ct,
 			Headers:      msgHeaders,
 			MessageId:    uuid.NewString(),
 			Timestamp:    time.Now().UTC(),
 			DeliveryMode: amqp.Persistent,
-		}
-
-		if err := ch.PublishWithContext(ctx, "", queue, false, false, msg); err != nil {
+		}); err != nil {
 			span.RecordError(err)
 			return err
 		}
@@ -138,21 +126,9 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 			return ctx.Err()
 		}
 
-		ch, err := c.channel(ctx)
+		ch, err := c.channelForQueue(ctx, queue, opts.QueueOptions)
 		if err != nil {
 			c.logger.Error("rabbitmq: failed to open channel", "err", err)
-			time.Sleep(time.Second)
-			continue
-		}
-
-		if err := declareQueue(ch, queue, opts.QueueOptions); err != nil {
-			ch.Close()
-			if isPreconditionFailed(err) {
-				err = newQueueTopologyMismatchError(queue, err)
-				c.logger.Error("rabbitmq: queue topology mismatch, stopping consumer", "queue", queue, "err", err)
-				return err
-			}
-			c.logger.Error("rabbitmq: declare queue failed", "queue", queue, "err", err)
 			time.Sleep(time.Second)
 			continue
 		}
@@ -210,7 +186,12 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 					span.SetStatus(codes.Error, err.Error())
 					c.logger.Error("rabbitmq: handler error", "queue", queue, "err", err)
 					if opts.DeadLetterOnFail {
-						_ = d.Nack(false, false)
+						if retryErr := c.publishDeliveryToRetryQueue(hctx, ch, queue, d, opts.QueueOptions); retryErr != nil {
+							c.logger.Error("rabbitmq: retry publish failed", "queue", queue, "err", retryErr)
+							_ = d.Nack(false, true)
+						} else {
+							_ = d.Ack(false)
+						}
 					} else {
 						_ = d.Nack(false, true)
 					}
@@ -266,18 +247,8 @@ func (c *Client) Get(ctx context.Context, queue string, opts QueueOptions) (*Get
 	)
 	defer span.End()
 
-	ch, err := c.channel(ctx)
+	ch, err := c.channelForQueue(ctx, queue, opts)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
-		return nil, err
-	}
-
-	if err := declareQueue(ch, queue, opts); err != nil {
-		ch.Close()
-		if isPreconditionFailed(err) {
-			err = newQueueTopologyMismatchError(queue, err)
-		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
 		return nil, err
@@ -366,6 +337,74 @@ func (c *Client) connection(ctx context.Context) (*amqp.Connection, error) {
 	c.conn = conn
 	c.logger.Info("connected to rabbitmq")
 	return conn, nil
+}
+
+func (c *Client) channelForQueue(ctx context.Context, queue string, opts QueueOptions) (*amqp.Channel, error) {
+	ch, err := c.channel(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if c.shouldBypassTopology(queue) {
+		if err := inspectQueueTopology(ch, queue, opts); err == nil {
+			return ch, nil
+		} else {
+			ch.Close()
+			if !isNotFound(err) {
+				return nil, err
+			}
+			c.clearTopologyBypass(queue)
+
+			ch, err = c.channel(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if err := declareQueue(ch, queue, opts); err != nil {
+		ch.Close()
+		if !isPreconditionFailed(err) {
+			return nil, err
+		}
+		c.rememberTopologyBypass(queue, err)
+		ch, err = c.channel(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if err := inspectQueueTopology(ch, queue, opts); err != nil {
+			ch.Close()
+			return nil, err
+		}
+		return ch, nil
+	}
+	return ch, nil
+}
+
+func (c *Client) publishDeliveryToRetryQueue(
+	ctx context.Context,
+	ch *amqp.Channel,
+	queue string,
+	d amqp.Delivery,
+	opts QueueOptions,
+) error {
+	if !opts.DLQEnabled {
+		return errors.New("retry queue is disabled")
+	}
+
+	headers := telemetry.CloneAMQPTable(d.Headers)
+	headers = telemetry.InjectAMQPContext(ctx, headers)
+
+	return publishMessage(ctx, ch, retryQueueName(queue), amqp.Publishing{
+		Body:         d.Body,
+		ContentType:  firstNonEmpty(d.ContentType, opts.ContentType, "application/json"),
+		Headers:      headers,
+		MessageId:    firstNonEmpty(d.MessageId, uuid.NewString()),
+		Timestamp:    time.Now().UTC(),
+		DeliveryMode: amqp.Persistent,
+	})
+}
+
+func publishMessage(ctx context.Context, ch *amqp.Channel, queue string, msg amqp.Publishing) error {
+	return ch.PublishWithContext(ctx, "", queue, false, false, msg)
 }
 
 // PublishToExchange publishes a message to a fanout exchange.
@@ -490,30 +529,12 @@ func (c *Client) SubscribeFanout(ctx context.Context, exchange string, handler f
 }
 
 func declareQueue(ch *amqp.Channel, name string, opts QueueOptions) error {
-	args := amqp.Table{}
 	if opts.DLQEnabled {
-		dlx := name + ".dlx"
-		dlq := name + ".dlq"
-		args["x-dead-letter-exchange"] = dlx
-		// declare DLX and DLQ first
-		if err := ch.ExchangeDeclare(dlx, "direct", true, false, false, false, nil); err != nil {
-			return err
-		}
-
-		dlqArgs := amqp.Table{}
-		if opts.DLQTTL > 0 {
-			dlqArgs["x-message-ttl"] = int64(opts.DLQTTL / time.Millisecond)
-			dlqArgs["x-dead-letter-exchange"] = ""
-			dlqArgs["x-dead-letter-routing-key"] = name
-		}
-		if err := declareRawQueue(ch, dlq, opts.Durable, opts.AutoDelete, dlqArgs); err != nil {
-			return err
-		}
-		if err := ch.QueueBind(dlq, name, dlx, false, nil); err != nil {
+		if err := declareRawQueue(ch, retryQueueName(name), opts.Durable, opts.AutoDelete, retryQueueArgs(name, opts.DLQTTL)); err != nil {
 			return err
 		}
 	}
-	return declareRawQueue(ch, name, opts.Durable, opts.AutoDelete, args)
+	return declareRawQueue(ch, name, opts.Durable, opts.AutoDelete, nil)
 }
 
 func declareRawQueue(ch *amqp.Channel, name string, durable, autoDelete bool, args amqp.Table) error {
@@ -521,31 +542,64 @@ func declareRawQueue(ch *amqp.Channel, name string, durable, autoDelete bool, ar
 	return err
 }
 
+func inspectQueueTopology(ch *amqp.Channel, name string, opts QueueOptions) error {
+	if _, err := ch.QueueInspect(name); err != nil {
+		return err
+	}
+	if opts.DLQEnabled {
+		if _, err := ch.QueueInspect(retryQueueName(name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func retryQueueName(name string) string {
+	return name + ".dlq"
+}
+
+func retryQueueArgs(name string, ttl time.Duration) amqp.Table {
+	if ttl <= 0 {
+		return nil
+	}
+	return amqp.Table{
+		"x-message-ttl":             int64(ttl / time.Millisecond),
+		"x-dead-letter-exchange":    "",
+		"x-dead-letter-routing-key": name,
+	}
+}
+
 func isPreconditionFailed(err error) bool {
 	var amqpErr *amqp.Error
 	return errors.As(err, &amqpErr) && amqpErr.Code == amqp.PreconditionFailed
 }
 
-type queueTopologyMismatchError struct {
-	queue string
-	err   error
+func isNotFound(err error) bool {
+	var amqpErr *amqp.Error
+	return errors.As(err, &amqpErr) && amqpErr.Code == amqp.NotFound
 }
 
-func (e *queueTopologyMismatchError) Error() string {
-	return fmt.Sprintf(
-		"rabbitmq queue topology mismatch for %q: %v (existing queue args differ; align publisher/consumer args or migrate queue explicitly)",
-		e.queue,
-		e.err,
-	)
+func (c *Client) shouldBypassTopology(queue string) bool {
+	_, ok := c.topologyBypass.Load(queue)
+	return ok
 }
 
-func (e *queueTopologyMismatchError) Unwrap() error {
-	return e.err
-}
-
-func newQueueTopologyMismatchError(queue string, err error) error {
-	return &queueTopologyMismatchError{
-		queue: queue,
-		err:   err,
+func (c *Client) rememberTopologyBypass(queue string, err error) {
+	if _, loaded := c.topologyBypass.LoadOrStore(queue, struct{}{}); loaded {
+		return
 	}
+	c.logger.Warn("rabbitmq: queue topology differs, using existing queue", "queue", queue, "err", err)
+}
+
+func (c *Client) clearTopologyBypass(queue string) {
+	c.topologyBypass.Delete(queue)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }

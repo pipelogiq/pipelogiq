@@ -70,6 +70,30 @@ type StageResponse struct {
 	Options          *StageOptions `json:"options,omitempty"`
 }
 
+type AppendStagesRequest struct {
+	Stages []StageCreate `json:"stages"`
+}
+
+type AppendStagesResponse struct {
+	Stages []StageDTO `json:"stages"`
+}
+
+type StageDTO struct {
+	ID                     int        `json:"id"`
+	PipelineID             int        `json:"pipelineId"`
+	Name                   string     `json:"name"`
+	StageHandlerName       string     `json:"stageHandlerName"`
+	Status                 string     `json:"status"`
+	CreatedAt              time.Time  `json:"createdAt"`
+	Input                  string     `json:"input,omitempty"`
+	NextStageID            *int       `json:"nextStageId,omitempty"`
+	IsSkipped              bool       `json:"isSkipped"`
+	IsEvent                bool       `json:"isEvent"`
+	RunNextIfCurrentFailed bool       `json:"runNextIfCurrentFailed"`
+	FinishedAt             *time.Time `json:"finishedAt,omitempty"`
+	StartedAt              *time.Time `json:"startedAt,omitempty"`
+}
+
 type StageLog struct {
 	ID        int       `json:"id,omitempty" db:"id"`
 	StageID   int       `json:"stageId,omitempty" db:"stage_id"`
@@ -109,6 +133,11 @@ type RerunStageRequest struct {
 
 type SkipStageRequest struct {
 	StageID int `json:"stageId"`
+}
+
+type ResumeStageRequest struct {
+	Approved        bool    `json:"approved"`
+	RejectionReason *string `json:"rejectionReason,omitempty"`
 }
 
 // Auth types

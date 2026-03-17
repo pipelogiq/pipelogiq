@@ -5,6 +5,7 @@ const (
 	StageStatusRunning        = "Running"
 	StageStatusPending        = "Pending"
 	StageStatusRetryScheduled = "RetryScheduled"
+	StageStatusWaitingApproval = "WaitingForApproval"
 	StageStatusCompleted      = "Completed"
 	StageStatusFailed         = "Failed"
 	StageStatusSkipped        = "Skipped"
@@ -15,6 +16,7 @@ const (
 	PipelineStatusRunning    = "Running"
 	PipelineStatusCompleted  = "Completed"
 	PipelineStatusFailed     = "Failed"
+	PipelineStatusCancelled  = "Cancelled"
 )
 
 const (

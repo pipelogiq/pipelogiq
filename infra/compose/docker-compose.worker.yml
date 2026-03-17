@@ -21,7 +21,8 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1s}
-      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-5m}
+      STAGE_ACTIVE_TIMEOUT: ${STAGE_ACTIVE_TIMEOUT:-}
+      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-}
       RABBIT_PREFETCH: ${RABBIT_PREFETCH:-5}
       RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
       RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}

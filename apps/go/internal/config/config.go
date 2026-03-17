@@ -48,7 +48,7 @@ type APIConfig struct {
 type WorkerConfig struct {
 	Common
 	PollInterval           time.Duration
-	StagePendingTimeout    time.Duration
+	StageActiveTimeout     time.Duration
 	Prefetch               int
 	QueueTopologyOwnership string
 	QueueDLQEnabled        bool
@@ -91,7 +91,7 @@ func LoadWorker() (WorkerConfig, error) {
 	cfg := WorkerConfig{
 		Common:                 common,
 		PollInterval:           getDuration("WORKER_POLL_INTERVAL", time.Second),
-		StagePendingTimeout:    getDuration("STAGE_PENDING_TIMEOUT", 5*time.Minute),
+		StageActiveTimeout:     getDurationCompat(5*time.Minute, "STAGE_ACTIVE_TIMEOUT", "STAGE_PENDING_TIMEOUT"),
 		Prefetch:               getInt("RABBIT_PREFETCH", 5),
 		QueueTopologyOwnership: getTopologyOwnership("RABBIT_TOPOLOGY_OWNERSHIP", TopologyOwnershipServer),
 		QueueDLQEnabled:        getBool("RABBIT_DLQ_ENABLED", true),
@@ -132,7 +132,7 @@ func loadCommon() (Common, error) {
 		dbURL = defaultDevDatabaseURL
 	}
 	if rabbitURL == "" {
-		rabbitURL = "amqp://guest:guest@rabbitmq:5672/%2Fdev"
+		rabbitURL = "amqp://guest:guest@rabbitmq:5672/"
 	}
 
 	logLevel := strings.ToLower(getEnv("LOG_LEVEL", "info"))
@@ -179,6 +179,17 @@ func getDuration(key string, def time.Duration) time.Duration {
 	if val := os.Getenv(key); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			return d
+		}
+	}
+	return def
+}
+
+func getDurationCompat(def time.Duration, keys ...string) time.Duration {
+	for _, key := range keys {
+		if val := os.Getenv(key); val != "" {
+			if d, err := time.ParseDuration(val); err == nil {
+				return d
+			}
 		}
 	}
 	return def

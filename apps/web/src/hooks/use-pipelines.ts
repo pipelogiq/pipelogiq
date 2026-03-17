@@ -160,6 +160,7 @@ export function mapPipelineToExecution(
     context: pipeline.pipelineContextItems?.map(ctx => ({
       key: ctx.key,
       value: ctx.value,
+      valueType: ctx.valueType,
     })) || [],
     actions: stages.map(mapStageToAction),
     stages: stages.map(s => ({

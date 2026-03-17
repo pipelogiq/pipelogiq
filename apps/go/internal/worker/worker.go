@@ -29,11 +29,12 @@ type Worker struct {
 }
 
 type workerMetrics struct {
-	stagePublished       prometheus.Counter
-	stageResultProcessed prometheus.Counter
-	stageResultFailed    prometheus.Counter
-	stageStatusUpdated   prometheus.Counter
-	pendingMarkedFailed  prometheus.Counter
+	stagePublished                prometheus.Counter
+	stageResultProcessed          prometheus.Counter
+	stageResultFailed             prometheus.Counter
+	stageStatusUpdated            prometheus.Counter
+	activeStageTimedOut           prometheus.Counter
+	pendingMarkedFailedDeprecated prometheus.Counter
 }
 
 func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Worker {
@@ -54,9 +55,13 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 			Name: "stage_status_updated_total",
 			Help: "Number of stage status set messages processed",
 		}),
-		pendingMarkedFailed: prometheus.NewCounter(prometheus.CounterOpts{
+		activeStageTimedOut: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "stage_active_timed_out_total",
+			Help: "Number of active stages marked as failed due to timeout",
+		}),
+		pendingMarkedFailedDeprecated: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "pending_marked_failed_total",
-			Help: "Number of pending stages marked as failed due to timeout",
+			Help: "Deprecated alias for stage_active_timed_out_total",
 		}),
 	}
 	prometheus.MustRegister(
@@ -64,7 +69,8 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 		metrics.stageResultProcessed,
 		metrics.stageResultFailed,
 		metrics.stageStatusUpdated,
-		metrics.pendingMarkedFailed,
+		metrics.activeStageTimedOut,
+		metrics.pendingMarkedFailedDeprecated,
 	)
 
 	return &Worker{
@@ -80,7 +86,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	go w.withRecover(ctx, "publisher", w.runPublisher)
 	go w.withRecover(ctx, "stage-result-consumer", w.runStageResultConsumer)
 	go w.withRecover(ctx, "stage-status-consumer", w.runStageStatusConsumer)
-	go w.withRecover(ctx, "pending-watcher", w.runPendingWatcher)
+	go w.withRecover(ctx, "stage-timeout-watcher", w.runStageTimeoutWatcher)
 
 	if w.cfg.MetricsAddr != "" {
 		go w.runMetricsServer(ctx)
@@ -270,22 +276,23 @@ func (w *Worker) runStageStatusConsumer(ctx context.Context) error {
 	return w.mq.Consume(ctx, constants.StageSetStatus, opts, handler)
 }
 
-func (w *Worker) runPendingWatcher(ctx context.Context) error {
-	ticker := time.NewTicker(w.cfg.StagePendingTimeout / 2)
+func (w *Worker) runStageTimeoutWatcher(ctx context.Context) error {
+	ticker := time.NewTicker(w.cfg.StageActiveTimeout / 2)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			affected, err := w.store.MarkPendingTooLong(ctx, w.cfg.StagePendingTimeout)
+			affected, err := w.store.MarkActiveTooLong(ctx, w.cfg.StageActiveTimeout)
 			if err != nil {
-				w.logger.Error("mark pending too long failed", "err", err)
+				w.logger.Error("mark active stages timed out failed", "err", err)
 				continue
 			}
 			if affected > 0 {
-				w.metrics.pendingMarkedFailed.Add(float64(affected))
-				w.logger.Warn("marked pending stages as failed", "count", affected)
+				w.metrics.activeStageTimedOut.Add(float64(affected))
+				w.metrics.pendingMarkedFailedDeprecated.Add(float64(affected))
+				w.logger.Warn("marked timed-out active stages as failed", "count", affected)
 			}
 		}
 	}

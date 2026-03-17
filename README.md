@@ -142,6 +142,7 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 
 - [Quick Start](docs/quickstart.md) — Docker Compose setup, local dev, first pipeline
 - [Architecture](docs/architecture.md) — control plane, data plane, workers, execution flow
+- [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
 - [Observability](docs/observability.md) — trace context, metrics, integration config
 - [Policies](docs/policies.md) — rate limit, retry, timeout, circuit breaker (experimental)
 - [Contributing](CONTRIBUTING.md) — development setup, tests, PR process

@@ -52,6 +52,8 @@ The API server exposes two HTTP servers on separate ports:
 **External API (`:8081`)** — serves SDK clients and external workers. Authentication is API-key based (`X-API-Key` header). Endpoints include:
 
 - `POST /pipelines` — create a pipeline
+- `POST /pipelines/{pipelineId}/stages` — append stages to an existing pipeline
+- `POST /stages/{stageId}/resume` — resume an approval-waiting stage
 - `POST /jobs/pull` — pull the next stage job for a handler
 - `POST /jobs/ack` — acknowledge or reject a stage job
 - `POST /logs` — submit application logs
@@ -67,7 +69,7 @@ The built-in worker runs alongside the app and handles:
 - **Publisher** — polls the database for stages ready to execute and publishes them to RabbitMQ queues
 - **Result consumer** — processes stage results from workers, updates pipeline state, and triggers the next stage
 - **Status consumer** — handles out-of-band stage status updates
-- **Pending watchdog** — marks stages that have been in Pending state too long as Failed
+- **Active-stage timeout watcher** — marks `Pending` or `Running` stages that exceed their timeout as `Failed`
 - **Prometheus metrics** — exposes counters on `:9090`
 
 ### External workers

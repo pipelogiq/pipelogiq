@@ -65,7 +65,8 @@ Both services expose Prometheus-compatible metrics:
 | `stage_result_processed_total` | Counter | Results processed successfully |
 | `stage_result_failed_total` | Counter | Result processing failures |
 | `stage_status_updated_total` | Counter | Status update messages processed |
-| `pending_marked_failed_total` | Counter | Stages timed out in Pending |
+| `stage_active_timed_out_total` | Counter | Active (`Pending` or `Running`) stages timed out and marked `Failed` |
+| `pending_marked_failed_total` | Counter | Deprecated alias for `stage_active_timed_out_total` |
 
 **External API (pipelogiq-app):**
 

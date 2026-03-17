@@ -40,13 +40,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
-      RABBITMQ_DEFAULT_VHOST: /dev
-      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbitmq_management load_definitions /etc/rabbitmq/definitions.json"
     ports:
       - "5672:5672"
       - "15672:15672"
-    volumes:
-      - ../rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     networks:
       - pipelogiq
     healthcheck:
@@ -96,7 +92,7 @@ services:
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
-      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/%2Fdev}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
       HTTP_ADDR: ":8080"
       EXTERNAL_HTTP_ADDR: ":8081"
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -143,9 +139,10 @@ services:
     environment:
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
-      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/%2Fdev}
+      RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
       WORKER_POLL_INTERVAL: ${WORKER_POLL_INTERVAL:-1s}
-      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-5m}
+      STAGE_ACTIVE_TIMEOUT: ${STAGE_ACTIVE_TIMEOUT:-}
+      STAGE_PENDING_TIMEOUT: ${STAGE_PENDING_TIMEOUT:-}
       RABBIT_PREFETCH: ${RABBIT_PREFETCH:-5}
       RABBIT_DLQ_ENABLED: ${RABBIT_DLQ_ENABLED:-true}
       RABBIT_DLQ_TTL: ${RABBIT_DLQ_TTL:-30s}

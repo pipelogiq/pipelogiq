@@ -104,7 +104,7 @@ func (s *Store) ValidateAPIKey(ctx context.Context, key string) (int, error) {
 		FROM api_key
 		WHERE key=$1
 		  AND disabled_at IS NULL
-		  AND (expires_at IS NULL OR expires_at > NOW())
+		  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		LIMIT 1
 	`, key).Scan(&appID)
 	if err != nil {
@@ -402,7 +402,7 @@ func computePipelineStatus(stageStatuses []string) string {
 		case types.StageStatusFailed:
 			hasFailed = true
 			allNotStarted = false
-		case types.StageStatusRunning, types.StageStatusPending, types.StageStatusRetryScheduled:
+		case types.StageStatusRunning, types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusWaitingApproval:
 			hasRunning = true
 			allNotStarted = false
 			allFinished = false
@@ -597,54 +597,152 @@ func (s *Store) getContextItemsTx(ctx context.Context, tx *sqlx.Tx, pipelineID i
 }
 
 func (s *Store) MarkPendingTooLong(ctx context.Context, olderThan time.Duration) (int64, error) {
+	return s.MarkActiveTooLong(ctx, olderThan)
+}
+
+func (s *Store) MarkActiveTooLong(ctx context.Context, olderThan time.Duration) (int64, error) {
 	rows, err := s.db.QueryxContext(ctx, `
-		SELECT s.id, s.pipeline_id, EXTRACT(EPOCH FROM (NOW() - COALESCE(s.started_at, s.created_at))) AS age_seconds
+		SELECT s.id
 		FROM stage s
 		JOIN pipeline p ON p.id = s.pipeline_id
 		WHERE p.is_completed = false
-		  AND s.status = $1
-		  AND (NOW() - COALESCE(s.started_at, s.created_at)) >= $2::interval
-	`, types.StageStatusPending, olderThan.String())
+		  AND s.status IN ($1, $2)
+	`, types.StageStatusPending, types.StageStatusRunning)
 	if err != nil {
 		return 0, err
 	}
 	defer rows.Close()
 
-	var count int64
+	stageIDs := make([]int, 0, 32)
 	for rows.Next() {
-		var stageID, pipelineID int
-		var ageSeconds float64
-		if err := rows.Scan(&stageID, &pipelineID, &ageSeconds); err != nil {
+		var stageID int
+		if err := rows.Scan(&stageID); err != nil {
+			return 0, err
+		}
+		stageIDs = append(stageIDs, stageID)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var count int64
+	for _, stageID := range stageIDs {
+		timedOut, err := s.failActiveStageIfTimedOut(ctx, stageID, olderThan)
+		if err != nil {
 			return count, err
 		}
-		msg := fmt.Sprintf("Stage has been pending for too long - %.0f seconds", ageSeconds)
-		tx, errTx := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
-		if errTx != nil {
-			return count, errTx
+		if timedOut {
+			count++
 		}
-		_, errTx = tx.ExecContext(ctx, `
-				UPDATE stage SET status=$1, finished_at=NOW(), next_retry_at=NULL WHERE id=$2
-			`, types.StageStatusFailed, stageID)
-		if errTx == nil {
-			_, errTx = tx.ExecContext(ctx, `UPDATE pipeline SET is_completed=true, status=$2 WHERE id=$1`, pipelineID, types.PipelineStatusFailed)
-		}
-		if errTx == nil {
-			_, errTx = tx.ExecContext(ctx, `
-				UPDATE stage_io SET output=$1 WHERE stage_id=$2
-			`, msg, stageID)
-		}
-		if errTx != nil {
-			_ = tx.Rollback()
-			return count, errTx
-		}
-		if errTx = tx.Commit(); errTx != nil {
-			return count, errTx
-		}
-		s.LogStageChange(ctx, pipelineID, stageID, types.StageStatusPending, types.StageStatusFailed, "pending_watcher")
-		count++
 	}
 
 	return count, nil
+}
+
+func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fallbackTimeout time.Duration) (bool, error) {
+	if fallbackTimeout <= 0 {
+		fallbackTimeout = 5 * time.Minute
+	}
+
+	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var stage struct {
+		PipelineID       int           `db:"pipeline_id"`
+		Status           string        `db:"status"`
+		CreatedAt        time.Time     `db:"created_at"`
+		StartedAt        sql.NullTime  `db:"started_at"`
+		TimeoutSeconds   sql.NullInt64 `db:"time_out"`
+		PipelineComplete bool          `db:"is_completed"`
+	}
+
+	lockQuery := fmt.Sprintf(`
+		SELECT
+			s.pipeline_id,
+			s.status,
+			s.created_at,
+			s.started_at,
+			so.time_out,
+			p.is_completed
+		FROM stage s
+		JOIN pipeline p ON p.id = s.pipeline_id
+		LEFT JOIN stage_options so ON so.stage_id = s.id
+		WHERE s.id = $1
+		ORDER BY so.id DESC NULLS LAST
+		LIMIT 1%s
+	`, s.forUpdateClause())
+	if err = tx.GetContext(ctx, &stage, lockQuery, stageID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			err = tx.Commit()
+			return false, err
+		}
+		return false, err
+	}
+
+	if stage.PipelineComplete || !isWatchedActiveStageStatus(stage.Status) {
+		if err = tx.Commit(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	startedAt := stage.CreatedAt.UTC()
+	if stage.StartedAt.Valid {
+		startedAt = stage.StartedAt.Time.UTC()
+	}
+
+	effectiveTimeout := fallbackTimeout
+	if stage.TimeoutSeconds.Valid && stage.TimeoutSeconds.Int64 > 0 {
+		effectiveTimeout = time.Duration(stage.TimeoutSeconds.Int64) * time.Second
+	}
+
+	age := time.Now().UTC().Sub(startedAt)
+	if age < effectiveTimeout {
+		if err = tx.Commit(); err != nil {
+			return false, err
+		}
+		return false, nil
+	}
+
+	msg := fmt.Sprintf("Stage has been %s for too long - %.0f seconds", strings.ToLower(strings.TrimSpace(stage.Status)), age.Seconds())
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE stage SET status=$1, finished_at=CURRENT_TIMESTAMP, next_retry_at=NULL WHERE id=$2
+	`, types.StageStatusFailed, stageID); err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE pipeline SET is_completed=true, finished_at=CURRENT_TIMESTAMP, status=$2 WHERE id=$1
+	`, stage.PipelineID, types.PipelineStatusFailed); err != nil {
+		return false, err
+	}
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE stage_io SET output=$1 WHERE stage_id=$2
+	`, msg, stageID); err != nil {
+		return false, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return false, err
+	}
+
+	s.LogStageChange(ctx, stage.PipelineID, stageID, stage.Status, types.StageStatusFailed, "stage_timeout_watcher")
+	return true, nil
+}
+
+func isWatchedActiveStageStatus(status string) bool {
+	switch status {
+	case types.StageStatusPending, types.StageStatusRunning:
+		return true
+	default:
+		return false
+	}
 }
 
 // UpdateStageResult persists stage result and returns updated pipeline snapshot.

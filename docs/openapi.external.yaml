@@ -1,0 +1,268 @@
+openapi: 3.0.3
+info:
+  title: Pipelogiq External API
+  version: "0.4.0"
+  description: External API used by SDK clients and workers.
+servers:
+  - url: http://localhost:8081
+security:
+  - ApiKeyAuth: []
+paths:
+  /pipelines/{pipelineId}/stages:
+    post:
+      summary: Append stages to an existing pipeline
+      operationId: appendPipelineStages
+      tags:
+        - Pipelines
+      parameters:
+        - name: pipelineId
+          in: path
+          required: true
+          description: Pipeline ID (> 0)
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppendStagesRequest"
+            examples:
+              appendStages:
+                value:
+                  stages:
+                    - stageName: agent.tool
+                      stageHandlerName: AgentToolHandler
+                      input: '{"toolName":"getOrder","args":{"id":"42"}}'
+                      options:
+                        runNextIfFailed: false
+                        maxRetries: 0
+                      isEvent: false
+      responses:
+        "200":
+          description: Stages appended
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppendStagesResponse"
+              examples:
+                appended:
+                  value:
+                    stages:
+                      - id: 9021
+                        pipelineId: 1307
+                        name: agent.tool
+                        stageHandlerName: AgentToolHandler
+                        status: NotStarted
+                        createdAt: "2026-03-10T10:14:05Z"
+                        input: '{"toolName":"getOrder","args":{"id":"42"}}'
+                        nextStageId: null
+                        isSkipped: false
+                        isEvent: false
+                        runNextIfCurrentFailed: false
+        "400":
+          description: Validation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Pipeline not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Pipeline is terminal, append is not allowed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+  /stages/{stageId}/resume:
+    post:
+      summary: Resume a stage waiting for external approval
+      operationId: resumeStageApproval
+      tags:
+        - Stages
+      parameters:
+        - name: stageId
+          in: path
+          required: true
+          description: Stage ID (> 0)
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeStageRequest"
+            examples:
+              approved:
+                value:
+                  approved: true
+              rejected:
+                value:
+                  approved: false
+                  rejectionReason: User rejected payment mutation
+      responses:
+        "204":
+          description: Stage resumed
+        "400":
+          description: Validation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Stage not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: Stage not waiting for approval or conflicting repeated decision
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  schemas:
+    AppendStagesRequest:
+      type: object
+      required:
+        - stages
+      properties:
+        stages:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/StageInfo"
+    AppendStagesResponse:
+      type: object
+      required:
+        - stages
+      properties:
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageDto"
+    StageInfo:
+      type: object
+      required:
+        - stageName
+        - stageHandlerName
+      properties:
+        stageId:
+          type: integer
+          nullable: true
+          description: Compatibility field from SDK, ignored by server.
+        pipelineId:
+          type: integer
+          nullable: true
+          description: Compatibility field from SDK, ignored by server.
+        stageName:
+          type: string
+        stageHandlerName:
+          type: string
+        description:
+          type: string
+        input:
+          type: string
+          description: JSON-serialized input payload
+        options:
+          $ref: "#/components/schemas/StageOptions"
+        isEvent:
+          type: boolean
+        runNextIfFailed:
+          type: boolean
+    StageOptions:
+      type: object
+      properties:
+        runNextIfFailed:
+          type: boolean
+        retryInterval:
+          type: integer
+          minimum: 0
+        maxRetries:
+          type: integer
+          minimum: 0
+        timeOut:
+          type: integer
+          minimum: 1
+    StageDto:
+      type: object
+      required:
+        - id
+        - pipelineId
+        - name
+        - stageHandlerName
+        - status
+        - createdAt
+        - isSkipped
+        - isEvent
+        - runNextIfCurrentFailed
+      properties:
+        id:
+          type: integer
+        pipelineId:
+          type: integer
+        name:
+          type: string
+        stageHandlerName:
+          type: string
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        input:
+          type: string
+        nextStageId:
+          type: integer
+          nullable: true
+        isSkipped:
+          type: boolean
+        isEvent:
+          type: boolean
+        runNextIfCurrentFailed:
+          type: boolean
+    ResumeStageRequest:
+      type: object
+      required:
+        - approved
+      properties:
+        approved:
+          type: boolean
+        rejectionReason:
+          type: string
+          nullable: true
+    ProblemDetails:
+      type: object
+      required:
+        - title
+        - status
+      properties:
+        type:
+          type: string
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        traceId:
+          type: string
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string

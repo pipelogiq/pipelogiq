@@ -980,4 +980,28 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="add stage approval resume columns" author="Codex">
+        <addColumn tableName="stage">
+            <column name="approval_decision" type="boolean">
+                <constraints nullable="true"/>
+            </column>
+            <column name="approval_rejection_reason" type="text">
+                <constraints nullable="true"/>
+            </column>
+            <column name="approval_resumed_at" type="timestamp">
+                <constraints nullable="true"/>
+            </column>
+            <column name="approval_resumed_by" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="make pipeline context value type text" author="Codex">
+        <modifyDataType
+                tableName="pipeline_context_item"
+                columnName="value_type"
+                newDataType="text"/>
+    </changeSet>
+
 </databaseChangeLog>

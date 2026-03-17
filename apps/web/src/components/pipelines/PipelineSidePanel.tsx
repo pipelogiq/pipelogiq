@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import { usePipeline, useRerunStage, useSkipStage } from "@/hooks/use-pipelines";
 import { Button } from "@/components/ui/button";
+import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
 
 interface PipelineSidePanelProps {
   pipelineId: number;
@@ -263,11 +264,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                   <tbody>
                     {pipeline.context.map((ctx, index) => (
                       <tr key={index} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                        <td className="px-4 py-3 font-mono font-bold text-slate-900">
+                        <td className="px-4 py-3 align-top font-mono font-bold text-slate-900">
                           {ctx.key}
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-700 break-all">
-                          {ctx.value}
+                        <td className="px-4 py-3 align-top">
+                          <ContextValueViewer item={ctx} />
                         </td>
                       </tr>
                     ))}
