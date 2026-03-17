@@ -165,6 +165,17 @@ func (s *Store) ResumeStageApproval(
 	req types.ResumeStageRequest,
 	actor string,
 ) error {
+	return s.withSQLiteLockRetry(ctx, func() error {
+		return s.resumeStageApprovalOnce(ctx, stageID, req, actor)
+	})
+}
+
+func (s *Store) resumeStageApprovalOnce(
+	ctx context.Context,
+	stageID int,
+	req types.ResumeStageRequest,
+	actor string,
+) error {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return err
@@ -316,6 +327,38 @@ func (s *Store) ResumeStageApproval(
 	return nil
 }
 
+func (s *Store) withSQLiteLockRetry(ctx context.Context, operation func() error) error {
+	if !s.isSQLiteDriver() {
+		return operation()
+	}
+
+	var err error
+	backoff := 10 * time.Millisecond
+	for attempt := 0; attempt < 5; attempt++ {
+		err = operation()
+		if !isSQLiteLockError(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+
+		if backoff < 100*time.Millisecond {
+			backoff *= 2
+		}
+	}
+
+	return err
+}
+
 func (s *Store) insertStageAuditTx(ctx context.Context, tx *sqlx.Tx, stageID int, message string) error {
 	if strings.TrimSpace(message) == "" {
 		return nil
@@ -329,11 +372,28 @@ func (s *Store) insertStageAuditTx(ctx context.Context, tx *sqlx.Tx, stageID int
 }
 
 func (s *Store) forUpdateClause() string {
-	driver := strings.ToLower(strings.TrimSpace(s.db.DriverName()))
-	if strings.Contains(driver, "sqlite") {
+	if s.isSQLiteDriver() {
 		return ""
 	}
 	return " FOR UPDATE"
+}
+
+func (s *Store) isSQLiteDriver() bool {
+	driver := strings.ToLower(strings.TrimSpace(s.db.DriverName()))
+	return strings.Contains(driver, "sqlite")
+}
+
+func isSQLiteLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "database table is locked") ||
+		strings.Contains(message, "database is locked") ||
+		strings.Contains(message, "database is deadlocked") ||
+		strings.Contains(message, "sqlite_busy") ||
+		strings.Contains(message, "sqlite_locked")
 }
 
 func isPipelineTerminalStatus(status string, isCompleted bool) bool {
