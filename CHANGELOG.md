@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.1.0-preview.2] - 2026-03-18
+
+Second preview release focused on external stage control, timeout handling, and RabbitMQ/observability hardening.
+
+### Added
+
+- **External stage control API** — `POST /pipelines/{pipelineId}/stages` appends stages to an existing pipeline; `POST /stages/{stageId}/resume` resumes stages waiting for external approval
+- **External API docs and tests** — OpenAPI coverage plus endpoint and validation tests for the new stage-control flow
+- **Pipeline context search** — pipeline search now matches pipeline context item keys and values
+- **Context value viewer** — dashboard support for inspecting larger or structured pipeline context payloads
+
+### Changed
+
+- **Active timeout handling** — timeout enforcement now covers active stages instead of pending-only flows, while keeping compatibility aliases for existing callers
+- **RabbitMQ topology management** — standardized `/dev`, `/test`, and `/prod` vhosts; added topology ownership configuration and worker bootstrap metadata; improved mismatch handling
+- **Worker dispatch loop** — publishing now supports faster back-to-back stage dispatch when work is available
+- **Trace ID normalization** — pipeline trace IDs are derived from incoming `traceparent` headers when present, otherwise generated as valid W3C trace IDs
+
+### Fixed
+
+- **Observability defaults** — corrected Tempo service references, OTLP endpoint defaults, receiver bindings, and moved Grafana to port `3100` to avoid common local conflicts
+- **Compose wiring** — corrected the worker's Tempo dependency in the registry compose stack
+- **SQLite concurrency** — stage approval resume now retries transient SQLite lock conflicts instead of surfacing deadlock errors
+- **Frontend cleanup** — fixed context viewer lint and formatting issues
+
 ## [0.1.0-preview.1] - 2026-03-03
 
 First public preview release.
@@ -58,3 +83,4 @@ First public preview release.
 - No published SDK; external workers must implement the HTTP protocol directly
 
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
+[0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
