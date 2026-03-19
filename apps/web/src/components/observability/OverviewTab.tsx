@@ -28,10 +28,13 @@ interface OverviewTabProps {
 }
 
 export function OverviewTab({ timeRange }: OverviewTabProps) {
-  const { data: status } = useObservabilityStatus();
-  const { data: insights } = useObservabilityInsights(timeRange);
-  const { data: config } = useObservabilityConfig();
+  const statusQuery = useObservabilityStatus();
+  const insightsQuery = useObservabilityInsights(timeRange);
+  const configQuery = useObservabilityConfig();
   const testMutation = useTestConnection();
+  const status = statusQuery.data;
+  const insights = insightsQuery.data;
+  const config = configQuery.data;
 
   const [otelDialogOpen, setOtelDialogOpen] = useState(false);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
@@ -87,6 +90,20 @@ OTEL_SERVICE_NAME=pipelogiq`;
       default: return "Not configured";
     }
   };
+
+  const loadError =
+    configQuery.error ?? statusQuery.error ?? insightsQuery.error;
+
+  if (loadError) {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+        <p className="font-medium text-destructive">Observability data failed to load</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {loadError instanceof Error ? loadError.message : "Unknown error"}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <TooltipProvider>

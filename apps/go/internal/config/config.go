@@ -31,6 +31,8 @@ type APIConfig struct {
 	Common
 	HTTPAddr                string
 	ExternalHTTPAddr        string
+	JWTSecret               string
+	AllowedOrigins          []string
 	GatewayVisibilityTTL    time.Duration
 	GatewayMaxInFlight      int
 	QueuePrefetch           int
@@ -65,6 +67,8 @@ func LoadAPI() (APIConfig, error) {
 		Common:                  common,
 		HTTPAddr:                getEnv("HTTP_ADDR", ":8080"),
 		ExternalHTTPAddr:        getEnv("EXTERNAL_HTTP_ADDR", ":8081"),
+		JWTSecret:               strings.TrimSpace(os.Getenv("JWT_SECRET")),
+		AllowedOrigins:          getCSVEnv("CORS_ALLOWED_ORIGINS", []string{"http://localhost:3300", "http://127.0.0.1:3300"}),
 		GatewayVisibilityTTL:    getDuration("GATEWAY_VISIBILITY_TIMEOUT", time.Minute),
 		GatewayMaxInFlight:      getInt("GATEWAY_MAX_INFLIGHT", 128),
 		QueuePrefetch:           getInt("RABBIT_PREFETCH", 10),
@@ -77,6 +81,13 @@ func LoadAPI() (APIConfig, error) {
 		WorkerEventsMaxBatch:    getInt("WORKER_EVENTS_MAX_BATCH", 200),
 		HealthLivenessEndpoint:  getEnv("HEALTH_LIVENESS_PATH", "/healthz"),
 		HealthReadyEndpoint:     getEnv("HEALTH_READY_PATH", "/readyz"),
+	}
+
+	if cfg.JWTSecret == "" {
+		return APIConfig{}, errors.New("JWT_SECRET is required")
+	}
+	if len(cfg.JWTSecret) < 32 {
+		return APIConfig{}, errors.New("JWT_SECRET must be at least 32 characters")
 	}
 
 	return cfg, nil
@@ -208,6 +219,26 @@ func getTopologyOwnership(key, def string) string {
 	default:
 		return def
 	}
+}
+
+func getCSVEnv(key string, def []string) []string {
+	val := strings.TrimSpace(os.Getenv(key))
+	if val == "" {
+		return append([]string(nil), def...)
+	}
+
+	parts := strings.Split(val, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	if len(out) == 0 {
+		return append([]string(nil), def...)
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {

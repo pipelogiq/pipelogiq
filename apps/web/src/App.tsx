@@ -34,7 +34,6 @@ const queryClient = new QueryClient({
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <PipelineWebSocketProvider>
     <AuthProvider>
       <TooltipProvider>
         <Toaster />
@@ -45,7 +44,9 @@ const App = () => (
             <Route
               element={
                 <ProtectedRoute>
-                  <AppLayout />
+                  <PipelineWebSocketProvider>
+                    <AppLayout />
+                  </PipelineWebSocketProvider>
                 </ProtectedRoute>
               }
             >
@@ -64,7 +65,6 @@ const App = () => (
         </BrowserRouter>
       </TooltipProvider>
     </AuthProvider>
-    </PipelineWebSocketProvider>
   </QueryClientProvider>
 );
 

@@ -3,8 +3,9 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -16,18 +17,10 @@ const (
 	jwtIssuer      = "Pipelogiq"
 )
 
-var jwtSecret = []byte(getJWTSecret())
-
-func getJWTSecret() string {
-	if secret := os.Getenv("JWT_SECRET"); secret != "" {
-		return secret
-	}
-	return "$2a$12$cDiPJPltt0uAh4ha9Eg5oua3yxqy8481k7foMUhelBl8lKyjwKdJe"
-}
-
 type jwtClaims struct {
 	UserID int    `json:"userId"`
 	Email  string `json:"email"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -63,7 +56,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate JWT
-	token, err := generateJWT(user.ID, user.Email)
+	token, err := generateJWT(s.jwtSecret, user.ID, user.Email, user.Role)
 	if err != nil {
 		s.logger.Error("generate jwt failed", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -115,10 +108,11 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-func generateJWT(userID int, email string) (string, error) {
+func generateJWT(jwtSecret []byte, userID int, email, role string) (string, error) {
 	claims := jwtClaims{
 		UserID: userID,
 		Email:  email,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    jwtIssuer,
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(7 * 24 * time.Hour)),
@@ -130,8 +124,11 @@ func generateJWT(userID int, email string) (string, error) {
 	return token.SignedString(jwtSecret)
 }
 
-func parseJWT(tokenString string) (*jwtClaims, error) {
+func parseJWT(jwtSecret []byte, tokenString string) (*jwtClaims, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtClaims{}, func(token *jwt.Token) (interface{}, error) {
+		if token.Method != jwt.SigningMethodHS256 {
+			return nil, errors.New("unexpected signing method")
+		}
 		return jwtSecret, nil
 	})
 
@@ -155,7 +152,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		claims, err := parseJWT(cookie.Value)
+		claims, err := parseJWT(s.jwtSecret, cookie.Value)
 		if err != nil {
 			// Clear invalid cookie
 			http.SetCookie(w, &http.Cookie{
@@ -169,6 +166,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
+		ctx = context.WithValue(ctx, userRoleKey, normalizeRole(claims.Role))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -178,10 +176,21 @@ func (s *Server) optionalAuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cookie, err := r.Cookie(authCookieName)
 		if err == nil {
-			if claims, err := parseJWT(cookie.Value); err == nil {
+			if claims, err := parseJWT(s.jwtSecret, cookie.Value); err == nil {
 				ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
+				ctx = context.WithValue(ctx, userRoleKey, normalizeRole(claims.Role))
 				r = r.WithContext(ctx)
 			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) requireAdminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isAdminRole(getUserRoleFromContext(r.Context())) {
+			writeJSONError(w, "forbidden", http.StatusForbidden)
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -190,12 +199,33 @@ func (s *Server) optionalAuthMiddleware(next http.Handler) http.Handler {
 type contextKey string
 
 const userIDKey contextKey = "userID"
+const userRoleKey contextKey = "userRole"
 
 func getUserIDFromContext(ctx context.Context) int {
 	if userID, ok := ctx.Value(userIDKey).(int); ok {
 		return userID
 	}
 	return 0
+}
+
+func getUserRoleFromContext(ctx context.Context) string {
+	if role, ok := ctx.Value(userRoleKey).(string); ok {
+		return role
+	}
+	return ""
+}
+
+func normalizeRole(role string) string {
+	return strings.ToLower(strings.TrimSpace(role))
+}
+
+func isAdminRole(role string) bool {
+	switch normalizeRole(role) {
+	case "admin", "administrator", "superadmin":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeJSONError(w http.ResponseWriter, message string, status int) {

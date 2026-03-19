@@ -38,13 +38,17 @@ export function TracesTab({ timeRange }: TracesTabProps) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  const { data: traces, isLoading } = useObservabilityTraces({
+  const tracesQuery = useObservabilityTraces({
     search: search || undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
     timeRange,
   });
 
-  const { data: config } = useObservabilityConfig();
+  const configQuery = useObservabilityConfig();
+  const traces = tracesQuery.data;
+  const config = configQuery.data;
+  const isLoading = tracesQuery.isLoading || configQuery.isLoading;
+  const loadError = tracesQuery.error ?? configQuery.error;
 
   const otelConfig = useMemo(() => {
     const otel = config?.integrations.find(i => i.type === "opentelemetry");
@@ -91,6 +95,13 @@ export function TracesTab({ timeRange }: TracesTabProps) {
           {isLoading ? (
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : loadError ? (
+            <div className="px-6 py-12 text-center">
+              <p className="font-medium text-destructive">Failed to load traces</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {loadError instanceof Error ? loadError.message : "Unknown error"}
+              </p>
             </div>
           ) : (
             <Table>

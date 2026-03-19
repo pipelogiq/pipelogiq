@@ -21,9 +21,12 @@ const localTempoTraceLinkTemplate =
   "http://localhost:3100/explore?orgId=1&left=%7B%22datasource%22:%22Tempo%22,%22queries%22:%5B%7B%22query%22:%22${traceId}%22,%22queryType%22:%22traceql%22%7D%5D%7D";
 
 export function IntegrationsTab() {
-  const { data: config, isLoading } = useObservabilityConfig();
+  const configQuery = useObservabilityConfig();
   const testMutation = useTestConnection();
   const saveMutation = useSaveIntegrationConfig();
+  const config = configQuery.data;
+  const isLoading = configQuery.isLoading;
+  const loadError = configQuery.error;
 
   const [otelDialogOpen, setOtelDialogOpen] = useState(false);
   const [logsDialogOpen, setLogsDialogOpen] = useState(false);
@@ -35,6 +38,17 @@ export function IntegrationsTab() {
     return (
       <div className="flex items-center justify-center py-16">
         <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
+        <p className="font-medium text-destructive">Integrations failed to load</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {loadError instanceof Error ? loadError.message : "Unknown error"}
+        </p>
       </div>
     );
   }

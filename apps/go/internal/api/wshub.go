@@ -9,15 +9,12 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
-
 // Hub manages WebSocket connections and broadcasts messages to all clients.
 type Hub struct {
-	mu      sync.RWMutex
-	clients map[*Client]struct{}
-	logger  *slog.Logger
+	mu       sync.RWMutex
+	clients  map[*Client]struct{}
+	logger   *slog.Logger
+	upgrader websocket.Upgrader
 }
 
 // Client wraps a single WebSocket connection.
@@ -27,10 +24,20 @@ type Client struct {
 	send chan []byte
 }
 
-func NewHub(logger *slog.Logger) *Hub {
+func NewHub(logger *slog.Logger, allowedOrigins []string) *Hub {
+	allowedOriginSet := allowedOriginsMap(allowedOrigins)
 	return &Hub{
 		clients: make(map[*Client]struct{}),
 		logger:  logger,
+		upgrader: websocket.Upgrader{
+			CheckOrigin: func(r *http.Request) bool {
+				origin := r.Header.Get("Origin")
+				if origin == "" {
+					return false
+				}
+				return isAllowedOrigin(allowedOriginSet, origin)
+			},
+		},
 	}
 }
 
@@ -126,7 +133,7 @@ func (c *Client) readPump() {
 
 // ServeWS handles a WebSocket upgrade request.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error("ws: upgrade failed", "err", err)
 		return

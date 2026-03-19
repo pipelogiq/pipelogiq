@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,8 @@ type Server struct {
 	observabilityHandler *observabilityhttp.Handler
 	logger               *slog.Logger
 	server               *http.Server
+	jwtSecret            []byte
+	allowedOrigins       map[string]struct{}
 }
 
 func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Server {
@@ -56,10 +59,12 @@ func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logge
 		cfg:                  cfg,
 		store:                st,
 		mq:                   mqClient,
-		hub:                  NewHub(logger),
+		hub:                  NewHub(logger, cfg.AllowedOrigins),
 		policies:             policiesRepo,
 		observabilityHandler: observabilityHandler,
 		logger:               logger,
+		jwtSecret:            []byte(cfg.JWTSecret),
+		allowedOrigins:       allowedOriginsMap(cfg.AllowedOrigins),
 	}
 }
 
@@ -72,18 +77,13 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
 	router.Use(otelhttp.NewMiddleware("pipelogiq-api-internal"))
-	router.Use(corsMiddleware)
+	router.Use(s.corsMiddleware)
 
 	// Health and version endpoints
 	router.Get(s.cfg.HealthLivenessEndpoint, s.handleHealth)
 	router.Get(s.cfg.HealthReadyEndpoint, s.handleHealth)
 	router.Get("/version", version.HandleVersion)
 	router.Handle("/metrics", promhttp.Handler())
-
-	// WebSocket endpoint (public, no auth)
-	router.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-		s.hub.ServeWS(w, r)
-	})
 
 	// Auth endpoints (public)
 	router.Post("/auth/login", s.handleLogin)
@@ -95,6 +95,9 @@ func (s *Server) Run(ctx context.Context) error {
 
 		// Auth
 		r.Get("/auth/me", s.handleGetCurrentUser)
+		r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+			s.hub.ServeWS(w, r)
+		})
 
 		// Pipeline endpoints
 		r.Get("/pipelines/{id}", s.handleGetPipeline)
@@ -108,29 +111,33 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Get("/pipelines/stages/{pipelineId}", s.handleGetPipelineStagesAlt)
 		r.Get("/pipelines/context/{pipelineId}", s.handleGetPipelineContextAlt)
 
-		// Application endpoints
-		r.Get("/applications", s.handleGetApplications)
-		r.Post("/applications", s.handleSaveApplication)
-
-		// ApiKey endpoints
-		r.Post("/apiKeys", s.handleGenerateApiKey)
-		r.Get("/apiKeys", s.handleGetApiKeys)
-		r.Put("/apiKeys/disable", s.handleDisableApiKey)
-
 		// Keywords
 		r.Get("/keywords", s.handleGetKeywords)
 
-		// Log endpoints
-		r.Get("/logs/{appId}", s.handleGetLogsByAppID)
-		r.Get("/workers", s.handleGetWorkers)
-		r.Get("/workers/events", s.handleGetWorkerEvents)
-		r.Get("/workers/{workerId}/events", s.handleGetWorkerEvents)
+		r.Group(func(admin chi.Router) {
+			admin.Use(s.requireAdminMiddleware)
 
-		// Observability endpoints
-		r.Route("/observability", s.registerObservabilityRoutes)
+			// Application endpoints
+			admin.Get("/applications", s.handleGetApplications)
+			admin.Post("/applications", s.handleSaveApplication)
 
-		// Policy endpoints
-		r.Route("/policies", s.registerPolicyRoutes)
+			// ApiKey endpoints
+			admin.Post("/apiKeys", s.handleGenerateApiKey)
+			admin.Get("/apiKeys", s.handleGetApiKeys)
+			admin.Put("/apiKeys/disable", s.handleDisableApiKey)
+
+			// Operational endpoints
+			admin.Get("/logs/{appId}", s.handleGetLogsByAppID)
+			admin.Get("/workers", s.handleGetWorkers)
+			admin.Get("/workers/events", s.handleGetWorkerEvents)
+			admin.Get("/workers/{workerId}/events", s.handleGetWorkerEvents)
+
+			// Observability endpoints
+			admin.Route("/observability", s.registerObservabilityRoutes)
+
+			// Policy endpoints
+			admin.Route("/policies", s.registerPolicyRoutes)
+		})
 	})
 
 	s.server = &http.Server{
@@ -168,25 +175,58 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			origin = "*"
+func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	return newCORSMiddleware(s.allowedOrigins)(next)
+}
+
+func newCORSMiddleware(allowedOrigins map[string]struct{}) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
+			if origin == "" {
+				if r.Method == http.MethodOptions {
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			if !isAllowedOrigin(allowedOrigins, origin) {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Requested-With")
+			w.Header().Set("Vary", "Origin")
+
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func isAllowedOrigin(allowedOrigins map[string]struct{}, origin string) bool {
+	_, ok := allowedOrigins[strings.TrimSpace(origin)]
+	return ok
+}
+
+func allowedOriginsMap(origins []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(origins))
+	for _, origin := range origins {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed != "" {
+			out[trimmed] = struct{}{}
 		}
-
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Requested-With")
-
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
+	}
+	return out
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {

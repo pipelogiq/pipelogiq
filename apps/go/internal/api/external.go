@@ -127,7 +127,7 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
 	router.Use(otelhttp.NewMiddleware("pipelogiq-api-external"))
-	router.Use(corsMiddleware)
+	router.Use(newCORSMiddleware(allowedOriginsMap(s.cfg.AllowedOrigins)))
 
 	// Health and version
 	router.Get(s.cfg.HealthLivenessEndpoint, func(w http.ResponseWriter, r *http.Request) {
