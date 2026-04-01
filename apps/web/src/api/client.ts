@@ -40,6 +40,7 @@ import type {
   ListPoliciesParams,
   PolicyRange,
   Policy,
+  PolicyEffectiveResolutionResponse,
 } from '@/types/policies';
 
 const API_BASE = '/api';
@@ -272,6 +273,7 @@ export const policiesApi = {
     const searchParams = new URLSearchParams();
 
     if (params?.search) searchParams.set('search', params.search);
+    if (params?.source && params.source !== 'all') searchParams.set('source', params.source);
     if (params?.type && params.type !== 'all') searchParams.set('type', params.type);
     if (params?.status && params.status !== 'all') searchParams.set('status', params.status);
     if (params?.env && params.env !== 'all') searchParams.set('env', params.env);
@@ -333,6 +335,12 @@ export const policiesApi = {
     });
   },
 
+  promote: async (id: string): Promise<Policy> => {
+    return request<Policy>(`/policies/${id}/promote`, {
+      method: 'POST',
+    });
+  },
+
   delete: async (id: string): Promise<void> => {
     await request<void>(`/policies/${id}`, {
       method: 'DELETE',
@@ -356,6 +364,10 @@ export const policiesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  getEffectiveStagePolicies: async (stageId: number): Promise<PolicyEffectiveResolutionResponse> => {
+    return request<PolicyEffectiveResolutionResponse>(`/policies/effective/stages/${stageId}`);
   },
 };
 

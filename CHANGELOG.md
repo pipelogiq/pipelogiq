@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.1.0-preview.3] - 2026-03-19
+
+Third preview release. Policy enforcement is now live at runtime: retry policies with configurable backoff are applied automatically when stages fail, and all policy events are persisted to PostgreSQL.
+
+### Added
+
+- **Policy-based retry enforcement** — retry policies are now evaluated at runtime when a stage fails. `maxAttempts`, `baseDelayMs`, `maxDelayMs`, `backoff` (`fixed`, `linear`, `exponential`), and `jitter` are all applied. Policy retry takes precedence over per-stage `maxRetries`/`retryInterval` options; stage options remain as fallback when no policy matches
+- **`retryOn` error code filtering** — retry policies can declare `retryOn.errorCodes` to retry only on specific failure codes (e.g. `RATE_LIMIT_EXCEEDED`, `TIMEOUT`, `UPSTREAM_ERROR`). Stages that do not match any declared code are marked `Failed` immediately without retrying
+- **`ErrorCode` on stage results** — workers can now report a structured error code alongside the failure message. The .NET SDK exposes `StageResult.RateLimitExceeded(msg)`, `StageResult.Timeout(msg)`, and `StageResult.UpstreamError(msg)` factory helpers, plus a general `StageResult.Error(msg, errorCode)` overload
+- **DB-backed policy runtime** — policies and runtime trigger events are now persisted to PostgreSQL (`policy` and `policy_event` tables). The API server seeds the database from the file store on startup. Both the API and worker now read active policies directly from the database, removing the dependency on a shared policy file at runtime
+- **`source` and `origin` policy columns** — new Liquibase migration adds `source` (`system` / `pipeline_inline`) and `origin` (jsonb) columns to the `policy` table
+- **Policy DB sync** — create, update, delete, duplicate, promote, enable/disable/pause/resume, and inline import operations now sync to the database asynchronously in addition to writing to the file store
+
+### Fixed
+
+- **Worker policy runtime** — the worker binary was creating a new file-backed policy repository on every `RuntimePolicies()` call (because the repo was `nil`). This made it impossible to use policies in a distributed deployment where the worker has no access to the policy file. Both the API and worker now use the DB-backed runtime
+- **Dual repository bug in API** — the API binary previously instantiated two separate `policyRepository` instances (one for the runtime, one for the HTTP server). Changes made through the HTTP handlers were not visible to the runtime. Both now use the same repository instance, plus DB as the durable backend
+
+### Changed
+
+- **Retry delay calculation** — backoff delay is now computed by `computeBackoffDelay()` using the policy rule. The legacy `retryInterval` field on stage options continues to work as a fixed-delay fallback
+
 ## [0.1.0-preview.2] - 2026-03-18
 
 Second preview release focused on external stage control, timeout handling, and RabbitMQ/observability hardening.
@@ -75,9 +97,7 @@ First public preview release.
 
 ### Known Limitations
 
-- Policy enforcement is not implemented at runtime; policies are stored but not applied
 - Stage execution is strictly serial; `depends_on` and `run_in_parallel_with` fields are stored but ignored
-- Per-stage timeout is stored but not enforced
 - RBAC roles are stored but not checked
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly

@@ -33,11 +33,13 @@ import (
 // ExternalServer serves the public API for SDK clients and workers.
 // Routes are authenticated via API key (not JWT).
 type ExternalServer struct {
-	cfg    config.APIConfig
-	store  *store.Store
-	mq     *mq.Client
-	logger *slog.Logger
-	server *http.Server
+	cfg        config.APIConfig
+	store      *store.Store
+	mq         *mq.Client
+	policies   *policyRepository
+	dbPolicies *dbPolicyRepository
+	logger     *slog.Logger
+	server     *http.Server
 
 	pendingMu sync.Mutex
 	pending   map[string]pendingAck
@@ -64,6 +66,16 @@ type externalMetrics struct {
 }
 
 func NewExternalServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *ExternalServer {
+	return NewExternalServerWithPolicies(cfg, st, mqClient, logger, newPolicyRepository(logger))
+}
+
+func NewExternalServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger, policies *policyRepository, dbPoliciesRepo *dbPolicyRepository) *ExternalServer {
+	srv := NewExternalServerWithPolicies(cfg, st, mqClient, logger, policies)
+	srv.dbPolicies = dbPoliciesRepo
+	return srv
+}
+
+func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger, policies *policyRepository) *ExternalServer {
 	metrics := externalMetrics{
 		pipelinesCreated: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "ext_pipeline_created_total",
@@ -110,12 +122,13 @@ func NewExternalServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Clien
 	registerHistogram(&metrics.resumeDurationMs)
 
 	return &ExternalServer{
-		cfg:     cfg,
-		store:   st,
-		mq:      mqClient,
-		logger:  logger,
-		pending: make(map[string]pendingAck),
-		metrics: metrics,
+		cfg:      cfg,
+		store:    st,
+		mq:       mqClient,
+		policies: policies,
+		logger:   logger,
+		pending:  make(map[string]pendingAck),
+		metrics:  metrics,
 	}
 }
 
@@ -191,6 +204,18 @@ func (s *ExternalServer) handleCreatePipeline(w http.ResponseWriter, r *http.Req
 		http.Error(w, "name and stages are required", http.StatusBadRequest)
 		return
 	}
+	if validationErrors := validatePipelineInlinePolicies(req); len(validationErrors) > 0 {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"Pipeline request contains invalid inline policies",
+			validationErrors,
+		)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -206,6 +231,10 @@ func (s *ExternalServer) handleCreatePipeline(w http.ResponseWriter, r *http.Req
 		s.logger.Error("create pipeline failed", "err", err)
 		http.Error(w, "failed to create pipeline", http.StatusInternalServerError)
 		return
+	}
+
+	if err := s.importInlinePoliciesForPipeline(req, pipeline, fmt.Sprintf("application:%d", appID)); err != nil {
+		s.logger.Error("import inline policies failed", "pipelineId", pipeline.ID, "err", err)
 	}
 
 	s.metrics.pipelinesCreated.Inc()
@@ -372,6 +401,9 @@ func (s *ExternalServer) handleAppendPipelineStages(w http.ResponseWriter, r *ht
 	}
 
 	s.logger.Info("append stages succeeded", "pipelineId", pipelineID, "count", len(req.Stages), "actor", fmt.Sprintf("application:%d", appID))
+	if err := s.importInlinePoliciesForAppend(req, result, fmt.Sprintf("application:%d", appID)); err != nil {
+		s.logger.Error("import appended inline policies failed", "pipelineId", pipelineID, "err", err)
+	}
 	statusCode = http.StatusOK
 	writeJSON(w, result, http.StatusOK)
 }
@@ -944,16 +976,17 @@ type appendStagesSDKRequest struct {
 }
 
 type appendStageSDK struct {
-	StageID                *int                `json:"stageId,omitempty"`
-	PipelineID             *int                `json:"pipelineId,omitempty"`
-	StageName              string              `json:"stageName"`
-	StageHandlerName       string              `json:"stageHandlerName"`
-	Description            string              `json:"description,omitempty"`
-	Input                  json.RawMessage     `json:"input,omitempty"`
-	Options                *types.StageOptions `json:"options,omitempty"`
-	IsEvent                *bool               `json:"isEvent,omitempty"`
-	RunNextIfFailed        *bool               `json:"runNextIfFailed,omitempty"`
-	RunNextIfCurrentFailed *bool               `json:"runNextIfCurrentFailed,omitempty"`
+	StageID                *int                 `json:"stageId,omitempty"`
+	PipelineID             *int                 `json:"pipelineId,omitempty"`
+	StageName              string               `json:"stageName"`
+	StageHandlerName       string               `json:"stageHandlerName"`
+	Description            string               `json:"description,omitempty"`
+	Input                  json.RawMessage      `json:"input,omitempty"`
+	Policies               []types.InlinePolicy `json:"policies,omitempty"`
+	Options                *types.StageOptions  `json:"options,omitempty"`
+	IsEvent                *bool                `json:"isEvent,omitempty"`
+	RunNextIfFailed        *bool                `json:"runNextIfFailed,omitempty"`
+	RunNextIfCurrentFailed *bool                `json:"runNextIfCurrentFailed,omitempty"`
 }
 
 func decodeJSONStrict(r *http.Request, target any) error {
@@ -1025,8 +1058,30 @@ func validateAppendStagesRequest(req types.AppendStagesRequest) map[string][]str
 		if stage.Options.TimeOut != nil && *stage.Options.TimeOut <= 0 {
 			result[prefix+".options.timeOut"] = []string{"timeOut must be > 0"}
 		}
+		for policyIdx, policy := range stage.Policies {
+			if err := validateUpsertPolicyRequest(buildPolicyImportRequest(policy, "", stage.Name, stage.StageHandler), true); err != nil {
+				result[fmt.Sprintf("%s.policies[%d]", prefix, policyIdx)] = []string{err.Error()}
+			}
+		}
 	}
 
+	return result
+}
+
+func validatePipelineInlinePolicies(req types.PipelineCreateRequest) map[string][]string {
+	result := make(map[string][]string)
+	for idx, policy := range req.Policies {
+		if err := validateUpsertPolicyRequest(buildPolicyImportRequest(policy, "", "", ""), true); err != nil {
+			result[fmt.Sprintf("policies[%d]", idx)] = []string{err.Error()}
+		}
+	}
+	for idx, stage := range req.Stages {
+		for policyIdx, policy := range stage.Policies {
+			if err := validateUpsertPolicyRequest(buildPolicyImportRequest(policy, "", stage.Name, stage.StageHandler), true); err != nil {
+				result[fmt.Sprintf("stages[%d].policies[%d]", idx, policyIdx)] = []string{err.Error()}
+			}
+		}
+	}
 	return result
 }
 
@@ -1060,6 +1115,7 @@ func mapAppendStagesSDKRequest(raw appendStagesSDKRequest) (types.AppendStagesRe
 			StageHandler:    stage.StageHandlerName,
 			Description:     stage.Description,
 			Input:           input,
+			Policies:        stage.Policies,
 			Options:         stage.Options,
 			IsEvent:         isEvent,
 			RunNextIfFailed: runNextIfFailed,
@@ -1067,6 +1123,147 @@ func mapAppendStagesSDKRequest(raw appendStagesSDKRequest) (types.AppendStagesRe
 	}
 
 	return mapped, nil
+}
+
+func (s *ExternalServer) importInlinePoliciesForPipeline(req types.PipelineCreateRequest, pipeline *types.PipelineResponse, actor string) error {
+	if pipeline == nil {
+		return nil
+	}
+
+	for _, inline := range req.Policies {
+		if err := s.importInlinePolicy(buildPolicyImportRequest(inline, strconv.Itoa(pipeline.ID), "", ""), actor, &types.PolicyOrigin{
+			PipelineID:   &pipeline.ID,
+			ImportedFrom: stringPtr("pipeline.create"),
+		}); err != nil {
+			return err
+		}
+	}
+
+	for _, stageReq := range req.Stages {
+		if len(stageReq.Policies) == 0 {
+			continue
+		}
+		// Match by name instead of index — avoids wrong assignment if stages are reordered.
+		var matched *types.StageResponse
+		for i := range pipeline.Stages {
+			if strings.EqualFold(pipeline.Stages[i].Name, stageReq.Name) {
+				matched = &pipeline.Stages[i]
+				break
+			}
+		}
+		if matched == nil {
+			continue
+		}
+		for _, inline := range stageReq.Policies {
+			stageID := matched.ID
+			stageName := matched.Name
+			handlerName := matched.StageHandlerName
+			if err := s.importInlinePolicy(
+				buildPolicyImportRequest(inline, strconv.Itoa(pipeline.ID), stageName, handlerName),
+				actor,
+				&types.PolicyOrigin{
+					PipelineID:       &pipeline.ID,
+					StageID:          &stageID,
+					StageName:        &stageName,
+					StageHandlerName: &handlerName,
+					ImportedFrom:     stringPtr("pipeline.create"),
+				},
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *ExternalServer) importInlinePoliciesForAppend(req types.AppendStagesRequest, result *types.AppendStagesResponse, actor string) error {
+	if result == nil {
+		return nil
+	}
+
+	for _, stageReq := range req.Stages {
+		if len(stageReq.Policies) == 0 {
+			continue
+		}
+		// Match by name instead of index.
+		var matched *types.StageDTO
+		for i := range result.Stages {
+			if strings.EqualFold(result.Stages[i].Name, stageReq.Name) {
+				matched = &result.Stages[i]
+				break
+			}
+		}
+		if matched == nil {
+			continue
+		}
+		for _, inline := range stageReq.Policies {
+			stageID := matched.ID
+			pipelineID := matched.PipelineID
+			stageName := matched.Name
+			handlerName := matched.StageHandlerName
+			if err := s.importInlinePolicy(
+				buildPolicyImportRequest(inline, strconv.Itoa(matched.PipelineID), stageName, handlerName),
+				actor,
+				&types.PolicyOrigin{
+					PipelineID:       &pipelineID,
+					StageID:          &stageID,
+					StageName:        &stageName,
+					StageHandlerName: &handlerName,
+					ImportedFrom:     stringPtr("pipeline.append"),
+				},
+			); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *ExternalServer) importInlinePolicy(req upsertPolicyRequest, actor string, origin *types.PolicyOrigin) error {
+	// Validation already happened at the request level — no need to re-validate here.
+	policy, err := s.policies.importInline(req, actor, origin)
+	if err != nil {
+		return err
+	}
+	if s.dbPolicies != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if syncErr := s.dbPolicies.upsert(ctx, policy); syncErr != nil {
+				s.logger.Error("sync inline policy to db failed", "policyId", policy.ID, "err", syncErr)
+			}
+		}()
+	}
+	return nil
+}
+
+func buildPolicyImportRequest(inline types.InlinePolicy, pipelineID, stageName, handlerName string) upsertPolicyRequest {
+	targeting := normalizeTargeting(inline.Targeting)
+	if pipelineID != "" && !stringSliceContains(targeting.Pipelines, pipelineID) {
+		targeting.Pipelines = append(targeting.Pipelines, pipelineID)
+	}
+	if stageName != "" && !stringSliceContains(targeting.Stages, stageName) {
+		targeting.Stages = append(targeting.Stages, stageName)
+	}
+	if handlerName != "" && !stringSliceContains(targeting.Handlers, handlerName) {
+		targeting.Handlers = append(targeting.Handlers, handlerName)
+	}
+
+	return upsertPolicyRequest{
+		Name:        inline.Name,
+		Description: inline.Description,
+		Type:        inline.Type,
+		Status:      inline.Status,
+		Environment: inline.Environment,
+		Targeting:   targeting,
+		Rule:        inline.Rule,
+	}
+}
+
+func stringPtr(value string) *string {
+	return &value
 }
 
 func normalizeStageInput(raw json.RawMessage) (string, error) {

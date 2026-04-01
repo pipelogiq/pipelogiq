@@ -82,6 +82,7 @@ import {
   usePolicyStatusAction,
   usePolicyTargetOptions,
   usePreviewPolicyTargets,
+  usePromotePolicy,
   useUpdatePolicy,
 } from '@/hooks/use-policies';
 import type {
@@ -91,6 +92,7 @@ import type {
   PolicyEnvironment,
   PolicyEvent,
   PolicyRange,
+  PolicySource,
   PolicyRule,
   PolicyStatus,
   PolicyTargeting,
@@ -153,11 +155,18 @@ const policyStatusOptions: Array<{ value: PolicyStatus | 'all'; label: string }>
   { value: 'active', label: 'Active' },
   { value: 'paused', label: 'Paused' },
   { value: 'disabled', label: 'Disabled' },
+  { value: 'orphaned', label: 'Orphaned' },
 ];
 
 const policyTypeFilterOptions: Array<{ value: PolicyType | 'all'; label: string }> = [
   { value: 'all', label: 'All types' },
   ...policyTypes.map(type => ({ value: type.value, label: type.label })),
+];
+
+const policySourceOptions: Array<{ value: PolicySource | 'all'; label: string }> = [
+  { value: 'all', label: 'All sources' },
+  { value: 'system', label: 'System' },
+  { value: 'pipeline_inline', label: 'Pipeline inline' },
 ];
 
 const sortOptions: Array<{ value: 'triggers' | 'lastTriggered' | 'updatedAt'; label: string }> = [
@@ -374,21 +383,43 @@ function policyStatusLabel(status: PolicyStatus): string {
       return 'Paused';
     case 'disabled':
       return 'Disabled';
+    case 'orphaned':
+      return 'Orphaned';
     default:
       return status;
   }
 }
 
-function policyStatusVariant(status: PolicyStatus): 'success' | 'paused' | 'waiting' {
+function policyStatusVariant(status: PolicyStatus): 'success' | 'paused' | 'waiting' | 'error' {
   switch (status) {
     case 'active':
       return 'success';
     case 'paused':
       return 'paused';
-    case 'disabled':
-      return 'waiting';
+    case 'orphaned':
+      return 'error';
     default:
       return 'waiting';
+  }
+}
+
+function policySourceLabel(source: PolicySource): string {
+  switch (source) {
+    case 'system':
+      return 'System';
+    case 'pipeline_inline':
+      return 'Pipeline inline';
+    default:
+      return source;
+  }
+}
+
+function policySourceVariant(source: PolicySource): 'default' | 'warning' {
+  switch (source) {
+    case 'pipeline_inline':
+      return 'warning';
+    default:
+      return 'default';
   }
 }
 
@@ -406,7 +437,33 @@ function formatAuditTime(ts: string): string {
 }
 
 function scopeSummary(policy: Policy): string {
-  return `env:${policy.environment}, pipelines:${policy.targeting.pipelines.length}, stages:${policy.targeting.stages.length}, handlers:${policy.targeting.handlers.length}`;
+  const t = policy.targeting;
+  const pipelines = t?.pipelines?.length ?? 0;
+  const stages = t?.stages?.length ?? 0;
+  const handlers = t?.handlers?.length ?? 0;
+  return `env:${policy.environment}, pipelines:${pipelines}, stages:${stages}, handlers:${handlers}`;
+}
+
+function originSummary(policy: Policy): string {
+  if (policy.source !== 'pipeline_inline') {
+    return 'Managed in Pipelogiq';
+  }
+
+  const parts: string[] = [];
+  if (policy.origin?.pipelineId) {
+    parts.push(`pipeline:${policy.origin.pipelineId}`);
+  }
+  if (policy.origin?.stageName) {
+    parts.push(`stage:${policy.origin.stageName}`);
+  }
+  if (policy.origin?.stageHandlerName) {
+    parts.push(`handler:${policy.origin.stageHandlerName}`);
+  }
+  if (policy.origin?.importedFrom) {
+    parts.push(`via ${policy.origin.importedFrom}`);
+  }
+
+  return parts.length > 0 ? parts.join(' · ') : 'Imported from pipeline definition';
 }
 
 function humanizePolicyEffect(policy: Policy): string {
@@ -422,6 +479,25 @@ function humanizePolicyEffect(policy: Policy): string {
     default:
       return 'No effect summary available.';
   }
+}
+
+function policyResolutionSemantics(policy: Policy): string {
+  switch (policy.type) {
+    case 'rate_limit':
+      return 'Stacks with other matched rate-limit policies. System and inline policies can both remain active, and runtime throttles dispatch when any matched window is exceeded.';
+    case 'retry':
+      return 'Resolves by precedence. More specific targeting wins first, then system policies beat inline policies on ties.';
+    case 'timeout':
+      return 'Merges with the stage base timeout using minimum-timeout semantics. The strictest matching step timeout becomes effective.';
+    case 'circuit_breaker':
+      return 'Stacks with other matched breakers. Any open circuit breaker can block dispatch, even if another matched policy would allow it.';
+    default:
+      return 'Runtime resolution semantics are not available.';
+  }
+}
+
+function policyPrecedenceSemantics(): string {
+  return 'Precedence favors more specific targeting first, then system over pipeline-inline when specificity is equal.';
 }
 
 function parseCommaSeparatedNumbers(value: string): number[] {
@@ -454,6 +530,12 @@ function eventTitle(event: PolicyEvent): string {
       return 'Policy resumed';
     case 'deleted':
       return 'Policy deleted';
+    case 'imported':
+      return 'Policy imported';
+    case 'orphaned':
+      return 'Policy orphaned';
+    case 'promoted':
+      return 'Policy promoted to system';
     case 'triggered':
       return 'Policy triggered';
     default:
@@ -466,6 +548,7 @@ export default function Policies() {
 
   const [range, setRange] = useState<PolicyRange>('24h');
   const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState<PolicySource | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<PolicyType | 'all'>('all');
   const [statusFilter, setStatusFilter] = useState<PolicyStatus | 'all'>('all');
   const [envFilter, setEnvFilter] = useState<PolicyEnvironment | 'all'>('all');
@@ -488,6 +571,7 @@ export default function Policies() {
   const listParams = useMemo(
     () => ({
       search,
+      source: sourceFilter,
       type: typeFilter,
       status: statusFilter,
       env: envFilter,
@@ -496,7 +580,7 @@ export default function Policies() {
       sortBy,
       sortDir,
     }),
-    [search, typeFilter, statusFilter, envFilter, pipelineFilter, range, sortBy, sortDir],
+    [search, sourceFilter, typeFilter, statusFilter, envFilter, pipelineFilter, range, sortBy, sortDir],
   );
 
   const policiesQuery = usePolicies(listParams);
@@ -513,6 +597,7 @@ export default function Policies() {
   const createMutation = useCreatePolicy();
   const updateMutation = useUpdatePolicy();
   const duplicateMutation = useDuplicatePolicy();
+  const promoteMutation = usePromotePolicy();
   const deleteMutation = useDeletePolicy();
   const statusMutation = usePolicyStatusAction();
 
@@ -520,12 +605,18 @@ export default function Policies() {
 
   const summary = useMemo(() => {
     const activePoliciesCount = insightsQuery.data?.activePoliciesCount ?? policies.filter(p => p.status === 'active').length;
+    const systemPoliciesCount = insightsQuery.data?.systemPoliciesCount ?? policies.filter(p => p.source === 'system').length;
+    const inlinePoliciesCount = insightsQuery.data?.inlinePoliciesCount ?? policies.filter(p => p.source === 'pipeline_inline').length;
+    const orphanedPoliciesCount = insightsQuery.data?.orphanedPoliciesCount ?? policies.filter(p => p.status === 'orphaned').length;
     const policiesTriggered = insightsQuery.data?.policiesTriggered ?? policies.reduce((acc, item) => acc + item.triggerCountInRange, 0);
     const actionsBlocked = insightsQuery.data?.actionsBlockedThrottled ?? 0;
     const topPolicy = insightsQuery.data?.topPolicy?.name ?? '—';
 
     return {
       activePoliciesCount,
+      systemPoliciesCount,
+      inlinePoliciesCount,
+      orphanedPoliciesCount,
       policiesTriggered,
       actionsBlocked,
       topPolicy,
@@ -618,6 +709,24 @@ export default function Policies() {
       onError: error => {
         toast({
           title: 'Failed to duplicate policy',
+          description: error instanceof Error ? error.message : 'Unknown error',
+          variant: 'destructive',
+        });
+      },
+    });
+  };
+
+  const runPromotePolicy = (policy: Policy) => {
+    promoteMutation.mutate(policy.id, {
+      onSuccess: promoted => {
+        toast({
+          title: 'Policy promoted',
+          description: `${promoted.name} is now a system policy. Enable it when ready.`,
+        });
+      },
+      onError: error => {
+        toast({
+          title: 'Failed to promote policy',
           description: error instanceof Error ? error.message : 'Unknown error',
           variant: 'destructive',
         });
@@ -767,9 +876,10 @@ export default function Policies() {
           ) : (
             <>
               <KpiCard title="Active policies" value={summary.activePoliciesCount} icon={CheckCircle2} />
+              <KpiCard title="System / inline / orphaned" value={`${summary.systemPoliciesCount} / ${summary.inlinePoliciesCount} / ${summary.orphanedPoliciesCount}`} subtitle="Governance sources" icon={Shield} />
               <KpiCard title="Policies triggered" value={summary.policiesTriggered} subtitle={`Range: ${rangeOptions.find(o => o.value === range)?.label}`} icon={Zap} />
               <KpiCard title="Actions blocked/throttled" value={summary.actionsBlocked} icon={AlertTriangle} />
-              <KpiCard title="Top policy by triggers" value={summary.topPolicy} icon={Shield} />
+              <KpiCard title="Top policy by triggers" value={summary.topPolicy} icon={Timer} />
             </>
           )}
         </div>
@@ -789,6 +899,19 @@ export default function Policies() {
               </SelectTrigger>
               <SelectContent>
                 {policyTypeFilterOptions.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={sourceFilter} onValueChange={value => { setSourceFilter(value as PolicySource | 'all'); setStatusFilter('all'); }}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {policySourceOptions.map(option => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -873,7 +996,7 @@ export default function Policies() {
             <div className="p-10 text-center">
               <p className="text-base font-medium text-foreground">No policies yet</p>
               <p className="mt-1 text-sm text-muted-foreground">
-                Create operational rules to guard retries, throughput, timeouts, and dependency stability.
+                Create system guardrails here or import inline policies through pipeline definitions.
               </p>
               <Button className="mt-4 gap-2" onClick={openCreateWizard}>
                 <Plus className="h-4 w-4" />
@@ -885,6 +1008,7 @@ export default function Policies() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Source</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Scope / Target</TableHead>
@@ -906,6 +1030,12 @@ export default function Policies() {
                       {policy.description ? (
                         <div className="truncate text-xs text-muted-foreground">{policy.description}</div>
                       ) : null}
+                      <div className="truncate text-xs text-muted-foreground">{originSummary(policy)}</div>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={policySourceVariant(policy.source)}>
+                        {policySourceLabel(policy.source)}
+                      </StatusBadge>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{policyTypeLabel(policy.type)}</Badge>
@@ -929,36 +1059,51 @@ export default function Policies() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => openEditWizard(policy)}>
-                            Edit
-                          </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => runDuplicatePolicy(policy)}>
                             Duplicate
                           </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          {policy.status === 'paused' ? (
-                            <DropdownMenuItem onClick={() => executeStatusAction(policy, 'resume')}>
-                              Resume
-                            </DropdownMenuItem>
-                          ) : policy.status === 'active' ? (
-                            <DropdownMenuItem onClick={() => executeStatusAction(policy, 'pause')}>
-                              Pause
-                            </DropdownMenuItem>
-                          ) : null}
-                          {policy.status === 'disabled' ? (
-                            <DropdownMenuItem onClick={() => executeStatusAction(policy, 'enable')}>
-                              Enable
-                            </DropdownMenuItem>
+                          {policy.source === 'system' ? (
+                            <>
+                              <DropdownMenuItem onClick={() => openEditWizard(policy)}>
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              {policy.status === 'paused' ? (
+                                <DropdownMenuItem onClick={() => executeStatusAction(policy, 'resume')}>
+                                  Resume
+                                </DropdownMenuItem>
+                              ) : policy.status === 'active' ? (
+                                <DropdownMenuItem onClick={() => executeStatusAction(policy, 'pause')}>
+                                  Pause
+                                </DropdownMenuItem>
+                              ) : null}
+                              {policy.status === 'disabled' ? (
+                                <DropdownMenuItem onClick={() => executeStatusAction(policy, 'enable')}>
+                                  Enable
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onClick={() => executeStatusAction(policy, 'disable')}>
+                                  Disable
+                                </DropdownMenuItem>
+                              )}
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => runDeletePolicy(policy)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
                           ) : (
-                            <DropdownMenuItem onClick={() => executeStatusAction(policy, 'disable')}>
-                              Disable
-                            </DropdownMenuItem>
+                            <>
+                              <DropdownMenuItem onClick={() => runPromotePolicy(policy)}>
+                                Promote to system
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem className="text-destructive" onClick={() => runDeletePolicy(policy)}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </DropdownMenuItem>
+                            </>
                           )}
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-destructive" onClick={() => runDeletePolicy(policy)}>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </TableCell>
@@ -978,9 +1123,9 @@ export default function Policies() {
           </CollapsibleTrigger>
           <CollapsibleContent className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
             <ul className="list-disc space-y-1 pl-4">
-              <li>Policies apply at runtime based on environment and targeting criteria (pipelines, stages, handlers, and tags).</li>
-              <li>When a step matches a policy, Pipelogiq annotates step details with the applied policy and reason.</li>
-              <li>Trigger activity feeds this page’s counters and audit trail for fast operational troubleshooting.</li>
+              <li>System policies are authored in Pipelogiq and define reusable guardrails across many pipelines.</li>
+              <li>Pipeline inline policies are imported from pipeline definitions and stay visible here for governance and auditability.</li>
+              <li>Use source filters, provenance details, and match previews to understand how policies spread across execution flows.</li>
             </ul>
           </CollapsibleContent>
         </Collapsible>
@@ -1004,6 +1149,9 @@ export default function Policies() {
                 <SheetDescription>{selectedPolicy.description || 'No description provided'}</SheetDescription>
 
                 <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <StatusBadge status={policySourceVariant(selectedPolicy.source)}>
+                    {policySourceLabel(selectedPolicy.source)}
+                  </StatusBadge>
                   <Badge variant="outline">{policyTypeLabel(selectedPolicy.type)}</Badge>
                   <StatusBadge status={policyStatusVariant(selectedPolicy.status)}>
                     {policyStatusLabel(selectedPolicy.status)}
@@ -1014,35 +1162,55 @@ export default function Policies() {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => openEditWizard(selectedPolicy)}
-                  >
-                    Edit
+                  <Button variant="outline" size="sm" onClick={() => runDuplicatePolicy(selectedPolicy)}>
+                    Duplicate as system
                   </Button>
+                  {selectedPolicy.source === 'system' ? (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditWizard(selectedPolicy)}
+                      >
+                        Edit
+                      </Button>
 
-                  {selectedPolicy.status === 'paused' ? (
-                    <Button size="sm" onClick={() => executeStatusAction(selectedPolicy, 'resume')}>
-                      <Play className="mr-2 h-4 w-4" />
-                      Resume
-                    </Button>
-                  ) : selectedPolicy.status === 'active' ? (
-                    <Button variant="outline" size="sm" onClick={() => executeStatusAction(selectedPolicy, 'pause')}>
-                      <Pause className="mr-2 h-4 w-4" />
-                      Pause
-                    </Button>
+                      {selectedPolicy.status === 'paused' ? (
+                        <Button size="sm" onClick={() => executeStatusAction(selectedPolicy, 'resume')}>
+                          <Play className="mr-2 h-4 w-4" />
+                          Resume
+                        </Button>
+                      ) : selectedPolicy.status === 'active' ? (
+                        <Button variant="outline" size="sm" onClick={() => executeStatusAction(selectedPolicy, 'pause')}>
+                          <Pause className="mr-2 h-4 w-4" />
+                          Pause
+                        </Button>
+                      ) : (
+                        <Button size="sm" onClick={() => executeStatusAction(selectedPolicy, 'enable')}>
+                          Enable
+                        </Button>
+                      )}
+
+                      {selectedPolicy.status !== 'disabled' ? (
+                        <Button variant="outline" size="sm" onClick={() => executeStatusAction(selectedPolicy, 'disable')}>
+                          Disable
+                        </Button>
+                      ) : null}
+                    </>
                   ) : (
-                    <Button size="sm" onClick={() => executeStatusAction(selectedPolicy, 'enable')}>
-                      Enable
-                    </Button>
+                    <>
+                      <Button size="sm" onClick={() => runPromotePolicy(selectedPolicy)}>
+                        Promote to system
+                      </Button>
+                      <Button variant="outline" size="sm" className="text-destructive" onClick={() => runDeletePolicy(selectedPolicy)}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </Button>
+                      {selectedPolicy.status === 'orphaned' && (
+                        <span className="text-xs text-muted-foreground">Pipeline was deleted — promote or remove this policy.</span>
+                      )}
+                    </>
                   )}
-
-                  {selectedPolicy.status !== 'disabled' ? (
-                    <Button variant="outline" size="sm" onClick={() => executeStatusAction(selectedPolicy, 'disable')}>
-                      Disable
-                    </Button>
-                  ) : null}
                 </div>
               </SheetHeader>
 
@@ -1076,8 +1244,20 @@ export default function Policies() {
                     </div>
 
                     <div className="rounded-lg border border-border p-4">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Source and provenance</p>
+                      <p className="mt-2 text-sm text-foreground">{policySourceLabel(selectedPolicy.source)}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{originSummary(selectedPolicy)}</p>
+                    </div>
+
+                    <div className="rounded-lg border border-border p-4">
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Where applied</p>
                       <p className="mt-2 text-sm text-foreground">{scopeSummary(selectedPolicy)}</p>
+                    </div>
+
+                    <div className="rounded-lg border border-border p-4 md:col-span-2">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">Effective resolution semantics</p>
+                      <p className="mt-2 text-sm text-foreground">{policyResolutionSemantics(selectedPolicy)}</p>
+                      <p className="mt-2 text-sm text-muted-foreground">{policyPrecedenceSemantics()}</p>
                     </div>
                   </TabsContent>
 
@@ -1148,9 +1328,11 @@ export default function Policies() {
                         <Button variant="outline" size="sm" onClick={previewAppliedTargeting}>
                           Preview matches
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => openEditWizard(selectedPolicy, 3)}>
-                          Edit targeting
-                        </Button>
+                        {selectedPolicy.source === 'system' ? (
+                          <Button variant="outline" size="sm" onClick={() => openEditWizard(selectedPolicy, 3)}>
+                            Edit targeting
+                          </Button>
+                        ) : null}
                       </div>
 
                       {appliedPreview ? (
@@ -1757,6 +1939,7 @@ export default function Policies() {
                         id: 'preview',
                         name: draft.name,
                         description: draft.description,
+                        source: 'system',
                         type: draft.type,
                         status: draft.status,
                         environment: draft.environment,

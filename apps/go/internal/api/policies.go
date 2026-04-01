@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +23,7 @@ import (
 )
 
 var errPolicyNotFound = errors.New("policy not found")
+var errPolicyReadonly = errors.New("policy is managed by pipeline definition and is read-only")
 
 type upsertPolicyRequest struct {
 	Name        string                  `json:"name"`
@@ -46,6 +48,7 @@ type policyStoreSnapshot struct {
 
 type policyListFilter struct {
 	Search     string
+	Source     *types.PolicySource
 	Type       *types.PolicyType
 	Status     *types.PolicyStatus
 	Env        *types.PolicyEnvironment
@@ -78,6 +81,10 @@ func newPolicyRepository(logger *slog.Logger) *policyRepository {
 	}
 
 	return repo
+}
+
+func NewPolicyRepositoryForRuntime(logger *slog.Logger) *policyRepository {
+	return newPolicyRepository(logger)
 }
 
 func (r *policyRepository) setEventListener(listener func(types.PolicyEvent)) {
@@ -238,11 +245,192 @@ func (r *policyRepository) exists(policyID string) bool {
 	return ok
 }
 
+func (r *policyRepository) runtimePolicies() []types.Policy {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make([]types.Policy, 0, len(r.policies))
+	for _, policy := range r.policies {
+		result = append(result, clonePolicy(policy))
+	}
+	return result
+}
+
+func (r *policyRepository) recordTrigger(policyID, actor string, details map[string]any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, ok := r.policies[policyID]; !ok {
+		return
+	}
+	r.appendEventLocked(policyID, actor, types.PolicyEventTypeTriggered, details)
+	if err := r.saveLocked(); err != nil {
+		r.logger.Error("save policy trigger failed", "err", err)
+	}
+}
+
 func (r *policyRepository) create(req upsertPolicyRequest, actor string) (types.Policy, error) {
+	return r.createWithSource(req, actor, types.PolicySourceSystem, nil, types.PolicyEventTypeCreated, nil)
+}
+
+func (r *policyRepository) importInline(req upsertPolicyRequest, actor string, origin *types.PolicyOrigin) (types.Policy, error) {
+	// Dedup: if an inline policy with the same name already exists, update it instead of creating a duplicate.
+	r.mu.RLock()
+	normalizedName := strings.ToLower(strings.TrimSpace(req.Name))
+	var existingID string
+	for _, p := range r.policies {
+		if p.Source == types.PolicySourcePipelineInline &&
+			strings.ToLower(strings.TrimSpace(p.Name)) == normalizedName {
+			existingID = p.ID
+			break
+		}
+	}
+	r.mu.RUnlock()
+
+	if existingID != "" {
+		return r.updateInline(existingID, req, actor, origin)
+	}
+
+	details := map[string]any{
+		"source": string(types.PolicySourcePipelineInline),
+	}
+	if origin != nil {
+		if origin.PipelineID != nil {
+			details["pipelineId"] = *origin.PipelineID
+		}
+		if origin.StageID != nil {
+			details["stageId"] = *origin.StageID
+		}
+		if origin.ImportedFrom != nil {
+			details["importedFrom"] = *origin.ImportedFrom
+		}
+	}
+	return r.createWithSource(req, actor, types.PolicySourcePipelineInline, origin, types.PolicyEventTypeImported, details)
+}
+
+func (r *policyRepository) updateInline(policyID string, req upsertPolicyRequest, actor string, origin *types.PolicyOrigin) (types.Policy, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	existing, ok := r.policies[policyID]
+	if !ok {
+		return types.Policy{}, errPolicyNotFound
+	}
+
+	existing.Description = normalizeDescription(req.Description)
+	existing.Environment = req.Environment
+	if existing.Environment == "" {
+		existing.Environment = types.PolicyEnvironmentAll
+	}
+	existing.Targeting = normalizeTargeting(req.Targeting)
+	existing.Rule = normalizePolicyRule(req.Rule)
+	existing.Origin = clonePolicyOrigin(origin)
+	// Re-activate an orphaned policy when it gets re-imported.
+	if existing.Status == types.PolicyStatusOrphaned {
+		existing.Status = types.PolicyStatusActive
+	}
+	existing.Version++
+	existing.UpdatedAt = time.Now().UTC()
+	existing.UpdatedBy = actor
+	existing = normalizePolicy(existing)
+
+	r.policies[policyID] = clonePolicy(existing)
+	r.appendEventLocked(policyID, actor, types.PolicyEventTypeUpdated, map[string]any{
+		"reimported": true,
+		"version":    existing.Version,
+	})
+	if err := r.saveLocked(); err != nil {
+		r.logger.Error("save policy store failed", "err", err)
+	}
+	return clonePolicy(existing), nil
+}
+
+func (r *policyRepository) promote(policyID, actor string) (types.Policy, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	policy, ok := r.policies[policyID]
+	if !ok {
+		return types.Policy{}, errPolicyNotFound
+	}
+	if policy.Source == types.PolicySourceSystem {
+		return types.Policy{}, errors.New("policy is already a system policy")
+	}
+
+	previousOrigin := clonePolicyOrigin(policy.Origin)
+	policy.Source = types.PolicySourceSystem
+	policy.Origin = nil
+	policy.Status = types.PolicyStatusDisabled
+	policy.Version++
+	policy.UpdatedAt = time.Now().UTC()
+	policy.UpdatedBy = actor
+	policy = normalizePolicy(policy)
+
+	r.policies[policyID] = clonePolicy(policy)
+	details := map[string]any{"version": policy.Version}
+	if previousOrigin != nil {
+		if previousOrigin.PipelineID != nil {
+			details["fromPipelineId"] = *previousOrigin.PipelineID
+		}
+		if previousOrigin.ImportedFrom != nil {
+			details["importedFrom"] = *previousOrigin.ImportedFrom
+		}
+	}
+	r.appendEventLocked(policyID, actor, types.PolicyEventTypePromoted, details)
+	if err := r.saveLocked(); err != nil {
+		r.logger.Error("save policy store failed", "err", err)
+	}
+	return clonePolicy(policy), nil
+}
+
+func (r *policyRepository) markOrphanedByPipeline(pipelineID int, actor string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	changed := false
+	for id, policy := range r.policies {
+		if policy.Source != types.PolicySourcePipelineInline {
+			continue
+		}
+		if policy.Origin == nil || policy.Origin.PipelineID == nil || *policy.Origin.PipelineID != pipelineID {
+			continue
+		}
+		if policy.Status == types.PolicyStatusOrphaned {
+			continue
+		}
+		policy.Status = types.PolicyStatusOrphaned
+		policy.Version++
+		policy.UpdatedAt = time.Now().UTC()
+		policy.UpdatedBy = actor
+		policy = normalizePolicy(policy)
+		r.policies[id] = clonePolicy(policy)
+		r.appendEventLocked(id, actor, types.PolicyEventTypeOrphaned, map[string]any{
+			"pipelineId": pipelineID,
+			"version":    policy.Version,
+		})
+		changed = true
+	}
+	if changed {
+		if err := r.saveLocked(); err != nil {
+			r.logger.Error("save policy store failed on orphan mark", "err", err)
+		}
+	}
+}
+
+func (r *policyRepository) createWithSource(
+	req upsertPolicyRequest,
+	actor string,
+	source types.PolicySource,
+	origin *types.PolicyOrigin,
+	eventType types.PolicyEventType,
+	eventDetails map[string]any,
+) (types.Policy, error) {
 	policy := types.Policy{
 		ID:          uuid.NewString(),
 		Name:        strings.TrimSpace(req.Name),
 		Description: normalizeDescription(req.Description),
+		Source:      source,
+		Origin:      clonePolicyOrigin(origin),
 		Type:        req.Type,
 		Status:      types.PolicyStatusActive,
 		Environment: req.Environment,
@@ -269,9 +457,12 @@ func (r *policyRepository) create(req upsertPolicyRequest, actor string) (types.
 	defer r.mu.Unlock()
 
 	r.policies[policy.ID] = clonePolicy(policy)
-	r.appendEventLocked(policy.ID, actor, types.PolicyEventTypeCreated, map[string]any{
-		"version": policy.Version,
-	})
+	details := cloneMap(eventDetails)
+	if details == nil {
+		details = make(map[string]any)
+	}
+	details["version"] = policy.Version
+	r.appendEventLocked(policy.ID, actor, eventType, details)
 	if err := r.saveLocked(); err != nil {
 		r.logger.Error("save policy store failed", "err", err)
 	}
@@ -286,6 +477,9 @@ func (r *policyRepository) update(policyID string, req upsertPolicyRequest, acto
 	existing, ok := r.policies[policyID]
 	if !ok {
 		return types.Policy{}, errPolicyNotFound
+	}
+	if existing.Source != types.PolicySourceSystem {
+		return types.Policy{}, errPolicyReadonly
 	}
 
 	previousVersion := existing.Version
@@ -324,6 +518,9 @@ func (r *policyRepository) setStatus(policyID string, status types.PolicyStatus,
 	if !ok {
 		return types.Policy{}, errPolicyNotFound
 	}
+	if policy.Source != types.PolicySourceSystem {
+		return types.Policy{}, errPolicyReadonly
+	}
 
 	if policy.Status == status {
 		return clonePolicy(policy), nil
@@ -360,6 +557,8 @@ func (r *policyRepository) duplicate(policyID, actor string) (types.Policy, erro
 	copyPolicy := clonePolicy(source)
 	copyPolicy.ID = uuid.NewString()
 	copyPolicy.Name = r.nextDuplicateNameLocked(source.Name)
+	copyPolicy.Source = types.PolicySourceSystem
+	copyPolicy.Origin = nil
 	copyPolicy.Status = types.PolicyStatusDisabled
 	copyPolicy.Version = 1
 	copyPolicy.CreatedAt = now
@@ -425,9 +624,21 @@ func (r *policyRepository) insights(rangeDuration time.Duration) types.PolicyIns
 	rangeStart := time.Now().UTC().Add(-rangeDuration)
 
 	activePolicies := 0
+	systemPolicies := 0
+	inlinePolicies := 0
+	orphanedPolicies := 0
 	for _, policy := range r.policies {
 		if policy.Status == types.PolicyStatusActive {
 			activePolicies++
+		}
+		if policy.Status == types.PolicyStatusOrphaned {
+			orphanedPolicies++
+		}
+		switch policy.Source {
+		case types.PolicySourcePipelineInline:
+			inlinePolicies++
+		default:
+			systemPolicies++
 		}
 	}
 
@@ -468,6 +679,9 @@ func (r *policyRepository) insights(rangeDuration time.Duration) types.PolicyIns
 
 	return types.PolicyInsightsResponse{
 		ActivePoliciesCount:     activePolicies,
+		SystemPoliciesCount:     systemPolicies,
+		InlinePoliciesCount:     inlinePolicies,
+		OrphanedPoliciesCount:   orphanedPolicies,
 		PoliciesTriggered:       triggered,
 		ActionsBlockedThrottled: blocked,
 		TopPolicy:               top,
@@ -571,6 +785,15 @@ func (s *Server) handleGetPolicies(w http.ResponseWriter, r *http.Request) {
 		SortDir:    query.Get("sortDir"),
 	}
 
+	if sourceVal := strings.TrimSpace(query.Get("source")); sourceVal != "" {
+		parsed := types.PolicySource(sourceVal)
+		if !isValidPolicySource(parsed) {
+			http.Error(w, "invalid source", http.StatusBadRequest)
+			return
+		}
+		filter.Source = &parsed
+	}
+
 	if typeVal := strings.TrimSpace(query.Get("type")); typeVal != "" {
 		parsed := types.PolicyType(typeVal)
 		if !isValidPolicyType(parsed) {
@@ -621,6 +844,7 @@ func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncPolicyToDB(r.Context(), policy)
 	writeJSON(w, policy, http.StatusCreated)
 }
 
@@ -663,10 +887,15 @@ func (s *Server) handleUpdatePolicy(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "policy not found", http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, errPolicyReadonly) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "failed to update policy", http.StatusInternalServerError)
 		return
 	}
 
+	s.syncPolicyToDB(r.Context(), policy)
 	writeJSON(w, policy, http.StatusOK)
 }
 
@@ -684,6 +913,7 @@ func (s *Server) handleDuplicatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.syncPolicyToDB(r.Context(), duplicated)
 	writeJSON(w, duplicated, http.StatusCreated)
 }
 
@@ -730,10 +960,15 @@ func (s *Server) handlePolicyStatusTransition(
 			http.Error(w, "policy not found", http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, errPolicyReadonly) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
 		http.Error(w, "failed to update status", http.StatusInternalServerError)
 		return
 	}
 
+	s.syncPolicyToDB(r.Context(), updatedPolicy)
 	writeJSON(w, updatedPolicy, http.StatusOK)
 }
 
@@ -750,7 +985,26 @@ func (s *Server) handleDeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.deletePolicyFromDB(policyID)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handlePromotePolicy(w http.ResponseWriter, r *http.Request) {
+	policyID := chi.URLParam(r, "id")
+	actor := s.resolvePolicyActor(r.Context())
+
+	promoted, err := s.policies.promote(policyID, actor)
+	if err != nil {
+		if errors.Is(err, errPolicyNotFound) {
+			http.Error(w, "policy not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	s.syncPolicyToDB(r.Context(), promoted)
+	writeJSON(w, promoted, http.StatusOK)
 }
 
 func (s *Server) handleGetPolicyAudit(w http.ResponseWriter, r *http.Request) {
@@ -771,6 +1025,26 @@ func (s *Server) handleGetPolicyInsights(w http.ResponseWriter, r *http.Request)
 	rangeDuration := parsePolicyRange(r.URL.Query().Get("range"))
 	insights := s.policies.insights(rangeDuration)
 	writeJSON(w, insights, http.StatusOK)
+}
+
+func (s *Server) handleGetEffectiveStagePolicies(w http.ResponseWriter, r *http.Request) {
+	stageID, err := strconv.Atoi(chi.URLParam(r, "stageId"))
+	if err != nil || stageID <= 0 {
+		http.Error(w, "invalid stage id", http.StatusBadRequest)
+		return
+	}
+
+	resolution, err := s.store.ResolveStagePolicies(r.Context(), stageID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "stage not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed to resolve effective policies", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, resolution, http.StatusOK)
 }
 
 func (s *Server) handleGetPolicyTargetOptions(w http.ResponseWriter, r *http.Request) {
@@ -997,6 +1271,9 @@ func (s *Server) previewPolicyMatches(ctx context.Context, req types.PolicyPrevi
 }
 
 func matchesPolicyFilter(policy types.Policy, filter policyListFilter) bool {
+	if filter.Source != nil && policy.Source != *filter.Source {
+		return false
+	}
 	if filter.Type != nil && policy.Type != *filter.Type {
 		return false
 	}
@@ -1023,11 +1300,26 @@ func matchesPolicyFilter(policy types.Policy, filter policyListFilter) bool {
 	}
 
 	searchBuckets := []string{
+		string(policy.Source),
 		strings.Join(policy.Targeting.Pipelines, " "),
 		strings.Join(policy.Targeting.Stages, " "),
 		strings.Join(policy.Targeting.Handlers, " "),
 		strings.Join(policy.Targeting.TagsInclude, " "),
 		strings.Join(policy.Targeting.TagsExclude, " "),
+	}
+	if policy.Origin != nil {
+		if policy.Origin.StageName != nil {
+			searchBuckets = append(searchBuckets, *policy.Origin.StageName)
+		}
+		if policy.Origin.StageHandlerName != nil {
+			searchBuckets = append(searchBuckets, *policy.Origin.StageHandlerName)
+		}
+		if policy.Origin.ImportedFrom != nil {
+			searchBuckets = append(searchBuckets, *policy.Origin.ImportedFrom)
+		}
+		if policy.Origin.PipelineID != nil {
+			searchBuckets = append(searchBuckets, strconv.Itoa(*policy.Origin.PipelineID))
+		}
 	}
 	for _, bucket := range searchBuckets {
 		if strings.Contains(strings.ToLower(bucket), term) {
@@ -1189,6 +1481,9 @@ func validateRuleByType(policyType types.PolicyType, rule types.PolicyRule) erro
 func normalizePolicy(policy types.Policy) types.Policy {
 	policy.Name = strings.TrimSpace(policy.Name)
 	policy.Description = normalizeDescription(policy.Description)
+	if policy.Source == "" {
+		policy.Source = types.PolicySourceSystem
+	}
 	if policy.Status == "" {
 		policy.Status = types.PolicyStatusActive
 	}
@@ -1212,6 +1507,7 @@ func normalizePolicy(policy types.Policy) types.Policy {
 	if policy.UpdatedAt.IsZero() {
 		policy.UpdatedAt = policy.CreatedAt
 	}
+	policy.Origin = clonePolicyOrigin(policy.Origin)
 	return policy
 }
 
@@ -1279,6 +1575,7 @@ func normalizePolicyRule(rule types.PolicyRule) types.PolicyRule {
 func clonePolicy(policy types.Policy) types.Policy {
 	cloned := policy
 	cloned.Description = cloneStringPtr(policy.Description)
+	cloned.Origin = clonePolicyOrigin(policy.Origin)
 	cloned.Targeting = types.PolicyTargeting{
 		Pipelines:   append([]string(nil), policy.Targeting.Pipelines...),
 		Stages:      append([]string(nil), policy.Targeting.Stages...),
@@ -1288,6 +1585,19 @@ func clonePolicy(policy types.Policy) types.Policy {
 	}
 	cloned.Rule = normalizePolicyRule(policy.Rule)
 	return cloned
+}
+
+func clonePolicyOrigin(origin *types.PolicyOrigin) *types.PolicyOrigin {
+	if origin == nil {
+		return nil
+	}
+	cloned := *origin
+	cloned.PipelineID = cloneIntPtr(origin.PipelineID)
+	cloned.StageID = cloneIntPtr(origin.StageID)
+	cloned.StageName = cloneStringPtr(origin.StageName)
+	cloned.StageHandlerName = cloneStringPtr(origin.StageHandlerName)
+	cloned.ImportedFrom = cloneStringPtr(origin.ImportedFrom)
+	return &cloned
 }
 
 func clonePolicyEvent(event types.PolicyEvent) types.PolicyEvent {
@@ -1313,6 +1623,15 @@ func cloneIntPtr(v *int) *int {
 	}
 	copy := *v
 	return &copy
+}
+
+func isValidPolicySource(source types.PolicySource) bool {
+	switch source {
+	case types.PolicySourceSystem, types.PolicySourcePipelineInline:
+		return true
+	default:
+		return false
+	}
 }
 
 func cloneBoolPtr(v *bool) *bool {
@@ -1511,10 +1830,39 @@ func stringValue(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
+// syncPolicyToDB persists a policy to the DB asynchronously. Errors are logged, never propagated.
+func (s *Server) syncPolicyToDB(ctx context.Context, p types.Policy) {
+	if s.dbPolicies == nil {
+		return
+	}
+	go func() {
+		syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.dbPolicies.upsert(syncCtx, p); err != nil {
+			s.logger.Error("sync policy to db failed", "policyId", p.ID, "err", err)
+		}
+	}()
+}
+
+// deletePolicyFromDB removes a policy from the DB asynchronously.
+func (s *Server) deletePolicyFromDB(policyID string) {
+	if s.dbPolicies == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.dbPolicies.deleteByID(ctx, policyID); err != nil {
+			s.logger.Error("delete policy from db failed", "policyId", policyID, "err", err)
+		}
+	}()
+}
+
 func (s *Server) registerPolicyRoutes(r chi.Router) {
 	r.Get("/", s.handleGetPolicies)
 	r.Post("/", s.handleCreatePolicy)
 	r.Get("/insights", s.handleGetPolicyInsights)
+	r.Get("/effective/stages/{stageId}", s.handleGetEffectiveStagePolicies)
 	r.Get("/targets", s.handleGetPolicyTargetOptions)
 	r.Post("/preview", s.handlePreviewPolicyTargets)
 
@@ -1523,6 +1871,7 @@ func (s *Server) registerPolicyRoutes(r chi.Router) {
 	r.Delete("/{id}", s.handleDeletePolicy)
 	r.Get("/{id}/audit", s.handleGetPolicyAudit)
 	r.Post("/{id}/duplicate", s.handleDuplicatePolicy)
+	r.Post("/{id}/promote", s.handlePromotePolicy)
 	r.Post("/{id}/enable", s.handleEnablePolicy)
 	r.Post("/{id}/disable", s.handleDisablePolicy)
 	r.Post("/{id}/pause", s.handlePausePolicy)

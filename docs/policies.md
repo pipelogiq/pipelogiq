@@ -1,6 +1,6 @@
 # Action Policies
 
-> **Status: Experimental.** Policy CRUD is functional, but policies are not enforced at runtime. This feature is under active development.
+> **Status: Experimental.** Policy CRUD, inline policy import, effective policy resolution, and partial runtime enforcement are functional. The policy engine is still evolving.
 
 Action policies define rules that govern how stages and pipelines behave. They provide guardrails for rate limiting, retry behavior, timeouts, and circuit breaking.
 
@@ -135,15 +135,16 @@ All policy endpoints are on the internal API (`:8080`, requires JWT auth):
 | `POST` | `/policies/{id}/disable` | Disable a policy |
 | `POST` | `/policies/{id}/pause` | Pause a policy |
 | `POST` | `/policies/{id}/resume` | Resume a policy |
-| `GET` | `/policies/preview` | Preview which stages a policy targets |
+| `POST` | `/policies/preview` | Preview which stages a policy targets |
 | `GET` | `/policies/insights` | Policy trigger statistics |
+| `GET` | `/policies/effective/stages/{stageId}` | Resolve effective policies for a stage with explainability |
 
 ## Current Limitations
 
-- **No runtime enforcement** — policies are stored and manageable through the API and dashboard, but the execution engine does not evaluate them during stage execution. This is the primary gap being worked on.
 - **File-backed storage** — policies are stored in `./data/policies.json` rather than the database. Migration to DB-backed storage is planned.
-- **No trigger events** — the `PolicyEventTypeTriggered` event exists in the model but is never emitted.
+- **Partial runtime enforcement** — timeout, rate-limit, and circuit-breaker logic now feed stage dispatch and timeout watching, but retry/runtime behavior is not fully enforced yet.
+- **Explainability is stage-scoped** — effective resolution is currently exposed per stage and not yet as a general-purpose policy simulator for arbitrary payloads.
 
 ## What "Throttled" Means
 
-When policy enforcement is implemented, a stage that exceeds a rate limit or hits an open circuit breaker will be placed in a `Throttled` state. The stage remains in the queue but is not dispatched to workers until the policy condition clears. This status is modeled in the frontend but not yet produced by the backend.
+When a stage exceeds a matched rate limit, it is placed in a `Throttled` state and retained in the queue until `next_retry_at`. Circuit breakers can block dispatch entirely and fail the stage immediately. The effective resolution endpoint explains which policies matched, which rule won for each type, and which policy actually triggered runtime behavior.

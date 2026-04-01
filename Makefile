@@ -13,6 +13,7 @@ COMPOSE_INFRA   := infra/compose/docker-compose.infra.yml
 COMPOSE_APP     := infra/compose/docker-compose.app.yml
 COMPOSE_WORKER  := infra/compose/docker-compose.worker.yml
 COMPOSE_LATEST  := infra/compose/docker-compose.registry.yml
+COMPOSE_ENV     := $(if $(wildcard .env),--env-file .env,)
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
@@ -82,56 +83,56 @@ migrate-up: ## Apply Liquibase changelog from database/changelog.xml
 .PHONY: compose-up
 compose-up: ## Start full stack (build all images from source)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_FILE) up --build
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_FILE) up --build
 
 .PHONY: compose-down
 compose-down: ## Stop full stack
-	docker compose -f $(COMPOSE_FILE) down
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_FILE) down
 
 ##@ Docker — component compose files (build from source)
 .PHONY: compose-infra-up
 compose-infra-up: ## Start infra services (Postgres, RabbitMQ, Tempo, Grafana)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_INFRA) up -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_INFRA) up -d
 
 .PHONY: compose-infra-down
 compose-infra-down: ## Stop infra services
-	docker compose -f $(COMPOSE_INFRA) down
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_INFRA) down
 
 .PHONY: compose-app-up
 compose-app-up: ## Build and start pipelogiq-app (web + API)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_APP) up --build -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_APP) up --build -d
 
 .PHONY: compose-app-down
 compose-app-down: ## Stop pipelogiq-app
-	docker compose -f $(COMPOSE_APP) down
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_APP) down
 
 .PHONY: compose-worker-up
 compose-worker-up: ## Build and start pipelogiq-worker
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_WORKER) up --build -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_WORKER) up --build -d
 
 .PHONY: compose-worker-down
 compose-worker-down: ## Stop pipelogiq-worker
-	docker compose -f $(COMPOSE_WORKER) down
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_WORKER) down
 
 ##@ Docker — pre-built images from ghcr.io
 .PHONY: compose-latest-up
 compose-latest-up: ## Start full stack using latest images from ghcr.io/pipelogiq
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_LATEST) up -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) up -d
 
 .PHONY: compose-latest-down
 compose-latest-down: ## Stop pre-built image stack
-	docker compose -f $(COMPOSE_LATEST) down
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) down
 
 .PHONY: compose-latest-pull
 compose-latest-pull: ## Pull latest images from ghcr.io/pipelogiq
-	docker compose -f $(COMPOSE_LATEST) pull pipelogiq-app pipelogiq-worker
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) pull pipelogiq-app pipelogiq-worker
 
 ##@ Docker — local dev helpers
 .PHONY: dev
 dev: ## Start infra only (Postgres, RabbitMQ, Tempo, Grafana)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose -f $(COMPOSE_INFRA) up -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_INFRA) up -d

@@ -19,6 +19,8 @@ type StageResultMessage struct {
 	StageID                int               `json:"stageId"`
 	Result                 string            `json:"result"`
 	IsSuccess              bool              `json:"isSuccess"`
+	IsWaitingForApproval   bool              `json:"isWaitingForApproval,omitempty"`
+	ErrorCode              string            `json:"errorCode,omitempty"`
 	NextStageID            *int              `json:"nextStageId,omitempty"`
 	RunNextIfCurrentFailed bool              `json:"runNextIfCurrentFailed"`
 	Logs                   []StageLogMessage `json:"logs,omitempty"`

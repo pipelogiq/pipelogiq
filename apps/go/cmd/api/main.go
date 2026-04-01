@@ -53,12 +53,20 @@ func main() {
 	defer mqClient.Close()
 
 	st := store.New(dbConn, logg)
+	// DB-backed runtime: policies read from PostgreSQL, trigger events persisted to policy_event.
+	st.SetStagePolicyRuntime(api.NewStagePolicyRuntimeWithDB(dbConn, logg))
+
+	policiesRepo := api.NewPolicyRepositoryForRuntime(logg)
+	dbPoliciesRepo := api.NewDBPolicyRepository(dbConn, logg)
+
+	// Seed DB from file store on startup so existing policies are available to the DB runtime.
+	api.SeedDBFromFileStore(policiesRepo, dbPoliciesRepo, logg)
 
 	// Internal API (JWT-protected, for web dashboard)
-	internalServer := api.NewServer(cfg, st, mqClient, logg)
+	internalServer := api.NewServerWithPoliciesAndDB(cfg, st, mqClient, logg, policiesRepo, dbPoliciesRepo)
 
 	// External API (API-key auth, for SDK clients and workers)
-	externalServer := api.NewExternalServer(cfg, st, mqClient, logg)
+	externalServer := api.NewExternalServerWithPoliciesAndDB(cfg, st, mqClient, logg, policiesRepo, dbPoliciesRepo)
 
 	errCh := make(chan error, 2)
 	go func() {

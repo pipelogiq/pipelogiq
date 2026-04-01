@@ -66,10 +66,10 @@ The API server exposes two HTTP servers on separate ports:
 
 The built-in worker runs alongside the app and handles:
 
-- **Publisher** — polls the database for stages ready to execute and publishes them to RabbitMQ queues
-- **Result consumer** — processes stage results from workers, updates pipeline state, and triggers the next stage
+- **Publisher** — polls the database for stages ready to execute, evaluates rate-limit and block policies before dispatching, and publishes approved stages to RabbitMQ queues
+- **Result consumer** — processes stage results from workers, evaluates retry policies (including `retryOn` error code filtering and exponential/linear/fixed backoff), updates pipeline state, and triggers the next stage
 - **Status consumer** — handles out-of-band stage status updates
-- **Active-stage timeout watcher** — marks `Pending` or `Running` stages that exceed their timeout as `Failed`
+- **Active-stage timeout watcher** — marks `Pending` or `Running` stages that exceed their configured or policy-effective timeout as `Failed`
 - **Prometheus metrics** — exposes counters on `:9090`
 
 ### External workers
@@ -105,12 +105,44 @@ Single-page app built with React 19, TypeScript, Vite, TanStack Query, Tailwind 
 ## Stage Execution Flow
 
 1. A pipeline is created via `POST /pipelines` (external API)
-2. The publisher finds the first ready stage and marks it `Pending`
-3. The stage job is published to the handler's RabbitMQ queue
-4. A worker pulls the job, executes it, and acks with a result
-5. The result consumer updates the stage status (`Completed` or `Failed`)
-6. If completed, the publisher picks the next stage; if failed and retries remain, the stage is rescheduled
-7. When all stages complete (or a stage fails with no retries), the pipeline is marked complete
+2. The publisher finds the first ready stage and evaluates active policies:
+   - **Rate-limit** policy → stage is throttled (status `Throttled`) and retried after the throttle window
+   - **Block** policy → stage is immediately failed
+   - No matching policy → stage is marked `Pending` and published to the handler's RabbitMQ queue
+3. A worker pulls the job, executes it, and acks with a result (including an optional `errorCode`)
+4. The result consumer receives the result and evaluates **retry** policies:
+   - If a retry policy matches (and `retryOn.errorCodes` includes the reported `errorCode`, if set), the stage is rescheduled with computed backoff delay and status `RetryScheduled`
+   - If no retry policy matches, the stage falls back to its per-stage `maxRetries`/`retryInterval` options
+   - If neither applies, the stage is marked `Completed` or `Failed`
+5. If completed, the publisher picks the next stage
+6. When all stages complete (or a stage fails with no remaining retries), the pipeline is marked complete
+
+## Policy Runtime
+
+Policies are stored in PostgreSQL and loaded by the runtime at dispatch and result-processing time. Both the API and worker read policies from the `policy` table directly, so policies are available in distributed deployments without any shared filesystem.
+
+Policy trigger events are written to the `policy_event` table and are visible in the dashboard under **Policies → Audit**.
+
+### Policy types
+
+| Type | Where evaluated | Effect |
+|------|----------------|--------|
+| `rate_limit` | Publisher (before dispatch) | Throttles or blocks stage dispatch |
+| `retry` | Result consumer (on failure) | Schedules retry with backoff |
+| `timeout` | Active-stage watcher | Enforces per-stage execution deadline |
+| `circuit_breaker` | Publisher (before dispatch) | Blocks dispatch when error threshold is exceeded |
+
+### Retry backoff
+
+The `retry` policy rule supports three backoff strategies:
+
+- `fixed` — constant delay equal to `baseDelayMs`
+- `linear` — delay grows as `baseDelayMs × attempt`
+- `exponential` — delay doubles each attempt starting from `baseDelayMs`
+
+All strategies respect `maxDelayMs` as a ceiling. Set `jitter: true` to add ±10% randomness and avoid thundering-herd patterns.
+
+Use `retryOn.errorCodes` to retry only on specific failure kinds (e.g. `RATE_LIMIT_EXCEEDED`). Stages that fail with an unmatched code are marked `Failed` immediately.
 
 ## Deployment
 

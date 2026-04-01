@@ -218,8 +218,17 @@ export interface WorkerEventResponse {
 }
 
 // Status types
-export type PipelineStatus = 'NotStarted' | 'Running' | 'Completed' | 'Failed';
-export type StageStatus = 'NotStarted' | 'Running' | 'Pending' | 'RetryScheduled' | 'Completed' | 'Failed' | 'Skipped';
+export type PipelineStatus = 'NotStarted' | 'Running' | 'Completed' | 'Failed' | 'Cancelled';
+export type StageStatus =
+  | 'NotStarted'
+  | 'Running'
+  | 'Pending'
+  | 'RetryScheduled'
+  | 'Throttled'
+  | 'WaitingForApproval'
+  | 'Completed'
+  | 'Failed'
+  | 'Skipped';
 
 // UI status mapping (map backend status to UI status)
 export type UIStatus = 'success' | 'error' | 'running' | 'waiting' | 'throttled' | 'paused' | 'queued' | 'skipped';
@@ -230,6 +239,8 @@ export function mapPipelineStatusToUI(status: PipelineStatus): UIStatus {
       return 'success';
     case 'Failed':
       return 'error';
+    case 'Cancelled':
+      return 'paused';
     case 'Running':
       return 'running';
     case 'NotStarted':
@@ -250,7 +261,10 @@ export function mapStageStatusToUI(status?: StageStatus): UIStatus {
       return 'running';
     case 'Pending':
     case 'RetryScheduled':
+    case 'WaitingForApproval':
       return 'waiting';
+    case 'Throttled':
+      return 'throttled';
     case 'Skipped':
       return 'skipped';
     case 'NotStarted':

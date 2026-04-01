@@ -8,6 +8,7 @@ import type {
   CreatePolicyRequest,
   UpdatePolicyRequest,
   PolicyPreviewRequest,
+  PolicyEffectiveResolutionResponse,
 } from '@/types/policies';
 
 export type PolicyStatusAction = 'enable' | 'disable' | 'pause' | 'resume';
@@ -55,6 +56,14 @@ export function usePreviewPolicyTargets() {
   });
 }
 
+export function useEffectiveStagePolicies(stageId: number | null) {
+  return useQuery<PolicyEffectiveResolutionResponse>({
+    queryKey: ['policy-effective-stage', stageId],
+    queryFn: () => policiesApi.getEffectiveStagePolicies(stageId || 0),
+    enabled: !!stageId,
+  });
+}
+
 export function useCreatePolicy() {
   const queryClient = useQueryClient();
 
@@ -90,6 +99,24 @@ export function useDuplicatePolicy() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['policies'] });
       queryClient.invalidateQueries({ queryKey: ['policy-insights'] });
+    },
+  });
+}
+
+export function usePromotePolicy() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => policiesApi.promote(id),
+    onSuccess: (policy: Policy) => {
+      queryClient.setQueriesData<PolicyListResponse>({ queryKey: ['policies'] }, old => {
+        if (!old) return old;
+        return { ...old, items: old.items.map(item => (item.id === policy.id ? { ...item, ...policy } : item)) };
+      });
+      queryClient.invalidateQueries({ queryKey: ['policies'] });
+      queryClient.invalidateQueries({ queryKey: ['policy-insights'] });
+      queryClient.invalidateQueries({ queryKey: ['policy', policy.id] });
+      queryClient.invalidateQueries({ queryKey: ['policy-audit', policy.id] });
     },
   });
 }

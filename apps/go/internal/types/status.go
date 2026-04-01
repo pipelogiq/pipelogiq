@@ -5,6 +5,7 @@ const (
 	StageStatusRunning         = "Running"
 	StageStatusPending         = "Pending"
 	StageStatusRetryScheduled  = "RetryScheduled"
+	StageStatusThrottled       = "Throttled"
 	StageStatusWaitingApproval = "WaitingForApproval"
 	StageStatusCompleted       = "Completed"
 	StageStatusFailed          = "Failed"

@@ -1004,4 +1004,20 @@
                 newDataType="text"/>
     </changeSet>
 
+    <changeSet id="add policy source and origin columns" author="Codex">
+        <addColumn tableName="policy">
+            <column name="source" type="varchar(32)" defaultValue="system">
+                <constraints nullable="false"/>
+            </column>
+            <column name="origin" type="jsonb">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+        <sql>
+            ALTER TABLE policy
+            ADD CONSTRAINT chk_policy_source
+            CHECK (source IN ('system','pipeline_inline'));
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

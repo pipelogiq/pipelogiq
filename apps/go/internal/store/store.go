@@ -17,9 +17,10 @@ import (
 )
 
 type Store struct {
-	db        *sqlx.DB
-	logger    *slog.Logger
-	alertSink AlertSink
+	db            *sqlx.DB
+	logger        *slog.Logger
+	alertSink     AlertSink
+	policyRuntime StagePolicyRuntime
 }
 
 func New(db *sqlx.DB, logger *slog.Logger) *Store {
@@ -114,7 +115,7 @@ func (s *Store) ValidateAPIKey(ctx context.Context, key string) (int, error) {
 		return 0, err
 	}
 
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_key SET last_used=NOW() WHERE key=$1`, key)
+	_, _ = s.db.ExecContext(ctx, `UPDATE api_key SET last_used=CURRENT_TIMESTAMP WHERE key=$1`, key)
 	return appID, nil
 }
 
@@ -136,7 +137,7 @@ func (s *Store) CreatePipeline(ctx context.Context, req types.PipelineCreateRequ
 	var createdAt time.Time
 	err = tx.QueryRowContext(ctx, `
 		INSERT INTO pipeline (application_id, name, status, created_at, is_completed, trace_id)
-		VALUES ($1, $2, $3, NOW(), false, $4)
+		VALUES ($1, $2, $3, CURRENT_TIMESTAMP, false, $4)
 		RETURNING id, created_at
 	`, appID, req.Name, types.PipelineStatusNotStarted, traceID).Scan(&pipelineID, &createdAt)
 	if err != nil {
@@ -207,7 +208,7 @@ func (s *Store) insertStages(ctx context.Context, tx *sqlx.Tx, pipelineID int, s
 		var created time.Time
 		err := tx.QueryRowContext(ctx, `
 			INSERT INTO stage (name, stage_handler_name, description, status, pipeline_id, created_at, is_event, span_id)
-			VALUES ($1,$2,$3,$4,$5,NOW(),$6,$7)
+			VALUES ($1,$2,$3,$4,$5,CURRENT_TIMESTAMP,$6,$7)
 			RETURNING id, created_at
 		`, st.Name, st.StageHandler, st.Description, types.StageStatusNotStarted, pipelineID, st.IsEvent, spanID).Scan(&stageID, &created)
 		if err != nil {
@@ -402,7 +403,7 @@ func computePipelineStatus(stageStatuses []string) string {
 		case types.StageStatusFailed:
 			hasFailed = true
 			allNotStarted = false
-		case types.StageStatusRunning, types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusWaitingApproval:
+		case types.StageStatusRunning, types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusThrottled, types.StageStatusWaitingApproval:
 			hasRunning = true
 			allNotStarted = false
 			allFinished = false
@@ -497,7 +498,8 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 			WHERE p.is_completed = false
 			  AND (
 				s.status = $1
-				OR (s.status = $3 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= NOW())
+				OR (s.status = $3 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
+				OR (s.status = $4 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
 			  )
 			  AND COALESCE(s.is_skipped,false) = false
 			  AND COALESCE(s.is_event,false) = false
@@ -509,14 +511,14 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 				WHERE sb.pipeline_id = p.id
 				  AND sb.id < s.id
 				  AND COALESCE(sb.is_event,false) = false
-				  AND sb.status NOT IN ($4, $5)
+				  AND sb.status NOT IN ($5, $6)
 			  )
 			ORDER BY p.id, s.id
 			LIMIT 1
 		)
 		SELECT id FROM candidate
 	`, types.StageStatusNotStarted, types.StageStatusPending, types.StageStatusRetryScheduled,
-		types.StageStatusCompleted, types.StageStatusSkipped).Scan(&stageID)
+		types.StageStatusThrottled, types.StageStatusCompleted, types.StageStatusSkipped).Scan(&stageID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Commit()
@@ -537,17 +539,79 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		SpanID           sql.NullString `db:"span_id"`
 	}
 
-	err = tx.GetContext(ctx, &row, `
+	err = tx.GetContext(ctx, &row, fmt.Sprintf(`
 		SELECT s.id, s.pipeline_id, s.status AS stage_status, s.stage_handler_name, io.input, p.application_id,
 			p.trace_id, s.span_id
 		FROM stage s
 		JOIN pipeline p ON p.id = s.pipeline_id
 		LEFT JOIN stage_io io ON io.stage_id = s.id
 		WHERE s.id = $1
-		FOR UPDATE OF s
-	`, stageID)
+	%s
+	`, s.forUpdateOfClause("s")), stageID)
 	if err != nil {
 		return nil, err
+	}
+
+	if s.policyRuntime != nil {
+		scope, err := s.loadPolicyRuntimeScopeTx(ctx, tx, row.StageID)
+		if err != nil {
+			return nil, err
+		}
+		evaluation, err := s.evaluateStagePoliciesTx(ctx, tx, scope)
+		if err != nil {
+			return nil, err
+		}
+		switch evaluation.Action {
+		case types.PolicyRuntimeActionThrottle:
+			throttleUntil := time.Now().UTC().Add(30 * time.Second)
+			if evaluation.ThrottleUntil != nil {
+				throttleUntil = evaluation.ThrottleUntil.UTC()
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE pipeline SET status=$1 WHERE id=$2
+			`, types.PipelineStatusRunning, row.PipelineID); err != nil {
+				return nil, err
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE stage
+				SET status=$1, started_at=NULL, finished_at=NULL, next_retry_at=$2
+				WHERE id=$3
+			`, types.StageStatusThrottled, throttleUntil, row.StageID); err != nil {
+				return nil, err
+			}
+			if err = tx.Commit(); err != nil {
+				return nil, err
+			}
+			s.LogStageChange(ctx, row.PipelineID, row.StageID, row.StageStatus, types.StageStatusThrottled, "policy_runtime")
+			_ = s.policyRuntime.RecordRuntimeEvaluation(ctx, scope, evaluation, "publisher")
+			return nil, nil
+		case types.PolicyRuntimeActionBlock:
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE stage
+				SET status=$1, finished_at=CURRENT_TIMESTAMP, next_retry_at=NULL
+				WHERE id=$2
+			`, types.StageStatusFailed, row.StageID); err != nil {
+				return nil, err
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE stage_io SET output=$1 WHERE stage_id=$2
+			`, evaluation.Reason, row.StageID); err != nil {
+				return nil, err
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE pipeline SET is_completed=true, finished_at=CURRENT_TIMESTAMP, status=$2 WHERE id=$1
+			`, row.PipelineID, types.PipelineStatusFailed); err != nil {
+				return nil, err
+			}
+			if err = tx.Commit(); err != nil {
+				return nil, err
+			}
+			s.LogStageChange(ctx, row.PipelineID, row.StageID, row.StageStatus, types.StageStatusFailed, "policy_runtime")
+			_ = s.policyRuntime.RecordRuntimeEvaluation(ctx, scope, evaluation, "publisher")
+			return nil, nil
+		default:
+			_ = s.policyRuntime.RecordRuntimeEvaluation(ctx, scope, evaluation, "publisher")
+		}
 	}
 
 	if _, err = tx.ExecContext(ctx, `
@@ -556,7 +620,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `
-		UPDATE stage SET status=$1, started_at=NOW(), finished_at=NULL, next_retry_at=NULL WHERE id=$2
+		UPDATE stage SET status=$1, started_at=CURRENT_TIMESTAMP, finished_at=NULL, next_retry_at=NULL WHERE id=$2
 	`, types.StageStatusPending, row.StageID); err != nil {
 		return nil, err
 	}
@@ -677,7 +741,7 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 		WHERE s.id = $1
 		ORDER BY so.id DESC NULLS LAST
 		LIMIT 1%s
-	`, s.forUpdateClause())
+	`, s.forUpdateOfClause("s"))
 	if err = tx.GetContext(ctx, &stage, lockQuery, stageID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			err = tx.Commit()
@@ -701,6 +765,23 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 	effectiveTimeout := fallbackTimeout
 	if stage.TimeoutSeconds.Valid && stage.TimeoutSeconds.Int64 > 0 {
 		effectiveTimeout = time.Duration(stage.TimeoutSeconds.Int64) * time.Second
+	}
+	if s.policyRuntime != nil {
+		scope, scopeErr := s.loadPolicyRuntimeScopeTx(ctx, tx, stageID)
+		if scopeErr != nil {
+			return false, scopeErr
+		}
+		evaluation, evalErr := s.evaluateStagePoliciesTx(ctx, tx, scope)
+		if evalErr != nil {
+			return false, evalErr
+		}
+		if evaluation.EffectiveTimeoutMs != nil && *evaluation.EffectiveTimeoutMs > 0 {
+			timeoutFromPolicy := time.Duration(*evaluation.EffectiveTimeoutMs) * time.Millisecond
+			if timeoutFromPolicy < effectiveTimeout {
+				effectiveTimeout = timeoutFromPolicy
+			}
+		}
+		_ = s.policyRuntime.RecordRuntimeEvaluation(ctx, scope, evaluation, "stage_timeout_watcher")
 	}
 
 	age := time.Now().UTC().Sub(startedAt)
@@ -800,36 +881,67 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	}
 
 	newStatus := types.StageStatusFailed
-	if msg.IsSuccess {
+	var nextRetryDelay time.Duration
+
+	if msg.IsWaitingForApproval {
+		newStatus = types.StageStatusWaitingApproval
+	} else if msg.IsSuccess {
 		newStatus = types.StageStatusCompleted
 	} else {
-		maxRetries := 0
-		if stage.MaxRetries.Valid {
-			maxRetries = int(stage.MaxRetries.Int64)
-		}
-		retryIntervalSeconds := 0
-		if stage.RetryInterval.Valid {
-			retryIntervalSeconds = int(stage.RetryInterval.Int64)
+		// Policy-based retry takes precedence over stage_options retry.
+		if s.policyRuntime != nil {
+			allPolicies, _ := s.policyRuntime.RuntimePolicies(ctx)
+			scope, scopeErr := s.loadPolicyRuntimeScopeTx(ctx, tx, msg.StageID)
+			if scopeErr == nil {
+				evaluation, evalErr := s.evaluateStagePoliciesTx(ctx, tx, scope)
+				if evalErr == nil {
+					if retryRule := effectiveRetryPolicy(evaluation, allPolicies); retryRule != nil {
+						maxAttempts := 0
+						if retryRule.MaxAttempts != nil {
+							maxAttempts = *retryRule.MaxAttempts
+						}
+						if maxAttempts > 0 && stage.RetryAttempt < maxAttempts && retryOnMatches(*retryRule, msg.ErrorCode) {
+							newStatus = types.StageStatusRetryScheduled
+							nextRetryDelay = computeBackoffDelay(*retryRule, stage.RetryAttempt+1)
+						}
+					}
+					_ = s.policyRuntime.RecordRuntimeEvaluation(ctx, scope, evaluation, "result_processor")
+				}
+			}
 		}
 
-		if maxRetries > 0 && retryIntervalSeconds > 0 && stage.RetryAttempt < maxRetries {
-			newStatus = types.StageStatusRetryScheduled
+		// Fall back to stage_options retry when no policy triggered a retry.
+		if newStatus != types.StageStatusRetryScheduled {
+			maxRetries := 0
+			if stage.MaxRetries.Valid {
+				maxRetries = int(stage.MaxRetries.Int64)
+			}
+			retryIntervalSeconds := 0
+			if stage.RetryInterval.Valid {
+				retryIntervalSeconds = int(stage.RetryInterval.Int64)
+			}
+			if maxRetries > 0 && retryIntervalSeconds > 0 && stage.RetryAttempt < maxRetries {
+				newStatus = types.StageStatusRetryScheduled
+				nextRetryDelay = time.Duration(retryIntervalSeconds) * time.Second
+			}
 		}
 	}
 
 	if newStatus == types.StageStatusRetryScheduled {
-		retryAfter := int(stage.RetryInterval.Int64)
-		nextRetryAt := time.Now().UTC().Add(time.Duration(retryAfter) * time.Second)
+		if nextRetryDelay <= 0 {
+			nextRetryDelay = 30 * time.Second
+		}
+		nextRetryAt := time.Now().UTC().Add(nextRetryDelay)
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE stage
-			SET status=$1, finished_at=NOW(), retry_attempt=retry_attempt + 1, next_retry_at=$2
+			SET status=$1, finished_at=CURRENT_TIMESTAMP, retry_attempt=retry_attempt + 1, next_retry_at=$2
 			WHERE id=$3
 		`, newStatus, nextRetryAt, msg.StageID); err != nil {
 			return nil, err
 		}
 	} else {
 		if _, err = tx.ExecContext(ctx, `
-			UPDATE stage SET status=$1, finished_at=NOW(), next_retry_at=NULL WHERE id=$2
+			UPDATE stage SET status=$1, finished_at=CURRENT_TIMESTAMP, next_retry_at=NULL WHERE id=$2
 		`, newStatus, msg.StageID); err != nil {
 			return nil, err
 		}
@@ -883,14 +995,14 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			return nil, err
 		}
 
-		completePipeline := !msg.IsSuccess || msg.StageID == lastStageID
+		completePipeline := (!msg.IsSuccess || msg.StageID == lastStageID) && !msg.IsWaitingForApproval
 		if completePipeline {
 			pStatus := types.PipelineStatusCompleted
 			if !msg.IsSuccess {
 				pStatus = types.PipelineStatusFailed
 			}
 			if _, err = tx.ExecContext(ctx, `
-				UPDATE pipeline SET is_completed=true, finished_at=NOW(), status=$2 WHERE id=$1
+				UPDATE pipeline SET is_completed=true, finished_at=CURRENT_TIMESTAMP, status=$2 WHERE id=$1
 			`, stage.PipelineID, pStatus); err != nil {
 				return nil, err
 			}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -315,6 +316,22 @@ func (s *Store) resumeStageApprovalOnce(
 		return fmt.Errorf("insert resume audit log: %w", err)
 	}
 
+	// Inject approval decision into pipeline context so the next stage (agent:think)
+	// can read it via AgentConstants.ApprovalDecision ("agent:approved").
+	approvedValue := "false"
+	if req.Approved {
+		approvedValue = "true"
+	}
+	if err = upsertPipelineContextItem(ctx, tx, stage.PipelineID, "agent:approved", approvedValue); err != nil {
+		return fmt.Errorf("inject agent:approved context: %w", err)
+	}
+	if !req.Approved && requestReason != "" {
+		reasonJSON, _ := json.Marshal(requestReason)
+		if err = upsertPipelineContextItem(ctx, tx, stage.PipelineID, "agent:rejectionReason", string(reasonJSON)); err != nil {
+			return fmt.Errorf("inject agent:rejectionReason context: %w", err)
+		}
+	}
+
 	if err = tx.Commit(); err != nil {
 		return err
 	}
@@ -378,6 +395,16 @@ func (s *Store) forUpdateClause() string {
 	return " FOR UPDATE"
 }
 
+// forUpdateOfClause returns a FOR UPDATE OF <alias> clause for queries that
+// use LEFT JOINs. PostgreSQL does not allow FOR UPDATE on the nullable side of
+// an outer join, so we must lock only the specific table alias.
+func (s *Store) forUpdateOfClause(tableAlias string) string {
+	if s.isSQLiteDriver() {
+		return ""
+	}
+	return " FOR UPDATE OF " + tableAlias
+}
+
 func (s *Store) isSQLiteDriver() bool {
 	driver := strings.ToLower(strings.TrimSpace(s.db.DriverName()))
 	return strings.Contains(driver, "sqlite")
@@ -410,6 +437,24 @@ func isPipelineTerminalStatus(status string, isCompleted bool) bool {
 	default:
 		return false
 	}
+}
+
+func upsertPipelineContextItem(ctx context.Context, tx *sqlx.Tx, pipelineID int, key, value string) error {
+	res, err := tx.ExecContext(ctx, `
+		UPDATE pipeline_context_item SET value=$1, value_type='string'
+		WHERE pipeline_id=$2 AND key=$3
+	`, value, pipelineID, key)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected == 0 {
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO pipeline_context_item (key, value, value_type, pipeline_id)
+			VALUES ($1, $2, 'string', $3)
+		`, key, value, pipelineID)
+	}
+	return err
 }
 
 func isWaitingApprovalStatus(status string) bool {

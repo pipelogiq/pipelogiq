@@ -17,6 +17,7 @@ const (
 	PolicyStatusActive   PolicyStatus = "active"
 	PolicyStatusPaused   PolicyStatus = "paused"
 	PolicyStatusDisabled PolicyStatus = "disabled"
+	PolicyStatusOrphaned PolicyStatus = "orphaned"
 )
 
 type PolicyEnvironment string
@@ -28,10 +29,27 @@ const (
 	PolicyEnvironmentAll     PolicyEnvironment = "all"
 )
 
+type PolicySource string
+
+const (
+	PolicySourceSystem         PolicySource = "system"
+	PolicySourcePipelineInline PolicySource = "pipeline_inline"
+)
+
+type PolicyOrigin struct {
+	PipelineID       *int    `json:"pipelineId,omitempty"`
+	StageID          *int    `json:"stageId,omitempty"`
+	StageName        *string `json:"stageName,omitempty"`
+	StageHandlerName *string `json:"stageHandlerName,omitempty"`
+	ImportedFrom     *string `json:"importedFrom,omitempty"`
+}
+
 type Policy struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
 	Description *string           `json:"description,omitempty"`
+	Source      PolicySource      `json:"source"`
+	Origin      *PolicyOrigin     `json:"origin,omitempty"`
 	Type        PolicyType        `json:"type"`
 	Status      PolicyStatus      `json:"status"`
 	Environment PolicyEnvironment `json:"environment"`
@@ -85,6 +103,9 @@ const (
 	PolicyEventTypePaused    PolicyEventType = "paused"
 	PolicyEventTypeResumed   PolicyEventType = "resumed"
 	PolicyEventTypeDeleted   PolicyEventType = "deleted"
+	PolicyEventTypeImported  PolicyEventType = "imported"
+	PolicyEventTypeOrphaned  PolicyEventType = "orphaned"
+	PolicyEventTypePromoted  PolicyEventType = "promoted"
 	PolicyEventTypeTriggered PolicyEventType = "triggered"
 )
 
@@ -116,6 +137,9 @@ type PolicyInsightsTopPolicy struct {
 
 type PolicyInsightsResponse struct {
 	ActivePoliciesCount     int                      `json:"activePoliciesCount"`
+	SystemPoliciesCount     int                      `json:"systemPoliciesCount"`
+	InlinePoliciesCount     int                      `json:"inlinePoliciesCount"`
+	OrphanedPoliciesCount   int                      `json:"orphanedPoliciesCount"`
 	PoliciesTriggered       int                      `json:"policiesTriggered"`
 	ActionsBlockedThrottled int                      `json:"actionsBlockedThrottled"`
 	TopPolicy               *PolicyInsightsTopPolicy `json:"topPolicy,omitempty"`
@@ -148,4 +172,63 @@ type PolicyPreviewResponse struct {
 	Pipelines int `json:"pipelines"`
 	Stages    int `json:"stages"`
 	Handlers  int `json:"handlers"`
+}
+
+type PolicyRuntimeAction string
+
+const (
+	PolicyRuntimeActionAllow    PolicyRuntimeAction = "allow"
+	PolicyRuntimeActionThrottle PolicyRuntimeAction = "throttle"
+	PolicyRuntimeActionBlock    PolicyRuntimeAction = "block"
+)
+
+type PolicyRuntimeScope struct {
+	PipelineID         int               `json:"pipelineId"`
+	ApplicationID      *int              `json:"applicationId,omitempty"`
+	StageID            int               `json:"stageId"`
+	StageName          string            `json:"stageName"`
+	StageHandlerName   string            `json:"stageHandlerName"`
+	Environment        PolicyEnvironment `json:"environment"`
+	Tags               []string          `json:"tags,omitempty"`
+	BaseTimeoutSeconds *int              `json:"baseTimeoutSeconds,omitempty"`
+}
+
+type PolicyRuntimeMatchedPolicy struct {
+	PolicyID           string              `json:"policyId"`
+	Name               string              `json:"name"`
+	Source             PolicySource        `json:"source"`
+	Type               PolicyType          `json:"type"`
+	Action             PolicyRuntimeAction `json:"action"`
+	Reason             string              `json:"reason,omitempty"`
+	ThrottleUntil      *time.Time          `json:"throttleUntil,omitempty"`
+	EffectiveTimeoutMs *int                `json:"effectiveTimeoutMs,omitempty"`
+	SpecificityScore   int                 `json:"specificityScore,omitempty"`
+	Precedence         int                 `json:"precedence,omitempty"`
+	Outcome            string              `json:"outcome,omitempty"`
+	Explanation        string              `json:"explanation,omitempty"`
+	OverriddenByPolicy *string             `json:"overriddenByPolicyId,omitempty"`
+}
+
+type PolicyRuntimeResolvedRule struct {
+	Type               PolicyType `json:"type"`
+	Strategy           string     `json:"strategy"`
+	PolicyIDs          []string   `json:"policyIds,omitempty"`
+	WinningPolicyID    *string    `json:"winningPolicyId,omitempty"`
+	Explanation        string     `json:"explanation,omitempty"`
+	EffectiveTimeoutMs *int       `json:"effectiveTimeoutMs,omitempty"`
+}
+
+type PolicyRuntimeEvaluation struct {
+	Action             PolicyRuntimeAction          `json:"action"`
+	Reason             string                       `json:"reason,omitempty"`
+	ThrottleUntil      *time.Time                   `json:"throttleUntil,omitempty"`
+	EffectiveTimeoutMs *int                         `json:"effectiveTimeoutMs,omitempty"`
+	MatchedPolicies    []PolicyRuntimeMatchedPolicy `json:"matchedPolicies,omitempty"`
+	ResolvedRules      []PolicyRuntimeResolvedRule  `json:"resolvedRules,omitempty"`
+	Explain            []string                     `json:"explain,omitempty"`
+}
+
+type PolicyEffectiveResolutionResponse struct {
+	Scope PolicyRuntimeScope `json:"scope"`
+	PolicyRuntimeEvaluation
 }

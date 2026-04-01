@@ -33,6 +33,7 @@ type Server struct {
 	mq                   *mq.Client
 	hub                  *Hub
 	policies             *policyRepository
+	dbPolicies           *dbPolicyRepository
 	observabilityHandler *observabilityhttp.Handler
 	logger               *slog.Logger
 	server               *http.Server
@@ -41,12 +42,20 @@ type Server struct {
 }
 
 func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Server {
+	policiesRepo := newPolicyRepository(logger)
+	return NewServerWithPolicies(cfg, st, mqClient, logger, policiesRepo)
+}
+
+func NewServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger, policiesRepo *policyRepository) *Server {
+	return NewServerWithPoliciesAndDB(cfg, st, mqClient, logger, policiesRepo, nil)
+}
+
+func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger, policiesRepo *policyRepository, dbPoliciesRepo *dbPolicyRepository) *Server {
 	observabilityRepo := observabilityrepo.NewSQLRepository(st.DB())
 	observabilitySvc := observabilityservice.New(observabilityRepo, logger)
 	observabilityHandler := observabilityhttp.NewHandler(observabilitySvc, logger)
 	alertsNotifier := alerts.New(observabilityRepo, logger)
 	st.SetAlertSink(alertsNotifier)
-	policiesRepo := newPolicyRepository(logger)
 	policiesRepo.setEventListener(func(event types.PolicyEvent) {
 		go func(ev types.PolicyEvent) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -61,6 +70,7 @@ func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logge
 		mq:                   mqClient,
 		hub:                  NewHub(logger, cfg.AllowedOrigins),
 		policies:             policiesRepo,
+		dbPolicies:           dbPoliciesRepo,
 		observabilityHandler: observabilityHandler,
 		logger:               logger,
 		jwtSecret:            []byte(cfg.JWTSecret),

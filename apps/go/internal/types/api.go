@@ -8,19 +8,31 @@ type PipelineCreateRequest struct {
 	ApiKey           string            `json:"apiKey"`
 	Name             string            `json:"name"`
 	TraceID          string            `json:"traceId,omitempty"`
+	Policies         []InlinePolicy    `json:"policies,omitempty"`
 	Stages           []StageCreate     `json:"stages"`
 	PipelineKeywords []PipelineKeyword `json:"pipelineKeywords,omitempty"`
 	PipelineContext  []ContextItem     `json:"pipelineContextItems,omitempty"`
 }
 
+type InlinePolicy struct {
+	Name        string            `json:"name"`
+	Description *string           `json:"description,omitempty"`
+	Type        PolicyType        `json:"type"`
+	Status      *PolicyStatus     `json:"status,omitempty"`
+	Environment PolicyEnvironment `json:"environment"`
+	Targeting   PolicyTargeting   `json:"targeting"`
+	Rule        PolicyRule        `json:"rule"`
+}
+
 type StageCreate struct {
-	Name            string        `json:"stageName"`
-	StageHandler    string        `json:"stageHandlerName"`
-	Description     string        `json:"description,omitempty"`
-	Input           string        `json:"input,omitempty"`
-	Options         *StageOptions `json:"options,omitempty"`
-	IsEvent         bool          `json:"isEvent,omitempty"`
-	RunNextIfFailed bool          `json:"runNextIfFailed,omitempty"`
+	Name            string         `json:"stageName"`
+	StageHandler    string         `json:"stageHandlerName"`
+	Description     string         `json:"description,omitempty"`
+	Input           string         `json:"input,omitempty"`
+	Policies        []InlinePolicy `json:"policies,omitempty"`
+	Options         *StageOptions  `json:"options,omitempty"`
+	IsEvent         bool           `json:"isEvent,omitempty"`
+	RunNextIfFailed bool           `json:"runNextIfFailed,omitempty"`
 }
 
 type StageOptions struct {

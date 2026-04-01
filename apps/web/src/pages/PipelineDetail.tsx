@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PipelineGraph, PipelineStep } from "@/components/pipeline-detail/PipelineGraph";
@@ -24,6 +24,10 @@ export default function PipelineDetail() {
   const pipelineId = Number(id) || 0;
   const { data: pipeline, isLoading, error } = usePipeline(pipelineId);
   const [selectedStep, setSelectedStep] = useState<PipelineStep | null>(null);
+  const selectedAction = useMemo(
+    () => pipeline?.actions.find(action => action.id === selectedStep?.id) ?? null,
+    [pipeline?.actions, selectedStep?.id],
+  );
 
   // Convert pipeline actions to steps format
   const steps: PipelineStep[] = pipeline?.actions?.map((action) => ({
@@ -184,6 +188,7 @@ export default function PipelineDetail() {
             <div className="w-[420px] border-l border-border overflow-y-auto">
               <StepDetailsPanel
                 step={selectedStep}
+                action={selectedAction}
                 onClose={() => setSelectedStep(null)}
               />
             </div>

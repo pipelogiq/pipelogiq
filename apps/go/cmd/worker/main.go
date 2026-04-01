@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"pipelogiq/internal/alerts"
+	"pipelogiq/internal/api"
 	"pipelogiq/internal/config"
 	"pipelogiq/internal/db"
 	"pipelogiq/internal/logger"
@@ -55,6 +56,7 @@ func main() {
 	defer mqClient.Close()
 
 	store := store.New(dbConn, logg)
+	store.SetStagePolicyRuntime(api.NewStagePolicyRuntimeWithDB(dbConn, logg))
 	alertsNotifier := alerts.New(observabilityrepo.NewSQLRepository(store.DB()), logg)
 	store.SetAlertSink(alertsNotifier)
 	w := worker.New(cfg, store, mqClient, logg)
