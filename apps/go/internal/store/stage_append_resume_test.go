@@ -348,6 +348,13 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		created_at TIMESTAMP NULL,
 		stage_id INTEGER NOT NULL
 	);
+	CREATE TABLE pipeline_context_item (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		key TEXT NOT NULL,
+		value TEXT NOT NULL,
+		value_type TEXT NULL,
+		pipeline_id INTEGER NOT NULL
+	);
 	CREATE TABLE api_key (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		application_id INTEGER NOT NULL,

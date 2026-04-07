@@ -22,6 +22,8 @@ import (
 	"pipelogiq/internal/types"
 )
 
+const externalTestApplicationID = 101
+
 func TestAppendStagesEndpoint(t *testing.T) {
 	t.Run("accepts StageId/PipelineId as null", func(t *testing.T) {
 		_, db, router := setupExternalEndpointTest(t)
@@ -503,6 +505,13 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 		created_at TIMESTAMP NULL,
 		stage_id INTEGER NOT NULL
 	);
+	CREATE TABLE pipeline_context_item (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		key TEXT NOT NULL,
+		value TEXT NOT NULL,
+		value_type TEXT NULL,
+		pipeline_id INTEGER NOT NULL
+	);
 	CREATE TABLE api_key (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		application_id INTEGER NOT NULL,
@@ -521,7 +530,7 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 	if _, err := db.Exec(`
 		INSERT INTO api_key (application_id, key, created_at, disabled_at, expires_at)
 		VALUES ($1, $2, $3, NULL, NULL)
-	`, 101, "test-api-key", time.Now().UTC()); err != nil {
+	`, externalTestApplicationID, "test-api-key", time.Now().UTC()); err != nil {
 		_ = db.Close()
 		t.Fatalf("insert api key: %v", err)
 	}
@@ -547,10 +556,10 @@ func insertPipelineForExternalTest(t *testing.T, db *sqlx.DB, name, status strin
 
 	var id int
 	if err := db.QueryRow(`
-		INSERT INTO pipeline (name, status, created_at, is_completed)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO pipeline (name, status, created_at, is_completed, application_id)
+		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id
-	`, name, status, time.Now().UTC(), completed).Scan(&id); err != nil {
+	`, name, status, time.Now().UTC(), completed, externalTestApplicationID).Scan(&id); err != nil {
 		t.Fatalf("insert pipeline: %v", err)
 	}
 	return id
