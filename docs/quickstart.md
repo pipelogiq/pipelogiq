@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.3.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:

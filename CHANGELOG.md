@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.0-preview.1] - 2026-04-07
+
+Preview release line realigned to `v0.3.0-preview.1` to match the current platform maturity and published deployment/documentation examples.
+
+### Changed
+
+- **Release line renumbering** — the active preview release line now uses `v0.3.0-preview.1`
+- **Documentation refresh** — README, quickstart, OpenAPI metadata, compose examples, and release references now consistently point to `v0.3.0-preview.1`
+
 ## [0.1.0-preview.3] - 2026-03-19
 
 Third preview release. Policy enforcement is now live at runtime: retry policies with configurable backoff are applied automatically when stages fail, and all policy events are persisted to PostgreSQL.
@@ -104,3 +113,5 @@ First public preview release.
 
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
+[0.1.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.3
+[0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
