@@ -7,16 +7,40 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [0.3.0-preview.1] - 2026-04-07
 
-Preview release line realigned to `v0.3.0-preview.1` to match the current platform maturity and published deployment/documentation examples.
+Preview release line realigned to `v0.3.0-preview.1`. This GitHub release includes all changes merged after `v0.2.0-preview.1`, including the previously untagged March preview work, plus the final versioning and documentation refresh.
+
+### Added
+
+- **Role-aware JWT sessions** — internal JWTs now carry user roles, WebSocket access is routed through authenticated paths, and admin-only controls now protect applications, API keys, worker operations, observability, and policy management
+- **Configurable CORS allowlist** — both internal and external APIs now honor `CORS_ALLOWED_ORIGINS` instead of reflecting arbitrary origins
+- **Policy provenance and explainability** — policies now track `source` (`system` vs `pipeline_inline`) and `origin` metadata, support inline import from pipeline definitions, and expose effective stage policy resolution via `GET /policies/effective/stages/{stageId}`
+- **Policy governance actions** — inline policies can be promoted to system policies, orphaned inline policies are surfaced explicitly, and the dashboard now shows source/provenance filters and resolution semantics
+- **Approval outcome context injection** — resumed approval stages now write `agent:approved` and `agent:rejectionReason` into pipeline context for downstream stages
 
 ### Changed
 
-- **Release line renumbering** — the active preview release line now uses `v0.3.0-preview.1`
+- **External stage ownership enforcement** — external append/resume flows now require the target pipeline/stage to belong to the calling application, closing cross-app access paths
+- **DB-backed policy runtime** — policy CRUD and inline imports now sync to PostgreSQL, and runtime evaluation can resolve effective policies from the persisted dataset
+- **Preview line renumbering** — the active preview release line now uses `v0.3.0-preview.1`
 - **Documentation refresh** — README, quickstart, OpenAPI metadata, compose examples, and release references now consistently point to `v0.3.0-preview.1`
+
+### Fixed
+
+- **External endpoint test coverage** — test fixtures now include `pipeline_context_item`, aligning external stage control tests with approval-context writes
+
+### Upgrade Notes
+
+- Run database migrations before starting `pipelogiq-app`; this release adds `policy.source` and `policy.origin` columns and expands policy runtime persistence
+- Set a strong `JWT_SECRET` (minimum 32 characters). The API now fails fast if it is missing or too short
+- Review `CORS_ALLOWED_ORIGINS` for every deployed dashboard/API origin. Origins outside the allowlist now receive `403 Forbidden`
+- External clients can only append stages to, or resume stages within, pipelines owned by their own `application_id`
+- Imported inline policies are read-only in the dashboard until promoted to a system policy
+
+**Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.2.0-preview.1...v0.3.0-preview.1
 
 ## [0.1.0-preview.3] - 2026-03-19
 
-Third preview release. Policy enforcement is now live at runtime: retry policies with configurable backoff are applied automatically when stages fail, and all policy events are persisted to PostgreSQL.
+Draft preview section prepared before the release line was renumbered. The shipped GitHub release for this work is `v0.3.0-preview.1`.
 
 ### Added
 
@@ -113,5 +137,4 @@ First public preview release.
 
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
-[0.1.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.3
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
