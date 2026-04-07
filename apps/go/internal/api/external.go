@@ -357,7 +357,7 @@ func (s *ExternalServer) handleAppendPipelineStages(w http.ResponseWriter, r *ht
 		return
 	}
 
-	result, err := s.store.AppendStages(ctx, pipelineID, req, fmt.Sprintf("application:%d", appID))
+	result, err := s.store.AppendStages(ctx, pipelineID, req, fmt.Sprintf("application:%d", appID), appID)
 	if err != nil {
 		switch {
 		case store.IsPipelineNotFoundError(err):
@@ -484,7 +484,7 @@ func (s *ExternalServer) handleResumeStage(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err = s.store.ResumeStageApproval(ctx, stageID, req, fmt.Sprintf("application:%d", appID)); err != nil {
+	if err = s.store.ResumeStageApproval(ctx, stageID, req, fmt.Sprintf("application:%d", appID), appID); err != nil {
 		switch {
 		case store.IsStageNotFoundError(err):
 			statusCode = http.StatusNotFound

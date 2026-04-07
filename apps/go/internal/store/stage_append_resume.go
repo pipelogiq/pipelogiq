@@ -49,6 +49,7 @@ func (s *Store) AppendStages(
 	pipelineID int,
 	req types.AppendStagesRequest,
 	actor string,
+	appID ...int,
 ) (*types.AppendStagesResponse, error) {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -66,12 +67,27 @@ func (s *Store) AppendStages(
 		Status      sql.NullString `db:"status"`
 		IsCompleted bool           `db:"is_completed"`
 	}
-	lockQuery := fmt.Sprintf(`
-		SELECT id, status, is_completed
-		FROM pipeline
-		WHERE id = $1%s
-	`, s.forUpdateClause())
-	if err = tx.GetContext(ctx, &row, lockQuery, pipelineID); err != nil {
+
+	// When appID is provided, enforce ownership — the pipeline must belong
+	// to the caller's application. This prevents cross-app data leakage.
+	var lockQuery string
+	var lockArgs []interface{}
+	if len(appID) > 0 && appID[0] > 0 {
+		lockQuery = fmt.Sprintf(`
+			SELECT id, status, is_completed
+			FROM pipeline
+			WHERE id = $1 AND application_id = $2%s
+		`, s.forUpdateClause())
+		lockArgs = []interface{}{pipelineID, appID[0]}
+	} else {
+		lockQuery = fmt.Sprintf(`
+			SELECT id, status, is_completed
+			FROM pipeline
+			WHERE id = $1%s
+		`, s.forUpdateClause())
+		lockArgs = []interface{}{pipelineID}
+	}
+	if err = tx.GetContext(ctx, &row, lockQuery, lockArgs...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPipelineNotFound
 		}
@@ -165,9 +181,10 @@ func (s *Store) ResumeStageApproval(
 	stageID int,
 	req types.ResumeStageRequest,
 	actor string,
+	appID ...int,
 ) error {
 	return s.withSQLiteLockRetry(ctx, func() error {
-		return s.resumeStageApprovalOnce(ctx, stageID, req, actor)
+		return s.resumeStageApprovalOnce(ctx, stageID, req, actor, appID...)
 	})
 }
 
@@ -176,6 +193,7 @@ func (s *Store) resumeStageApprovalOnce(
 	stageID int,
 	req types.ResumeStageRequest,
 	actor string,
+	appID ...int,
 ) error {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -195,17 +213,37 @@ func (s *Store) resumeStageApprovalOnce(
 		ApprovalDecision        sql.NullBool   `db:"approval_decision"`
 		ApprovalRejectionReason sql.NullString `db:"approval_rejection_reason"`
 	}
-	lockQuery := fmt.Sprintf(`
-		SELECT
-			id,
-			pipeline_id,
-			status,
-			approval_decision,
-			approval_rejection_reason
-		FROM stage
-		WHERE id = $1%s
-	`, s.forUpdateClause())
-	if err = tx.GetContext(ctx, &stage, lockQuery, stageID); err != nil {
+
+	// When appID is provided, join with pipeline to enforce ownership.
+	var lockQuery string
+	var lockArgs []interface{}
+	if len(appID) > 0 && appID[0] > 0 {
+		lockQuery = fmt.Sprintf(`
+			SELECT
+				s.id,
+				s.pipeline_id,
+				s.status,
+				s.approval_decision,
+				s.approval_rejection_reason
+			FROM stage s
+			JOIN pipeline p ON p.id = s.pipeline_id
+			WHERE s.id = $1 AND p.application_id = $2%s
+		`, s.forUpdateOfClause("s"))
+		lockArgs = []interface{}{stageID, appID[0]}
+	} else {
+		lockQuery = fmt.Sprintf(`
+			SELECT
+				id,
+				pipeline_id,
+				status,
+				approval_decision,
+				approval_rejection_reason
+			FROM stage
+			WHERE id = $1%s
+		`, s.forUpdateClause())
+		lockArgs = []interface{}{stageID}
+	}
+	if err = tx.GetContext(ctx, &stage, lockQuery, lockArgs...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrStageNotFound
 		}
