@@ -301,6 +301,46 @@ interface StageCardProps {
   onToggle: () => void;
 }
 
+function hasPayloadContent(payload: unknown): boolean {
+  if (payload === null || payload === undefined) {
+    return false;
+  }
+
+  if (typeof payload === "string") {
+    return payload.trim().length > 0;
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.length > 0;
+  }
+
+  if (typeof payload === "object") {
+    return Object.keys(payload as Record<string, unknown>).length > 0;
+  }
+
+  return true;
+}
+
+function formatPayloadPreview(payload: unknown): string {
+  if (payload === null || payload === undefined) {
+    return "";
+  }
+
+  if (typeof payload === "string") {
+    return payload;
+  }
+
+  if (typeof payload === "number" || typeof payload === "boolean") {
+    return String(payload);
+  }
+
+  try {
+    return JSON.stringify(payload, null, 2);
+  } catch {
+    return String(payload);
+  }
+}
+
 function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardProps) {
   const rerunStage = useRerunStage();
   const skipStage = useSkipStage();
@@ -359,6 +399,8 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
   };
 
   const statusInfo = getStatusLabel();
+  const hasInput = hasPayloadContent(action.input);
+  const hasOutput = hasPayloadContent(action.output);
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
@@ -460,21 +502,42 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                       >
                         <ExternalLink className="h-3 w-3" />
                         Span
-                      </a>
+                    </a>
                   )}
                 </div>
             )}
-            {/* Output Preview */}
-            <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
-                Output
-              </p>
-              <p className={cn(
-                "text-sm font-medium max-w-full whitespace-pre-wrap break-all",
-                action.status === "error" ? "text-red-700" : "text-slate-800"
-              )}>
-                {getOutputPreview()}
-              </p>
+            <div className="space-y-3">
+              {hasInput && (
+                <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                    Input
+                  </p>
+                  <pre className="max-w-full whitespace-pre-wrap break-all font-mono text-xs text-slate-700">
+                    {formatPayloadPreview(action.input)}
+                  </pre>
+                </div>
+              )}
+
+              <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                  Output
+                </p>
+                {hasOutput ? (
+                  <pre className={cn(
+                    "max-w-full whitespace-pre-wrap break-all font-mono text-xs",
+                    action.status === "error" ? "text-red-700" : "text-slate-700"
+                  )}>
+                    {formatPayloadPreview(action.output)}
+                  </pre>
+                ) : (
+                  <p className={cn(
+                    "text-sm font-medium max-w-full whitespace-pre-wrap break-all",
+                    action.status === "error" ? "text-red-700" : "text-slate-800"
+                  )}>
+                    {getOutputPreview()}
+                  </p>
+                )}
+              </div>
             </div>
 
           </div>

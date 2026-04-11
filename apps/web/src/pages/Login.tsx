@@ -102,12 +102,6 @@ export default function Login() {
                 )}
               </Button>
             </form>
-
-            <div className="mt-6 pt-4 border-t">
-              <p className="text-xs text-muted-foreground text-center">
-                Demo credentials: jegor@gmail.com / admin123
-              </p>
-            </div>
           </CardContent>
         </Card>
       </div>
