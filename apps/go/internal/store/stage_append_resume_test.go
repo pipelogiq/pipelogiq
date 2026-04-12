@@ -233,6 +233,61 @@ func TestResumeStageApproval_ConflictOnDifferentDecision(t *testing.T) {
 	}
 }
 
+func TestUpdateStageResult_FailedStageWithRunNextIfFailedContinuation_KeepsPipelineRunnable(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	pipelineID := insertPipelineRow(t, db, "failed-with-continuation", types.PipelineStatusRunning, false)
+	failedStageID := insertStageRow(t, db, pipelineID, "agent-think", types.StageStatusPending)
+	responderStageID := insertStageRow(t, db, pipelineID, "agent-responder", types.StageStatusNotStarted)
+	insertStageRunNextIfFailedOption(t, db, responderStageID, true)
+
+	pipeline, err := st.UpdateStageResult(context.Background(), types.StageResultMessage{
+		StageID:   failedStageID,
+		Result:    "Tool loop detected for 'saveBudgetResult' — responder appended.",
+		IsSuccess: false,
+		ErrorCode: "TOOL_LOOP",
+	})
+	if err != nil {
+		t.Fatalf("UpdateStageResult() error = %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("expected pipeline snapshot, got nil")
+	}
+	if pipeline.Status != types.PipelineStatusRunning {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusRunning)
+	}
+
+	next, err := st.GetStageToExecute(context.Background())
+	if err != nil {
+		t.Fatalf("GetStageToExecute() error = %v", err)
+	}
+	if next == nil {
+		t.Fatal("expected continuation stage to become runnable")
+	}
+	if next.StageID != responderStageID {
+		t.Fatalf("next stage id = %d, want %d", next.StageID, responderStageID)
+	}
+}
+
+func TestGetStageToExecute_AllowsRunNextIfFailedStageAfterEarlierFailure(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	pipelineID := insertPipelineRow(t, db, "append-followup-after-failure", types.PipelineStatusRunning, false)
+	insertStageRow(t, db, pipelineID, "failed-step", types.StageStatusFailed)
+	followupStageID := insertStageRow(t, db, pipelineID, "responder", types.StageStatusNotStarted)
+	insertStageRunNextIfFailedOption(t, db, followupStageID, true)
+
+	next, err := st.GetStageToExecute(context.Background())
+	if err != nil {
+		t.Fatalf("GetStageToExecute() error = %v", err)
+	}
+	if next == nil {
+		t.Fatal("expected follow-up stage, got nil")
+	}
+	if next.StageID != followupStageID {
+		t.Fatalf("next stage id = %d, want %d", next.StageID, followupStageID)
+	}
+}
+
 func TestResumeStageApproval_ConcurrentRequests(t *testing.T) {
 	st, db := setupStageOpsTestStore(t)
 	pipelineID := insertPipelineRow(t, db, "resume-concurrent", types.PipelineStatusRunning, false)
@@ -412,4 +467,14 @@ func insertStageRow(t *testing.T, db *sqlx.DB, pipelineID int, name, status stri
 
 func ptrInt(v int) *int {
 	return &v
+}
+
+func insertStageRunNextIfFailedOption(t *testing.T, db *sqlx.DB, stageID int, enabled bool) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO stage_options (stage_id, run_next_if_failed)
+		VALUES ($1, $2)
+	`, stageID, enabled); err != nil {
+		t.Fatalf("insert stage option: %v", err)
+	}
 }

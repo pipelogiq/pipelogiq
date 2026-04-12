@@ -6,21 +6,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import type { UIStatus } from "@/types/api";
+import type { StageLog, UIStatus } from "@/types/api";
 import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
 
 export interface PipelineAction {
   id: string;
   name: string;
+  handlerName?: string;
   spanId?: string;
   status: UIStatus;
   duration?: string;
+  createdAt?: string;
   startedAt?: string;
   completedAt?: string;
   retries?: number;
   throttleInfo?: string;
   error?: string;
   logs: string;
+  logEntries?: StageLog[];
   input: Record<string, unknown>;
   output: Record<string, unknown>;
 }

@@ -144,7 +144,7 @@ func (s *Store) AppendStages(
 			ctx,
 			tx,
 			stageID,
-			fmt.Sprintf("Stage appended via API [pipeline=%d, actor=%s]", pipelineID, auditActor(actor)),
+			buildAppendStageAuditMessage(pipelineID, actor, incoming, handlerName, runNextIfFailed),
 		); err != nil {
 			return nil, fmt.Errorf("insert append audit log: %w", err)
 		}
@@ -517,6 +517,47 @@ func auditActor(actor string) string {
 		return "unknown"
 	}
 	return trimmed
+}
+
+func buildAppendStageAuditMessage(
+	pipelineID int,
+	actor string,
+	incoming types.StageCreate,
+	handlerName string,
+	runNextIfFailed bool,
+) string {
+	parts := []string{
+		fmt.Sprintf("pipeline=%d", pipelineID),
+		fmt.Sprintf("actor=%s", auditActor(actor)),
+		fmt.Sprintf("stage=%s", strings.TrimSpace(incoming.Name)),
+		fmt.Sprintf("handler=%s", strings.TrimSpace(handlerName)),
+		fmt.Sprintf("runNextIfFailed=%t", runNextIfFailed),
+		fmt.Sprintf("isEvent=%t", incoming.IsEvent),
+	}
+
+	if incoming.Options != nil {
+		if incoming.Options.MaxRetries != nil {
+			parts = append(parts, fmt.Sprintf("maxRetries=%d", *incoming.Options.MaxRetries))
+		}
+		if incoming.Options.RetryInterval != nil {
+			parts = append(parts, fmt.Sprintf("retryIntervalSec=%d", *incoming.Options.RetryInterval))
+		}
+		if incoming.Options.TimeOut != nil {
+			parts = append(parts, fmt.Sprintf("timeoutSec=%d", *incoming.Options.TimeOut))
+		}
+		if len(incoming.Options.DependsOn) > 0 {
+			parts = append(parts, fmt.Sprintf("dependsOn=%s", strings.Join(incoming.Options.DependsOn, ",")))
+		}
+		if len(incoming.Options.RunInParallelWith) > 0 {
+			parts = append(parts, fmt.Sprintf("parallelWith=%s", strings.Join(incoming.Options.RunInParallelWith, ",")))
+		}
+	}
+
+	if preview := stageLogPreview(incoming.Input, 900); preview != "" {
+		parts = append(parts, fmt.Sprintf("input=%s", preview))
+	}
+
+	return "Stage appended via API [" + strings.Join(parts, ", ") + "]"
 }
 
 func randomHex(size int) string {

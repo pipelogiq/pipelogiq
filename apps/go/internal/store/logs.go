@@ -5,7 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/jmoiron/sqlx"
 
 	"pipelogiq/internal/types"
 )
@@ -108,6 +111,29 @@ func (s *Store) SaveLog(ctx context.Context, req types.LogRequest) (*types.LogRe
 		CreatedAt:     created,
 		Keywords:      req.Keywords,
 	}, nil
+}
+
+func (s *Store) insertStageLogTx(ctx context.Context, tx *sqlx.Tx, stageID int, logLevel string, message string) error {
+	if strings.TrimSpace(message) == "" {
+		return nil
+	}
+
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO stage_log (log, log_level, created_at, stage_id)
+		VALUES ($1, $2, $3, $4)
+	`, message, strings.ToUpper(strings.TrimSpace(logLevel)), time.Now().UTC(), stageID)
+	return err
+}
+
+func stageLogPreview(value string, maxLen int) string {
+	trimmed := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " "))
+	if trimmed == "" {
+		return ""
+	}
+	if maxLen <= 0 || len(trimmed) <= maxLen {
+		return trimmed
+	}
+	return trimmed[:maxLen] + "..."
 }
 
 // LogStageChange inserts a stage status change entry into stage_log.

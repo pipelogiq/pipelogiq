@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.0-preview.2] - 2026-04-12
+
+Third preview release focused on pipeline inspection, richer runtime diagnostics, and agent-flow stability.
+
+### Added
+
+- **Richer stage execution logs** — stages now persist execution scheduling details, result summaries, input previews, and append-time audit context instead of only status-change events
+- **Agent execution diagnostics** — agent stages now emit structured logs for think steps, tool dispatch, confirmation delivery, responder delivery, and terminal loop/budget paths
+- **Pipeline logs UX refresh** — the dashboard `Logs` tab now shows per-stage cards with handler name, created/started/finished timestamps, duration, input, output, and raw stage log entries
+
+### Changed
+
+- **Failure continuation semantics** — stages marked with `run_next_if_failed` now remain runnable after an upstream failure, and pipelines stay active while a valid continuation stage still exists
+- **Append-stage audit detail** — appended stages now record handler, retry/timeout options, parallel/depends-on metadata, and input preview in the persisted audit trail
+- **Pipeline detail visibility** — pipeline side panel now surfaces stage input alongside stage output, reducing the need to inspect context separately for basic debugging
+
+### Fixed
+
+- **Agent responder duplication** — the .NET agent flow now appends `agent:responder` idempotently instead of repeatedly creating duplicate responder stages in terminal error paths
+- **Terminal agent follow-up execution** — responder stages appended after tool-loop or budget terminal conditions now execute correctly instead of being stranded behind a failed predecessor
+- **Login page hygiene** — removed exposed demo credentials from the dashboard sign-in screen
+
+### Upgrade Notes
+
+- No database migrations are required for this preview
+- Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker` to pick up the richer runtime logging and `run_next_if_failed` scheduling fixes
+- For the best troubleshooting experience, upgrade `pipelogiq-sdk-net` to `0.3.0-preview.2` as well so worker-side stage logs include the new agent diagnostics
+
+**Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.3.0-preview.1...v0.3.0-preview.2
+
 ## [0.3.0-preview.1] - 2026-04-07
 
 Preview release line realigned to `v0.3.0-preview.1`. This GitHub release includes all changes merged after `v0.2.0-preview.1`, including the previously untagged March preview work, plus the final versioning and documentation refresh.
@@ -138,3 +168,4 @@ First public preview release.
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
+[0.3.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.2

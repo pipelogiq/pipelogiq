@@ -236,15 +236,85 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
         {activeTab === "logs" && (
           <ScrollArea className="h-full">
-            <div className="p-4 font-mono text-sm leading-relaxed text-slate-800 bg-white m-4 rounded-lg border border-slate-200">
-              {pipeline.actions
-                .flatMap(a => a.logs ? a.logs.split("\n") : [])
-                .filter(Boolean)
-                .map((line, i) => (
-                  <p key={i} className="whitespace-pre-wrap pb-2">{line}</p>
-                ))}
-              {pipeline.actions.every(a => !a.logs) && (
-                <p className="text-slate-500">No logs available</p>
+            <div className="p-4 space-y-4">
+              {pipeline.actions.map((action, index) => {
+                const hasInput = hasPayloadContent(action.input);
+                const hasOutput = hasPayloadContent(action.output);
+                const hasEntries = (action.logEntries?.length || 0) > 0;
+
+                if (!hasInput && !hasOutput && !hasEntries) {
+                  return null;
+                }
+
+                return (
+                  <div key={action.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono text-xs font-bold text-slate-500">
+                          #{(index + 1).toString().padStart(2, "0")}
+                        </span>
+                        <span className="text-sm font-bold text-slate-900">{action.name}</span>
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          {action.handlerName || "handler unknown"}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 font-mono">
+                        {action.createdAt && <span>CREATED {action.createdAt}</span>}
+                        {action.startedAt && <span>STARTED {action.startedAt}</span>}
+                        {action.completedAt && <span>FINISHED {action.completedAt}</span>}
+                        {action.duration && <span>DURATION {action.duration}</span>}
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-4">
+                      {hasInput && (
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Input</p>
+                          <pre className="max-w-full whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700">
+                            {formatPayloadPreview(action.input)}
+                          </pre>
+                        </div>
+                      )}
+
+                      {(hasOutput || !hasEntries) && (
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Output</p>
+                          {hasOutput ? (
+                            <pre className="max-w-full whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700">
+                              {formatPayloadPreview(action.output)}
+                            </pre>
+                          ) : (
+                            <p className="rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600">
+                              {formatLogOutputFallback(action)}
+                            </p>
+                          )}
+                        </div>
+                      )}
+
+                      {hasEntries && (
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Stage Logs</p>
+                          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+                            {action.logEntries!.map((entry, logIndex) => (
+                              <p key={`${action.id}-${logIndex}`} className="whitespace-pre-wrap break-words font-mono text-xs text-slate-800">
+                                [{entry.created}] {(entry.logLevel || "INFO").toUpperCase()} {entry.message}
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {pipeline.actions.every(action =>
+                !hasPayloadContent(action.input) &&
+                !hasPayloadContent(action.output) &&
+                (!action.logEntries || action.logEntries.length === 0)
+              ) && (
+                <div className="bg-white m-0 rounded-lg border border-slate-200 p-6">
+                  <p className="text-slate-500">No logs available</p>
+                </div>
               )}
             </div>
           </ScrollArea>
@@ -339,6 +409,25 @@ function formatPayloadPreview(payload: unknown): string {
   } catch {
     return String(payload);
   }
+}
+
+function formatLogOutputFallback(action: PipelineAction): string {
+  if (action.status === "queued") {
+    return "Not started";
+  }
+  if (action.status === "waiting") {
+    return "Pending...";
+  }
+  if (action.status === "running") {
+    return "Processing...";
+  }
+  if (action.status === "success") {
+    return "Completed without structured output payload.";
+  }
+  if (action.status === "error") {
+    return action.error || "Stage failed without structured output payload.";
+  }
+  return "No structured output payload.";
 }
 
 function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardProps) {

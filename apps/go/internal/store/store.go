@@ -308,6 +308,9 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID int) (*types.Pipelin
 	}
 
 	status := computePipelineStatus(states)
+	if !row.IsCompleted && row.Status != nil && strings.TrimSpace(*row.Status) != "" {
+		status = *row.Status
+	}
 	isEvent := s.getPipelineIsEvent(ctx, pipelineID)
 
 	return &types.PipelineResponse{
@@ -511,14 +514,26 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 				WHERE sb.pipeline_id = p.id
 				  AND sb.id < s.id
 				  AND COALESCE(sb.is_event,false) = false
-				  AND sb.status NOT IN ($5, $6)
+				  AND NOT (
+					sb.status IN ($5, $6)
+					OR (
+						sb.status = $7
+						AND COALESCE((
+							SELECT so.run_next_if_failed
+							FROM stage_options so
+							WHERE so.stage_id = s.id
+							ORDER BY so.id DESC
+							LIMIT 1
+						), false)
+					)
+				  )
 			  )
 			ORDER BY p.id, s.id
 			LIMIT 1
 		)
 		SELECT id FROM candidate
 	`, types.StageStatusNotStarted, types.StageStatusPending, types.StageStatusRetryScheduled,
-		types.StageStatusThrottled, types.StageStatusCompleted, types.StageStatusSkipped).Scan(&stageID)
+		types.StageStatusThrottled, types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Commit()
@@ -627,6 +642,22 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 
 	ctxItems, err := s.getContextItemsTx(ctx, tx, row.PipelineID)
 	if err != nil {
+		return nil, err
+	}
+
+	if err = s.insertStageLogTx(
+		ctx,
+		tx,
+		row.StageID,
+		"INFO",
+		fmt.Sprintf(
+			"Stage scheduled for execution [pipeline=%d, handler=%s, contextItems=%d, input=%s]",
+			row.PipelineID,
+			row.StageHandlerName.String,
+			len(ctxItems),
+			stageLogPreview(row.Input.String, 900),
+		),
+	); err != nil {
 		return nil, err
 	}
 
@@ -849,7 +880,7 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		MaxRetries    sql.NullInt64  `db:"max_retries"`
 	}
 
-	err = tx.GetContext(ctx, &stage, `
+	err = tx.GetContext(ctx, &stage, fmt.Sprintf(`
 		SELECT
 			s.id,
 			s.pipeline_id,
@@ -865,8 +896,8 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		WHERE s.id = $1
 		ORDER BY so.id DESC NULLS LAST
 		LIMIT 1
-		FOR UPDATE OF s
-	`, msg.StageID)
+	%s
+	`, s.forUpdateOfClause("s")), msg.StageID)
 	if err != nil {
 		return nil, err
 	}
@@ -982,6 +1013,20 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		}
 	}
 
+	resultSummary := fmt.Sprintf(
+		"Stage result processed [success=%t, waitingForApproval=%t, newStatus=%s, errorCode=%s, logs=%d, contextItems=%d, result=%s]",
+		msg.IsSuccess,
+		msg.IsWaitingForApproval,
+		newStatus,
+		blankIfEmpty(msg.ErrorCode, "-"),
+		len(msg.Logs),
+		len(msg.ContextItems),
+		stageLogPreview(msg.Result, 900),
+	)
+	if err = s.insertStageLogTx(ctx, tx, msg.StageID, pickStageResultLogLevel(msg.IsSuccess, msg.IsWaitingForApproval), resultSummary); err != nil {
+		return nil, err
+	}
+
 	if newStatus == types.StageStatusRetryScheduled {
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE pipeline SET is_completed=false, finished_at=NULL, status=$2 WHERE id=$1
@@ -995,7 +1040,15 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			return nil, err
 		}
 
-		completePipeline := (!msg.IsSuccess || msg.StageID == lastStageID) && !msg.IsWaitingForApproval
+		hasFailureContinuation := false
+		if !msg.IsSuccess {
+			hasFailureContinuation, err = s.hasFailureContinuationStageTx(ctx, tx, stage.PipelineID, msg.StageID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		completePipeline := ((!msg.IsSuccess && !hasFailureContinuation) || msg.StageID == lastStageID) && !msg.IsWaitingForApproval
 		if completePipeline {
 			pStatus := types.PipelineStatusCompleted
 			if !msg.IsSuccess {
@@ -1016,6 +1069,43 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	s.LogStageChange(ctx, stage.PipelineID, msg.StageID, stage.Status, newStatus, "result_consumer")
 
 	return s.GetPipelineWithStages(ctx, stage.PipelineID)
+}
+
+func (s *Store) hasFailureContinuationStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, failedStageID int) (bool, error) {
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM stage s
+			LEFT JOIN stage_options so ON so.stage_id = s.id
+			WHERE s.pipeline_id = $1
+			  AND s.id > $2
+			  AND COALESCE(s.is_event, false) = false
+			  AND COALESCE(s.is_skipped, false) = false
+			  AND COALESCE(so.run_next_if_failed, false)
+		)
+	`, pipelineID, failedStageID); err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
+
+func pickStageResultLogLevel(isSuccess bool, isWaitingForApproval bool) string {
+	if isWaitingForApproval {
+		return "WARN"
+	}
+	if isSuccess {
+		return "INFO"
+	}
+	return "ERROR"
+}
+
+func blankIfEmpty(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }
 
 func valueTypeOrDefault(vt string) string {
