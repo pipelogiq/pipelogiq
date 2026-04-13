@@ -553,10 +553,10 @@ func (s *Store) UpdateWorkerHeartbeat(ctx context.Context, token string, req typ
 			EventType: "worker.status_updated",
 			Message:   buildWorkerStatusMessage(nextState, statusReason, lastError),
 			Details: map[string]any{
-				"state":            nextState,
-				"statusReason":     statusReason,
-				"lastError":        lastError,
-				"brokerConnected":  brokerConnected,
+				"state":           nextState,
+				"statusReason":    statusReason,
+				"lastError":       lastError,
+				"brokerConnected": brokerConnected,
 			},
 		})
 	}
