@@ -13,6 +13,13 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface VersionInfoResponse {
+  version: string;
+  commit: string;
+  buildDate: string;
+  goVersion: string;
+}
+
 // Pipeline types
 export interface PipelineResponse {
   id: number;

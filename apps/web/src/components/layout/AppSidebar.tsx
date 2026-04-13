@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Workflow,
@@ -14,6 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { systemApi } from "@/api/client";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -24,9 +26,44 @@ const navigation = [
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 
+function resolveEnvironmentName(): string {
+  const configured = import.meta.env.VITE_APP_ENVIRONMENT?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  if (import.meta.env.DEV) {
+    return "Development";
+  }
+
+  const host = window.location.hostname.toLowerCase();
+  if (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host === "::1" ||
+    host.endsWith(".local")
+  ) {
+    return "Development";
+  }
+
+  return "Production";
+}
+
 export function AppSidebar() {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(true);
+  const environmentName = resolveEnvironmentName();
+  const { data: versionInfo, isError: versionLoadFailed } = useQuery({
+    queryKey: ["system-version"],
+    queryFn: systemApi.getVersion,
+    staleTime: Infinity,
+  });
+
+  const versionLabel = versionInfo?.version
+    ? `Version ${versionInfo.version}`
+    : versionLoadFailed
+      ? "Version unavailable"
+      : "Loading version...";
 
   return (
     <aside
@@ -121,8 +158,8 @@ export function AppSidebar() {
           <div className="flex items-center gap-3 rounded-lg bg-sidebar-accent px-3 py-2.5">
             <div className="h-2 w-2 rounded-full bg-status-success" />
             <div className="flex-1">
-              <p className="text-sm font-medium text-sidebar-accent-foreground">Production</p>
-              <p className="text-xs text-muted-foreground">us-east-1</p>
+              <p className="text-sm font-medium text-sidebar-accent-foreground">{environmentName}</p>
+              <p className="text-xs text-muted-foreground">{versionLabel}</p>
             </div>
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
           </div>

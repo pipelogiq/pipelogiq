@@ -1,6 +1,7 @@
 import type {
   User,
   LoginRequest,
+  VersionInfoResponse,
   PipelineResponse,
   StageResponse,
   ContextItem,
@@ -105,6 +106,12 @@ export const authApi = {
 
   getCurrentUser: async (): Promise<User> => {
     return request<User>('/auth/me');
+  },
+};
+
+export const systemApi = {
+  getVersion: async (): Promise<VersionInfoResponse> => {
+    return request<VersionInfoResponse>('/version');
   },
 };
 

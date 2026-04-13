@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.0-preview.3] - 2026-04-13
+
+Fourth preview release focused on worker resilience, clearer diagnostics, and easier pipeline inspection in the dashboard.
+
+### Added
+
+- **Deployment footer in the dashboard** — the sidebar now shows the active environment label and the live deployed version from `GET /version`, making it easier to confirm where you are working
+- **Richer worker diagnostics in the dashboard** — worker registry rows now surface `statusReason` and `lastError`, and worker activity cards render structured event details instead of only the headline message
+
+### Changed
+
+- **Pipeline inspection readability** — long log lines, JSON payloads, and context values now wrap inside the pipeline side panel and detail view, so logs and context can be read without horizontal scrolling
+- **Context payload viewing** — expanded context previews and full-view dialogs now keep large structured values inside the available panel width while preserving formatted output
+
+### Fixed
+
+- **RabbitMQ consumer CPU spin** — `pipelogiq-worker` no longer enters a tight loop when a RabbitMQ delivery channel closes during consume/reconnect handling
+- **Worker polling safety** — invalid or too-small worker poll intervals are now clamped to safe values with explicit warnings, preventing accidental busy-polling from bad environment configuration
+- **Timeout watcher safety** — invalid stage timeout settings now fall back to sane defaults instead of risking pathological ticker behavior
+
+### Upgrade Notes
+
+- No database migrations are required for this preview
+- Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker` to pick up the worker CPU fix, worker diagnostics improvements, and dashboard inspection updates
+- For the best worker-side compatibility, upgrade `pipelogiq-sdk-net` to `0.3.0-preview.3`
+
+**Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.3.0-preview.2...v0.3.0-preview.3
+
 ## [0.3.0-preview.2] - 2026-04-12
 
 Third preview release focused on pipeline inspection, richer runtime diagnostics, and agent-flow stability.
@@ -169,3 +197,4 @@ First public preview release.
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
 [0.3.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.2
+[0.3.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.3

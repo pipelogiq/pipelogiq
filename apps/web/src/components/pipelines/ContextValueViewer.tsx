@@ -54,7 +54,7 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
 
   if (!display.isExpandable) {
     return (
-      <div className={cn("font-mono text-sm text-slate-700 break-all", className)}>
+      <div className={cn("max-w-full whitespace-pre-wrap break-words font-mono text-sm text-slate-700 [overflow-wrap:anywhere]", className)}>
         {item.value}
       </div>
     );
@@ -62,10 +62,10 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
 
   return (
     <>
-      <div className={cn("min-w-0", className)}>
-        <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+      <div className={cn("w-full min-w-0 overflow-hidden", className)}>
+        <div className="flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 p-3">
           <div className="min-w-0 flex-1">
-            <div className="font-mono text-xs leading-5 text-slate-700 break-words">
+            <div className="max-w-full whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700 [overflow-wrap:anywhere]">
               {display.preview}
             </div>
           </div>
@@ -148,7 +148,7 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
           </DialogHeader>
 
           <ScrollArea className="max-h-[70vh] bg-slate-950">
-            <pre className="overflow-x-auto p-6 font-mono text-xs leading-6 text-slate-100 whitespace-pre-wrap break-words">
+            <pre className="max-w-full whitespace-pre-wrap break-words p-6 font-mono text-xs leading-6 text-slate-100 [overflow-wrap:anywhere]">
               {display.kind === "json" && !showRaw ? display.prettyValue : item.value}
             </pre>
           </ScrollArea>

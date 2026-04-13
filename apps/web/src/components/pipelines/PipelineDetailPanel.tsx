@@ -253,7 +253,11 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
 
         <TabsContent value="context" className="flex-1 m-0 p-5 overflow-auto">
           <div className="rounded-lg border border-border">
-            <table className="w-full">
+            <table className="w-full table-fixed">
+              <colgroup>
+                <col className="w-[30%]" />
+                <col className="w-[70%]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-border bg-muted/50">
                   <th className="px-4 py-2.5 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -267,11 +271,11 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
               <tbody className="divide-y divide-border">
                 {pipeline.context.map((ctx, index) => (
                   <tr key={index} className="hover:bg-muted/30">
-                    <td className="px-4 py-2.5 font-mono text-sm text-foreground">
+                    <td className="max-w-0 break-all px-4 py-2.5 font-mono text-sm text-foreground [overflow-wrap:anywhere]">
                       {ctx.key}
                     </td>
-                    <td className="px-4 py-2.5 align-top">
-                      <ContextValueViewer item={ctx} />
+                    <td className="min-w-0 px-4 py-2.5 align-top">
+                      <ContextValueViewer item={ctx} className="w-full min-w-0" />
                     </td>
                   </tr>
                 ))}
@@ -309,7 +313,7 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
         </TabsContent>
 
         <TabsContent value="logs" className="flex-1 m-0 p-5 overflow-auto">
-          <pre className="rounded-lg bg-foreground/5 p-4 font-mono text-xs leading-relaxed text-foreground/80 overflow-x-auto whitespace-pre-wrap">
+          <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg bg-foreground/5 p-4 font-mono text-xs leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
             {pipeline.actions.map(a => a.logs).join("\n\n")}
           </pre>
         </TabsContent>
@@ -336,19 +340,19 @@ function ActionDetailView({ action }: { action: PipelineAction }) {
       </div>
 
       <TabsContent value="logs" className="flex-1 m-0 p-4 overflow-auto">
-        <pre className="rounded-lg bg-foreground/5 p-3 font-mono text-xs leading-relaxed text-foreground/80 whitespace-pre-wrap">
+        <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg bg-foreground/5 p-3 font-mono text-xs leading-relaxed text-foreground/80 [overflow-wrap:anywhere]">
           {action.logs}
         </pre>
       </TabsContent>
 
       <TabsContent value="input" className="flex-1 m-0 p-4 overflow-auto">
-        <pre className="rounded-lg bg-foreground/5 p-3 font-mono text-xs text-foreground/80 whitespace-pre-wrap">
+        <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg bg-foreground/5 p-3 font-mono text-xs text-foreground/80 [overflow-wrap:anywhere]">
           {JSON.stringify(action.input, null, 2)}
         </pre>
       </TabsContent>
 
       <TabsContent value="output" className="flex-1 m-0 p-4 overflow-auto">
-        <pre className="rounded-lg bg-foreground/5 p-3 font-mono text-xs text-foreground/80 whitespace-pre-wrap">
+        <pre className="max-w-full whitespace-pre-wrap break-words rounded-lg bg-foreground/5 p-3 font-mono text-xs text-foreground/80 [overflow-wrap:anywhere]">
           {JSON.stringify(action.output, null, 2)}
         </pre>
       </TabsContent>

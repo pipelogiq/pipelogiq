@@ -141,6 +141,13 @@ export default function Dashboard() {
                       </span>
                     </div>
                     <p className="mt-1 text-sm text-foreground">{event.message}</p>
+                    {event.details && Object.keys(event.details).length > 0 && (
+                      <div className="mt-2 rounded-md border border-border bg-muted/40 p-2">
+                        <pre className="whitespace-pre-wrap break-words text-xs text-muted-foreground">
+                          {formatWorkerEventDetails(event.details)}
+                        </pre>
+                      </div>
+                    )}
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded bg-muted px-1.5 py-0.5">{event.level}</span>
                       <span className="rounded bg-muted px-1.5 py-0.5">{event.eventType}</span>
@@ -176,6 +183,20 @@ function WorkerRow({ worker }: { worker: WorkerStatusResponse }) {
         <span className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${stateBadgeClass(state)}`}>
           {state}
         </span>
+        {(worker.statusReason || worker.lastError) && (
+          <div className="mt-1 space-y-1">
+            {worker.statusReason && (
+              <p className="text-xs text-muted-foreground break-words">
+                {worker.statusReason}
+              </p>
+            )}
+            {worker.lastError && worker.lastError !== worker.statusReason && (
+              <p className="text-xs text-status-error break-words">
+                {worker.lastError}
+              </p>
+            )}
+          </div>
+        )}
       </td>
       <td className="px-4 py-3 text-muted-foreground">
         <div className="flex items-center gap-1">
@@ -208,5 +229,53 @@ function stateBadgeClass(state: WorkerState): string {
       return "bg-rose-100 text-rose-800";
     default:
       return "bg-slate-100 text-slate-700";
+  }
+}
+
+function formatWorkerEventDetails(details: Record<string, unknown>): string {
+  const preferredKeys = [
+    "statusReason",
+    "lastError",
+    "error",
+    "from",
+    "to",
+    "state",
+    "handler",
+    "stageId",
+    "pipelineId",
+    "replyCode",
+    "brokerConnected",
+    "queueLag",
+    "retryDelaySec",
+    "exceptionType",
+  ];
+
+  const orderedEntries = [
+    ...preferredKeys.filter((key) => key in details).map((key) => [key, details[key]] as const),
+    ...Object.entries(details).filter(([key]) => !preferredKeys.includes(key)),
+  ];
+
+  return orderedEntries
+    .map(([key, value]) => `${key}: ${formatWorkerEventValue(value)}`)
+    .join("\n");
+}
+
+function formatWorkerEventValue(value: unknown): string {
+  if (value == null) {
+    return "null";
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
   }
 }

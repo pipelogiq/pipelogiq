@@ -38,6 +38,7 @@ npm run dev
 ## Environment
 
 `VITE_API_BASE_URL` controls API requests.
+`VITE_APP_ENVIRONMENT` optionally overrides the environment label shown in the sidebar footer.
 
 - If set to relative path (example: `/api`), requests go through Vite (or reverse-proxy) path rewriting.
 
@@ -56,6 +57,7 @@ Example:
 
 ```env
 VITE_API_BASE_URL=/api
+VITE_APP_ENVIRONMENT=Production
 ```
 
 ## Scripts

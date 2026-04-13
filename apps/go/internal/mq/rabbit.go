@@ -148,22 +148,13 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 		}
 
 		closeCh := ch.NotifyClose(make(chan *amqp.Error, 1))
-		drain := func() {
-			// attempt to drain delivery channel before closing
-			for {
-				select {
-				case <-deliveries:
-				default:
-					return
-				}
-			}
-		}
 
 		for {
 			select {
 			case d, ok := <-deliveries:
 				if !ok {
-					drain()
+					c.logger.Warn("rabbitmq: delivery channel closed, reconnecting", "queue", queue)
+					drainDeliveries(deliveries)
 					goto reconnect
 				}
 
@@ -222,6 +213,19 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 	reconnect:
 		ch.Close()
 		time.Sleep(time.Second)
+	}
+}
+
+func drainDeliveries(deliveries <-chan amqp.Delivery) {
+	for {
+		select {
+		case _, ok := <-deliveries:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
 	}
 }
 

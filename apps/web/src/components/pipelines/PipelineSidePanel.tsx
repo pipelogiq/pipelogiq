@@ -247,18 +247,20 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                 }
 
                 return (
-                  <div key={action.id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                  <div key={action.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
                     <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                         <span className="font-mono text-xs font-bold text-slate-500">
                           #{(index + 1).toString().padStart(2, "0")}
                         </span>
-                        <span className="text-sm font-bold text-slate-900">{action.name}</span>
-                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        <span className="min-w-0 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+                          {action.name}
+                        </span>
+                        <span className="min-w-0 break-all text-xs font-semibold uppercase tracking-wider text-slate-500">
                           {action.handlerName || "handler unknown"}
                         </span>
                       </div>
-                      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500 font-mono">
+                      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-slate-500">
                         {action.createdAt && <span>CREATED {action.createdAt}</span>}
                         {action.startedAt && <span>STARTED {action.startedAt}</span>}
                         {action.completedAt && <span>FINISHED {action.completedAt}</span>}
@@ -270,7 +272,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                       {hasInput && (
                         <div>
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Input</p>
-                          <pre className="max-w-full whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700">
+                          <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
                             {formatPayloadPreview(action.input)}
                           </pre>
                         </div>
@@ -280,11 +282,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                         <div>
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Output</p>
                           {hasOutput ? (
-                            <pre className="max-w-full whitespace-pre-wrap break-all rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700">
+                            <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
                               {formatPayloadPreview(action.output)}
                             </pre>
                           ) : (
-                            <p className="rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600">
+                            <p className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600 [overflow-wrap:anywhere]">
                               {formatLogOutputFallback(action)}
                             </p>
                           )}
@@ -294,9 +296,12 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                       {hasEntries && (
                         <div>
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Stage Logs</p>
-                          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2">
+                          <div className="space-y-2 overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3">
                             {action.logEntries!.map((entry, logIndex) => (
-                              <p key={`${action.id}-${logIndex}`} className="whitespace-pre-wrap break-words font-mono text-xs text-slate-800">
+                              <p
+                                key={`${action.id}-${logIndex}`}
+                                className="w-full max-w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-slate-800 [overflow-wrap:anywhere]"
+                              >
                                 [{entry.created}] {(entry.logLevel || "INFO").toUpperCase()} {entry.message}
                               </p>
                             ))}
@@ -324,7 +329,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           <ScrollArea className="h-full">
             <div className="p-4">
               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-[30%]" />
+                    <col className="w-[70%]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Key</th>
@@ -334,11 +343,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                   <tbody>
                     {pipeline.context.map((ctx, index) => (
                       <tr key={index} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                        <td className="px-4 py-3 align-top font-mono font-bold text-slate-900">
+                        <td className="max-w-0 break-all px-4 py-3 align-top font-mono font-bold text-slate-900 [overflow-wrap:anywhere]">
                           {ctx.key}
                         </td>
-                        <td className="px-4 py-3 align-top">
-                          <ContextValueViewer item={ctx} />
+                        <td className="min-w-0 px-4 py-3 align-top">
+                          <ContextValueViewer item={ctx} className="w-full min-w-0" />
                         </td>
                       </tr>
                     ))}
@@ -601,7 +610,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                     Input
                   </p>
-                  <pre className="max-w-full whitespace-pre-wrap break-all font-mono text-xs text-slate-700">
+                  <pre className="w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
                     {formatPayloadPreview(action.input)}
                   </pre>
                 </div>
@@ -613,14 +622,14 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                 </p>
                 {hasOutput ? (
                   <pre className={cn(
-                    "max-w-full whitespace-pre-wrap break-all font-mono text-xs",
+                    "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
                     action.status === "error" ? "text-red-700" : "text-slate-700"
                   )}>
                     {formatPayloadPreview(action.output)}
                   </pre>
                 ) : (
                   <p className={cn(
-                    "text-sm font-medium max-w-full whitespace-pre-wrap break-all",
+                    "w-full overflow-hidden whitespace-pre-wrap break-words text-sm font-medium [overflow-wrap:anywhere]",
                     action.status === "error" ? "text-red-700" : "text-slate-800"
                   )}>
                     {getOutputPreview()}

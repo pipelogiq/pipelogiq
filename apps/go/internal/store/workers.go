@@ -466,10 +466,55 @@ func (s *Store) UpdateWorkerHeartbeat(ctx context.Context, token string, req typ
 		"from": snapshot.State,
 		"to":   nextState,
 	}
+	if statusReason != "" {
+		stateChangeDetails["statusReason"] = statusReason
+	}
+	if lastError != "" {
+		stateChangeDetails["lastError"] = lastError
+	}
+	stateChangeDetails["brokerConnected"] = brokerConnected
+	if queueLag != nil {
+		stateChangeDetails["queueLag"] = queueLag
+	}
+
+	statusChanged := strings.TrimSpace(snapshot.StatusReason.String) != statusReason || strings.TrimSpace(snapshot.LastError.String) != lastError
 	if stateChanged {
-		if err = insertWorkerEventTx(ctx, tx, workerID, now, "INFO", "worker.state_changed",
-			fmt.Sprintf("Worker state changed from %s to %s", snapshot.State, nextState),
+		level := "INFO"
+		if nextState == types.WorkerStateDegraded {
+			level = "WARN"
+		} else if nextState == types.WorkerStateError {
+			level = "ERROR"
+		}
+		if err = insertWorkerEventTx(ctx, tx, workerID, now, level, "worker.state_changed",
+			buildWorkerStateChangeMessage(snapshot.State, nextState, statusReason, lastError),
 			stateChangeDetails,
+		); err != nil {
+			return err
+		}
+	} else if statusChanged && (statusReason != "" || lastError != "") {
+		statusDetails := map[string]any{
+			"state": nextState,
+		}
+		if statusReason != "" {
+			statusDetails["statusReason"] = statusReason
+		}
+		if lastError != "" {
+			statusDetails["lastError"] = lastError
+		}
+		statusDetails["brokerConnected"] = brokerConnected
+		if queueLag != nil {
+			statusDetails["queueLag"] = queueLag
+		}
+		level := "INFO"
+		if lastError != "" || nextState == types.WorkerStateDegraded {
+			level = "WARN"
+		}
+		if nextState == types.WorkerStateError {
+			level = "ERROR"
+		}
+		if err = insertWorkerEventTx(ctx, tx, workerID, now, level, "worker.status_updated",
+			buildWorkerStatusMessage(nextState, statusReason, lastError),
+			statusDetails,
 		); err != nil {
 			return err
 		}
@@ -479,13 +524,40 @@ func (s *Store) UpdateWorkerHeartbeat(ctx context.Context, token string, req typ
 		return err
 	}
 	if stateChanged {
+		level := "INFO"
+		if nextState == types.WorkerStateDegraded {
+			level = "WARN"
+		} else if nextState == types.WorkerStateError {
+			level = "ERROR"
+		}
 		s.emitWorkerAlert(WorkerAlertEvent{
 			WorkerID:  workerID,
 			TS:        now.UTC(),
-			Level:     "INFO",
+			Level:     level,
 			EventType: "worker.state_changed",
-			Message:   fmt.Sprintf("Worker state changed from %s to %s", snapshot.State, nextState),
+			Message:   buildWorkerStateChangeMessage(snapshot.State, nextState, statusReason, lastError),
 			Details:   cloneAlertDetailsMap(stateChangeDetails),
+		})
+	} else if statusChanged && (statusReason != "" || lastError != "") {
+		level := "INFO"
+		if lastError != "" || nextState == types.WorkerStateDegraded {
+			level = "WARN"
+		}
+		if nextState == types.WorkerStateError {
+			level = "ERROR"
+		}
+		s.emitWorkerAlert(WorkerAlertEvent{
+			WorkerID:  workerID,
+			TS:        now.UTC(),
+			Level:     level,
+			EventType: "worker.status_updated",
+			Message:   buildWorkerStatusMessage(nextState, statusReason, lastError),
+			Details: map[string]any{
+				"state":            nextState,
+				"statusReason":     statusReason,
+				"lastError":        lastError,
+				"brokerConnected":  brokerConnected,
+			},
 		})
 	}
 	return nil
@@ -868,6 +940,28 @@ func normalizeLogLevel(level string) string {
 	default:
 		return "INFO"
 	}
+}
+
+func buildWorkerStateChangeMessage(fromState string, toState string, statusReason string, lastError string) string {
+	message := fmt.Sprintf("Worker state changed from %s to %s", fromState, toState)
+	if strings.TrimSpace(statusReason) != "" {
+		message += ": " + strings.TrimSpace(statusReason)
+	}
+	if strings.TrimSpace(lastError) != "" {
+		message += fmt.Sprintf(" [error=%s]", strings.TrimSpace(lastError))
+	}
+	return message
+}
+
+func buildWorkerStatusMessage(state string, statusReason string, lastError string) string {
+	message := fmt.Sprintf("Worker status updated while in %s", strings.TrimSpace(state))
+	if strings.TrimSpace(statusReason) != "" {
+		message += ": " + strings.TrimSpace(statusReason)
+	}
+	if strings.TrimSpace(lastError) != "" {
+		message += fmt.Sprintf(" [error=%s]", strings.TrimSpace(lastError))
+	}
+	return message
 }
 
 func toWorkerStatusResponse(row workerClientSnapshot) (types.WorkerStatusResponse, error) {

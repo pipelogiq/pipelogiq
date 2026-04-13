@@ -37,7 +37,16 @@ type workerMetrics struct {
 	pendingMarkedFailedDeprecated prometheus.Counter
 }
 
+const (
+	defaultWorkerPollInterval      = time.Second
+	minWorkerPollInterval          = 100 * time.Millisecond
+	defaultStageActiveTimeout      = 5 * time.Minute
+	minStageTimeoutWatcherInterval = time.Second
+)
+
 func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Worker {
+	cfg = normalizeWorkerConfig(cfg, logger)
+
 	metrics := workerMetrics{
 		stagePublished: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "stage_published_total",
@@ -277,7 +286,7 @@ func (w *Worker) runStageStatusConsumer(ctx context.Context) error {
 }
 
 func (w *Worker) runStageTimeoutWatcher(ctx context.Context) error {
-	ticker := time.NewTicker(w.cfg.StageActiveTimeout / 2)
+	ticker := time.NewTicker(stageTimeoutWatchInterval(w.cfg.StageActiveTimeout))
 	defer ticker.Stop()
 	for {
 		select {
@@ -296,6 +305,42 @@ func (w *Worker) runStageTimeoutWatcher(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func normalizeWorkerConfig(cfg config.WorkerConfig, logger *slog.Logger) config.WorkerConfig {
+	if cfg.PollInterval <= 0 {
+		if logger != nil {
+			logger.Warn("worker poll interval is invalid, using default", "configured", cfg.PollInterval, "effective", defaultWorkerPollInterval)
+		}
+		cfg.PollInterval = defaultWorkerPollInterval
+	} else if cfg.PollInterval < minWorkerPollInterval {
+		if logger != nil {
+			logger.Warn("worker poll interval is too low, clamping", "configured", cfg.PollInterval, "effective", minWorkerPollInterval)
+		}
+		cfg.PollInterval = minWorkerPollInterval
+	}
+
+	if cfg.StageActiveTimeout <= 0 {
+		if logger != nil {
+			logger.Warn("stage active timeout is invalid, using default", "configured", cfg.StageActiveTimeout, "effective", defaultStageActiveTimeout)
+		}
+		cfg.StageActiveTimeout = defaultStageActiveTimeout
+	}
+
+	return cfg
+}
+
+func stageTimeoutWatchInterval(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		timeout = defaultStageActiveTimeout
+	}
+
+	interval := timeout / 2
+	if interval < minStageTimeoutWatcherInterval {
+		return minStageTimeoutWatcherInterval
+	}
+
+	return interval
 }
 
 func stageQueueName(appID string, handler string) string {
