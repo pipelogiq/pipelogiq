@@ -29,7 +29,7 @@ Fifth preview release focused on resilience: graceful worker shutdown, orphaned 
 
 - No database migrations required
 - Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker` to pick up graceful shutdown, orphan recovery, and build provenance
-- For the best SDK-side compatibility, upgrade `pipelogiq-sdk-net` to `0.3.0-preview.5` which includes matching graceful shutdown on the .NET worker side
+- For the best SDK-side compatibility, upgrade `pipelogiq-sdk-net` to `0.3.0-preview.6` which includes matching graceful shutdown on the .NET worker side
 - Set `PIPELOGIQ_VERSION`, `PIPELOGIQ_COMMIT`, `PIPELOGIQ_BUILD_DATE` env vars or build args for accurate `GET /version` output in your deployment
 
 **Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.3.0-preview.3...v0.3.0-preview.4

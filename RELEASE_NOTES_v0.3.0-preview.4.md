@@ -27,7 +27,7 @@ The `version.Get()` function resolves fields using a priority chain: ldflags > e
 
 ## Companion SDK Release
 
-**pipelogiq-sdk-net v0.3.0-preview.5** includes matching .NET-side changes:
+**pipelogiq-sdk-net v0.3.0-preview.6** includes matching .NET-side changes:
 
 - **Second-model critic** — `AgentCriticHandler` reviews think decisions with a separate LLM (OpenAI or Claude) before execution. Three modes: `CriticOnFinal`, `CriticOnMutating`, `CriticOnEveryStep`. Configurable per-pipeline via `AgentRunOverrides`
 - **Graceful .NET worker shutdown** — consumer cancellation, in-flight job draining with configurable `DrainGracePeriod`, drain-safe publish tokens for critical operations
@@ -36,7 +36,7 @@ The `version.Get()` function resolves fields using a priority chain: ldflags > e
 
 - No database migrations required
 - Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker`
-- Upgrade `pipelogiq-sdk-net` to `0.3.0-preview.5` for matching graceful shutdown
+- Upgrade `pipelogiq-sdk-net` to `0.3.0-preview.6` for matching graceful shutdown
 - Set `PIPELOGIQ_VERSION`, `PIPELOGIQ_COMMIT`, `PIPELOGIQ_BUILD_DATE` env vars or build args for accurate version info
 
 ## Files Changed
