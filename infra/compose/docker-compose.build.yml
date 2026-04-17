@@ -88,8 +88,15 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.app
+      args:
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-dev}
+        PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
+        PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-app
     environment:
+      APP_VERSION: ${PIPELOGIQ_VERSION:-dev}
+      APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
+      APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
@@ -136,8 +143,15 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.worker
+      args:
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-dev}
+        PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
+        PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-worker
     environment:
+      APP_VERSION: ${PIPELOGIQ_VERSION:-dev}
+      APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
+      APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}

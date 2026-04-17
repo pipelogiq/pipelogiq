@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -92,17 +93,30 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 }
 
 func (w *Worker) Run(ctx context.Context) error {
-	go w.withRecover(ctx, "publisher", w.runPublisher)
-	go w.withRecover(ctx, "stage-result-consumer", w.runStageResultConsumer)
-	go w.withRecover(ctx, "stage-status-consumer", w.runStageStatusConsumer)
-	go w.withRecover(ctx, "stage-timeout-watcher", w.runStageTimeoutWatcher)
+	var wg sync.WaitGroup
+
+	startWorker := func(name string, fn func(context.Context) error) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			w.withRecover(ctx, name, fn)
+		}()
+	}
+
+	startWorker("publisher", w.runPublisher)
+	startWorker("stage-result-consumer", w.runStageResultConsumer)
+	startWorker("stage-status-consumer", w.runStageStatusConsumer)
+	startWorker("stage-timeout-watcher", w.runStageTimeoutWatcher)
+	startWorker("orphan-recovery", w.runOrphanRecovery)
 
 	if w.cfg.MetricsAddr != "" {
 		go w.runMetricsServer(ctx)
 	}
 
 	<-ctx.Done()
-	w.logger.Info("worker shutting down")
+	w.logger.Info("worker shutting down, waiting for goroutines to drain")
+	wg.Wait()
+	w.logger.Info("worker shutdown complete")
 	return ctx.Err()
 }
 
@@ -154,6 +168,39 @@ func (w *Worker) runMetricsServer(ctx context.Context) {
 	w.logger.Info("metrics server listening", "addr", w.cfg.MetricsAddr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		w.logger.Error("metrics server error", "err", err)
+	}
+}
+
+func (w *Worker) runOrphanRecovery(ctx context.Context) error {
+	recoveryThreshold := w.cfg.StageActiveTimeout / 2
+	if recoveryThreshold < 30*time.Second {
+		recoveryThreshold = 30 * time.Second
+	}
+
+	recover := func() {
+		recovered, err := w.store.RecoverOrphanedStages(ctx, recoveryThreshold)
+		if err != nil {
+			if ctx.Err() == nil {
+				w.logger.Error("orphan recovery failed", "err", err)
+			}
+			return
+		}
+		if recovered > 0 {
+			w.logger.Warn("recovered orphaned stages", "count", recovered, "threshold", recoveryThreshold)
+		}
+	}
+
+	recover()
+
+	ticker := time.NewTicker(recoveryThreshold)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			recover()
+		}
 	}
 }
 

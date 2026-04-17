@@ -1,4 +1,7 @@
 FROM golang:1.24-alpine AS builder
+ARG PIPELOGIQ_VERSION=dev
+ARG PIPELOGIQ_COMMIT=unknown
+ARG PIPELOGIQ_BUILD_DATE=unknown
 WORKDIR /src
 
 COPY apps/go/go.mod ./
@@ -17,12 +20,23 @@ RUN set -eux; \
 
 COPY apps/go ./
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/pipelogiq-worker ./cmd/worker
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+  -ldflags "-s -w -X pipelogiq/internal/version.Version=${PIPELOGIQ_VERSION} -X pipelogiq/internal/version.Commit=${PIPELOGIQ_COMMIT} -X pipelogiq/internal/version.Date=${PIPELOGIQ_BUILD_DATE}" \
+  -o /out/pipelogiq-worker ./cmd/worker
 
 FROM alpine:3.19
+ARG PIPELOGIQ_VERSION=dev
+ARG PIPELOGIQ_COMMIT=unknown
+ARG PIPELOGIQ_BUILD_DATE=unknown
 RUN apk add --no-cache ca-certificates curl
 WORKDIR /app
+LABEL org.opencontainers.image.version="${PIPELOGIQ_VERSION}"
+LABEL org.opencontainers.image.revision="${PIPELOGIQ_COMMIT}"
+LABEL org.opencontainers.image.created="${PIPELOGIQ_BUILD_DATE}"
 COPY --from=builder /out/pipelogiq-worker /usr/local/bin/pipelogiq-worker
+ENV APP_VERSION="${PIPELOGIQ_VERSION}"
+ENV APP_COMMIT="${PIPELOGIQ_COMMIT}"
+ENV APP_BUILD_DATE="${PIPELOGIQ_BUILD_DATE}"
 USER nobody
 EXPOSE 9090
 ENTRYPOINT ["/usr/local/bin/pipelogiq-worker"]

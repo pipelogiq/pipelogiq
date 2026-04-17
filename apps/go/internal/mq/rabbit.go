@@ -158,7 +158,7 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 					goto reconnect
 				}
 
-				hctx := telemetry.ExtractAMQPContext(ctx, d.Headers)
+				hctx := telemetry.ExtractAMQPContext(context.WithoutCancel(ctx), d.Headers)
 				hctx, span := rabbitTracer.Start(hctx, "rabbitmq.consume",
 					trace.WithSpanKind(trace.SpanKindConsumer),
 					trace.WithAttributes(

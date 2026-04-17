@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.0-preview.4] - 2026-04-17
+
+Fifth preview release focused on resilience: graceful worker shutdown, orphaned stage recovery, and build provenance.
+
+### Added
+
+- **Orphaned stage recovery** — new `runOrphanRecovery` goroutine periodically scans for stages stuck in `Running` or `Pending` longer than half the active timeout and resets them to `NotStarted` for re-scheduling. Runs on startup and then on a ticker. Changes are logged with `orphan_recovery` source via `LogStageChange`
+- **Build provenance in Docker images** — Dockerfiles for `pipelogiq-app` and `pipelogiq-worker` now accept `PIPELOGIQ_VERSION`, `PIPELOGIQ_COMMIT`, and `PIPELOGIQ_BUILD_DATE` build args. Values are injected via Go `ldflags` at compile time and also exposed as `APP_VERSION`, `APP_COMMIT`, `APP_BUILD_DATE` env vars for runtime fallback. OCI labels (`org.opencontainers.image.version`, `.revision`, `.created`) are set on the final images
+- **Version endpoint resilience** — `version.Get()` now resolves version fields from ldflags first, then falls back to env vars (`APP_VERSION`, `APP_COMMIT`, `APP_BUILD_DATE`), then to sentinel defaults. This ensures `GET /version` returns accurate build info in all deployment modes (ldflags, env-only, bare binary)
+- **CI release metadata** — `release.yml` workflow now extracts commit and build date alongside the version tag and passes all three as Docker build args
+
+### Changed
+
+- **Graceful worker shutdown** — `Worker.Run()` now uses a `sync.WaitGroup` to wait for all internal goroutines (publisher, consumers, timeout watcher, orphan recovery) to finish before returning. Previously the worker exited immediately on context cancellation, potentially abandoning in-flight stage processing
+- **Drain-safe message handler context** — RabbitMQ consumer now creates handler contexts with `context.WithoutCancel(ctx)` instead of passing the parent context directly. This ensures in-flight message handlers can complete their work (including publishing results back) even after SIGTERM triggers parent context cancellation
+
+### Fixed
+
+- **In-flight stage loss on restart** — before this release, a worker receiving SIGTERM would cancel all contexts immediately, causing running stage handlers to fail mid-execution. The combination of `WaitGroup`-based drain, `WithoutCancel` handler contexts, and orphan recovery eliminates this failure mode
+
+### Upgrade Notes
+
+- No database migrations required
+- Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker` to pick up graceful shutdown, orphan recovery, and build provenance
+- For the best SDK-side compatibility, upgrade `pipelogiq-sdk-net` to `0.3.0-preview.5` which includes matching graceful shutdown on the .NET worker side
+- Set `PIPELOGIQ_VERSION`, `PIPELOGIQ_COMMIT`, `PIPELOGIQ_BUILD_DATE` env vars or build args for accurate `GET /version` output in your deployment
+
+**Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.3.0-preview.3...v0.3.0-preview.4
+
 ## [0.3.0-preview.3] - 2026-04-13
 
 Fourth preview release focused on worker resilience, clearer diagnostics, and easier pipeline inspection in the dashboard.
@@ -197,4 +226,5 @@ First public preview release.
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
 [0.3.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.2
+[0.3.0-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.4
 [0.3.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.3

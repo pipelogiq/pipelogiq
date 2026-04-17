@@ -91,6 +91,7 @@ services:
     image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-latest}
     container_name: pipelogiq-app
     environment:
+      APP_VERSION: ${PIPELOGIQ_VERSION:-latest}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
@@ -136,6 +137,7 @@ services:
     image: ghcr.io/pipelogiq/pipelogiq-worker:${PIPELOGIQ_VERSION:-latest}
     container_name: pipelogiq-worker
     environment:
+      APP_VERSION: ${PIPELOGIQ_VERSION:-latest}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}

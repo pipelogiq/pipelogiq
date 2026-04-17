@@ -848,6 +848,84 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 	return true, nil
 }
 
+// RecoverOrphanedStages finds stages stuck in Running/Pending longer than the
+// recovery threshold and resets them to NotStarted so the publisher re-schedules
+// them. Unlike MarkActiveTooLong (which fails stages after the full timeout),
+// this uses a shorter threshold to give stages a second chance after a worker
+// crash or restart.
+func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.Duration) (int64, error) {
+	if stuckThreshold <= 0 {
+		stuckThreshold = 60 * time.Second
+	}
+
+	cutoff := time.Now().UTC().Add(-stuckThreshold)
+
+	rows, err := s.db.QueryxContext(ctx, `
+		SELECT s.id, s.pipeline_id
+		FROM stage s
+		JOIN pipeline p ON p.id = s.pipeline_id
+		WHERE p.is_completed = false
+		  AND s.status IN ($1, $2)
+		  AND (COALESCE(s.started_at, s.created_at)) < $3
+	`, types.StageStatusPending, types.StageStatusRunning, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type orphan struct {
+		StageID    int `db:"id"`
+		PipelineID int `db:"pipeline_id"`
+	}
+	var orphans []orphan
+	for rows.Next() {
+		var o orphan
+		if err := rows.Scan(&o.StageID, &o.PipelineID); err != nil {
+			return 0, err
+		}
+		orphans = append(orphans, o)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+
+	var count int64
+	for _, o := range orphans {
+		tx, txErr := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+		if txErr != nil {
+			return count, txErr
+		}
+
+		var status string
+		lockErr := tx.QueryRowContext(ctx, fmt.Sprintf(`
+			SELECT s.status FROM stage s WHERE s.id = $1%s
+		`, s.forUpdateOfClause("s")), o.StageID).Scan(&status)
+
+		if lockErr != nil || !isWatchedActiveStageStatus(status) {
+			_ = tx.Rollback()
+			continue
+		}
+
+		_, execErr := tx.ExecContext(ctx, `
+			UPDATE stage SET status = $1, started_at = NULL, finished_at = NULL
+			WHERE id = $2
+		`, types.StageStatusNotStarted, o.StageID)
+		if execErr != nil {
+			_ = tx.Rollback()
+			return count, execErr
+		}
+
+		if commitErr := tx.Commit(); commitErr != nil {
+			return count, commitErr
+		}
+
+		s.LogStageChange(ctx, o.PipelineID, o.StageID, status, types.StageStatusNotStarted, "orphan_recovery")
+		count++
+	}
+
+	return count, nil
+}
+
 func isWatchedActiveStageStatus(status string) bool {
 	switch status {
 	case types.StageStatusPending, types.StageStatusRunning:
