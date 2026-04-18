@@ -498,6 +498,9 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 			SELECT s.id
 			FROM stage s
 			JOIN pipeline p ON p.id = s.pipeline_id
+			LEFT JOIN stage_options so_self ON so_self.id = (
+				SELECT MAX(so2.id) FROM stage_options so2 WHERE so2.stage_id = s.id
+			)
 			WHERE p.is_completed = false
 			  AND (
 				s.status = $1
@@ -507,24 +510,21 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 			  AND COALESCE(s.is_skipped,false) = false
 			  AND COALESCE(s.is_event,false) = false
 			  AND NOT EXISTS (
-				SELECT 1 FROM stage sp WHERE sp.pipeline_id = p.id AND sp.status = $2
-			  )
-			  AND NOT EXISTS (
 				SELECT 1 FROM stage sb
 				WHERE sb.pipeline_id = p.id
-				  AND sb.id < s.id
 				  AND COALESCE(sb.is_event,false) = false
+				  AND (
+					CASE
+					  WHEN COALESCE(so_self.depends_on, '') != ''
+					  THEN ',' || so_self.depends_on || ',' LIKE '%,' || sb.name || ',%'
+					  ELSE sb.id < s.id
+					END
+				  )
 				  AND NOT (
 					sb.status IN ($5, $6)
 					OR (
 						sb.status = $7
-						AND COALESCE((
-							SELECT so.run_next_if_failed
-							FROM stage_options so
-							WHERE so.stage_id = s.id
-							ORDER BY so.id DESC
-							LIMIT 1
-						), false)
+						AND COALESCE(so_self.run_next_if_failed, false)
 					)
 				  )
 			  )

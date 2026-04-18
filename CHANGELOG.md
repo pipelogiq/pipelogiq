@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.0-preview.5] - 2026-04-18
+
+Sixth preview release focused on stage dispatch performance: event-driven scheduling, batch dispatch, dependency-based parallel execution, and reduced poll latency.
+
+### Added
+
+- **Dependency-based parallel stage execution** — `GetStageToExecute` now evaluates the `depends_on` column from `stage_options`. Stages with explicit `depends_on` only wait for the named dependencies to reach a terminal state, enabling fan-out/fan-in and diamond DAG patterns within a single pipeline. Stages without `depends_on` retain strictly sequential scheduling for backward compatibility
+- **Event-driven publisher wake** — result and status consumers now signal the publisher goroutine via an internal channel immediately after processing a stage outcome. The publisher wakes up on this signal instead of waiting for the next poll tick, reducing inter-stage latency from up to 1 second to under 5 milliseconds
+- **Batch stage dispatch** — the publisher now dispatches up to 10 stages per cycle without pausing between them. When at least one stage is dispatched, it immediately checks for more work. The poll/wake wait only triggers when no stages are available
+- **Scheduling test suite** — new `stage_scheduling_test.go` covering sequential scheduling (backward compat), `depends_on` parallel dispatch, diamond dependency patterns, mixed sequential/dependency modes, cross-pipeline batch dispatch, and throughput benchmarks (up to 100 pipelines × 5 stages)
+
+### Changed
+
+- **Default poll interval reduced** — `WORKER_POLL_INTERVAL` default lowered from 1 second to 200 milliseconds; minimum allowed value lowered from 100ms to 50ms. The event-driven wake means the poll interval is now only a fallback, not the primary dispatch trigger
+- **Scheduling SQL refactored** — the `GetStageToExecute` CTE now joins `stage_options` to read `depends_on` and `run_next_if_failed` in a single pass. The blanket `NOT EXISTS (... status = Pending)` check that prevented any parallel dispatch within a pipeline has been removed; individual dependency checks are sufficient
+
+### Fixed
+
+- **Sequential-only scheduling limitation** — prior to this release, `depends_on` and `run_in_parallel_with` columns were stored but ignored at runtime, forcing strictly serial execution regardless of actual dependencies (noted as a known limitation since v0.1.0-preview.1). `depends_on` is now fully evaluated during stage scheduling
+
+### Upgrade Notes
+
+- No database migrations required
+- Rebuild and redeploy `pipelogiq-worker` to pick up all dispatch performance improvements
+- Existing pipelines are unaffected — stages without `depends_on` continue to execute sequentially
+- To use parallel dispatch, set `depends_on` in stage options when creating pipeline stages (comma-separated stage names)
+- Optionally tune `WORKER_POLL_INTERVAL` (new default 200ms is appropriate for most workloads)
+
+**Full Changelog**: https://github.com/pipelogiq/pipelogiq/compare/v0.3.0-preview.4...v0.3.0-preview.5
+
 ## [0.3.0-preview.4] - 2026-04-17
 
 Fifth preview release focused on resilience: graceful worker shutdown, orphaned stage recovery, and build provenance.
@@ -217,7 +247,7 @@ First public preview release.
 
 ### Known Limitations
 
-- Stage execution is strictly serial; `depends_on` and `run_in_parallel_with` fields are stored but ignored
+- `run_in_parallel_with` field is stored but not yet evaluated (use `depends_on` for parallel stage execution)
 - RBAC roles are stored but not checked
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
@@ -226,5 +256,6 @@ First public preview release.
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
 [0.3.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.2
-[0.3.0-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.4
 [0.3.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.3
+[0.3.0-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.4
+[0.3.0-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.5

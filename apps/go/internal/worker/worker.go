@@ -26,6 +26,7 @@ type Worker struct {
 	mq     *mq.Client
 	logger *slog.Logger
 
+	wake    chan struct{}
 	metrics workerMetrics
 }
 
@@ -39,10 +40,11 @@ type workerMetrics struct {
 }
 
 const (
-	defaultWorkerPollInterval      = time.Second
-	minWorkerPollInterval          = 100 * time.Millisecond
+	defaultWorkerPollInterval      = 200 * time.Millisecond
+	minWorkerPollInterval          = 50 * time.Millisecond
 	defaultStageActiveTimeout      = 5 * time.Minute
 	minStageTimeoutWatcherInterval = time.Second
+	maxPublishBatch                = 10
 )
 
 func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Worker {
@@ -88,6 +90,7 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 		store:   st,
 		mq:      mqClient,
 		logger:  logger,
+		wake:    make(chan struct{}, 1),
 		metrics: metrics,
 	}
 }
@@ -207,64 +210,71 @@ func (w *Worker) runOrphanRecovery(ctx context.Context) error {
 func (w *Worker) runPublisher(ctx context.Context) error {
 	for {
 		if ctx.Err() != nil {
-			w.logger.Error("runPublisher return", "err", ctx.Err())
 			return ctx.Err()
 		}
 
-		stage, err := w.store.GetStageToExecute(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				w.logger.Error("runPublisher return", "err", ctx.Err())
-				return ctx.Err()
-			}
-			w.logger.Error("get stage to execute failed", "err", err)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(w.cfg.PollInterval):
-			}
-			continue
-		}
-
-		if stage == nil {
-			select {
-			case <-ctx.Done():
-				w.logger.Error("runPublisher return", "err", ctx.Err())
-				return ctx.Err()
-			case <-time.After(w.cfg.PollInterval):
-			}
-			continue
-		}
-
-		queue := stageQueueName(w.cfg.AppID, stage.StageHandlerName)
-		body, _ := json.Marshal(stage)
-		opts := mq.QueueOptions{
-			Durable:     true,
-			DLQEnabled:  w.cfg.QueueDLQEnabled,
-			DLQTTL:      w.cfg.QueueDLQMessageTTL,
-			ContentType: "application/json",
-		}
-
-		if err := w.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
-			if ctx.Err() != nil {
-				w.logger.Error("runPublisher return", "err", ctx.Err())
-				return ctx.Err()
-			}
-			w.logger.Error("publish stage next failed", "queue", queue, "err", err)
-			continue
-		}
-
-		if stage.PipelineID != nil {
-			pipeline, err := w.store.GetPipelineWithStages(ctx, *stage.PipelineID)
+		dispatched := 0
+		for dispatched < maxPublishBatch {
+			stage, err := w.store.GetStageToExecute(ctx)
 			if err != nil {
-				w.logger.Error("load pipeline snapshot for ws update failed", "pipelineId", *stage.PipelineID, "err", err)
-			} else {
-				w.publishPipelineUpdate(ctx, pipeline)
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				w.logger.Error("get stage to execute failed", "err", err)
+				break
 			}
+			if stage == nil {
+				break
+			}
+
+			queue := stageQueueName(w.cfg.AppID, stage.StageHandlerName)
+			body, _ := json.Marshal(stage)
+			opts := mq.QueueOptions{
+				Durable:     true,
+				DLQEnabled:  w.cfg.QueueDLQEnabled,
+				DLQTTL:      w.cfg.QueueDLQMessageTTL,
+				ContentType: "application/json",
+			}
+
+			if err := w.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				w.logger.Error("publish stage next failed", "queue", queue, "err", err)
+				break
+			}
+
+			if stage.PipelineID != nil {
+				pipeline, err := w.store.GetPipelineWithStages(ctx, *stage.PipelineID)
+				if err != nil {
+					w.logger.Error("load pipeline snapshot for ws update failed", "pipelineId", *stage.PipelineID, "err", err)
+				} else {
+					w.publishPipelineUpdate(ctx, pipeline)
+				}
+			}
+
+			w.metrics.stagePublished.Inc()
+			w.logger.Info("published stage", "queue", queue, "stageId", stage.StageID, "pipelineId", stage.PipelineID)
+			dispatched++
 		}
 
-		w.metrics.stagePublished.Inc()
-		w.logger.Info("published stage", "queue", queue, "stageId", stage.StageID, "pipelineId", stage.PipelineID)
+		if dispatched > 0 {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-w.wake:
+		case <-time.After(w.cfg.PollInterval):
+		}
+	}
+}
+
+func (w *Worker) triggerPublisher() {
+	select {
+	case w.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -294,6 +304,7 @@ func (w *Worker) runStageResultConsumer(ctx context.Context) error {
 
 		w.publishPipelineUpdate(ctx, pipeline)
 		w.metrics.stageResultProcessed.Inc()
+		w.triggerPublisher()
 		return nil
 	}
 
@@ -325,6 +336,7 @@ func (w *Worker) runStageStatusConsumer(ctx context.Context) error {
 		}
 		w.publishPipelineUpdate(ctx, pipeline)
 		w.metrics.stageStatusUpdated.Inc()
+		w.triggerPublisher()
 		return nil
 	}
 
