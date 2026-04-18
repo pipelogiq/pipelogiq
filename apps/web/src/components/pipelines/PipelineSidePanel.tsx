@@ -19,6 +19,37 @@ interface PipelineSidePanelProps {
 
 type TabType = "stages" | "logs" | "context";
 
+type LlmUsageView = {
+  provider?: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  estimatedCostUsd?: number;
+};
+
+type LlmUsageModelSummaryView = LlmUsageView & {
+  calls?: number;
+};
+
+type LlmUsageSummaryView = {
+  totalCalls?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
+  estimatedCostUsd?: number;
+  models: LlmUsageModelSummaryView[];
+};
+
+type StageLlmOutputView = {
+  raw?: string;
+  llmOperation?: string;
+  llmUsage?: LlmUsageView | null;
+  sessionUsage?: LlmUsageSummaryView | null;
+};
+
 export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProps) {
   const { data: pipeline, isLoading, error } = usePipeline(pipelineId);
   const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
@@ -73,6 +104,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   };
 
   const stageCount = pipeline.actions.length;
+  const pipelineUsageSummary = getPipelineUsageSummary(pipeline.context);
 
   const getStatusDisplay = () => {
     switch (pipeline.status) {
@@ -328,6 +360,14 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         {activeTab === "context" && (
           <ScrollArea className="h-full">
             <div className="p-4">
+              {pipelineUsageSummary && (
+                <div className="mb-4">
+                  <UsageSummaryCard
+                    title="Pipeline LLM Usage"
+                    summary={pipelineUsageSummary}
+                  />
+                </div>
+              )}
               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
                 <table className="w-full table-fixed text-sm">
                   <colgroup>
@@ -442,6 +482,7 @@ function formatLogOutputFallback(action: PipelineAction): string {
 function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardProps) {
   const rerunStage = useRerunStage();
   const skipStage = useSkipStage();
+  const parsedStageOutput = parseStageLlmOutput(action.output);
   const spanUrl = action.spanId && traceUrl
     ? `${traceUrl}${traceUrl.includes('?') ? '&' : '?'}spanId=${encodeURIComponent(action.spanId)}`
     : '';
@@ -620,7 +661,33 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Output
                 </p>
-                {hasOutput ? (
+                {parsedStageOutput ? (
+                  <div className="space-y-3">
+                    {parsedStageOutput.llmUsage && (
+                      <UsageCard
+                        title={parsedStageOutput.llmOperation
+                          ? `LLM Usage · ${parsedStageOutput.llmOperation}`
+                          : "LLM Usage"}
+                        usage={parsedStageOutput.llmUsage}
+                      />
+                    )}
+                    {parsedStageOutput.sessionUsage && (
+                      <UsageSummaryCard
+                        title="Pipeline Usage So Far"
+                        summary={parsedStageOutput.sessionUsage}
+                        compact
+                      />
+                    )}
+                    {parsedStageOutput.raw && (
+                      <pre className={cn(
+                        "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
+                        action.status === "error" ? "text-red-700" : "text-slate-700"
+                      )}>
+                        {parsedStageOutput.raw}
+                      </pre>
+                    )}
+                  </div>
+                ) : hasOutput ? (
                   <pre className={cn(
                     "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
                     action.status === "error" ? "text-red-700" : "text-slate-700"
@@ -643,4 +710,275 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
       </div>
     </Collapsible>
   );
+}
+
+function UsageCard({ title, usage }: { title: string; usage: LlmUsageView }) {
+  const providerModel = [usage.provider, usage.model].filter(Boolean).join(" · ");
+  const hasCache = (usage.cacheReadTokens || 0) > 0 || (usage.cacheCreationTokens || 0) > 0;
+
+  return (
+    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-bold uppercase tracking-wider text-blue-800">{title}</p>
+        {providerModel && (
+          <span className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+            {providerModel}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <UsageMetric label="Input Tokens" value={formatInteger(usage.inputTokens)} />
+        <UsageMetric label="Output Tokens" value={formatInteger(usage.outputTokens)} />
+        <UsageMetric label="Estimated Cost" value={formatUsd(usage.estimatedCostUsd)} />
+        {hasCache ? (
+          <UsageMetric
+            label="Cache"
+            value={`${formatInteger(usage.cacheReadTokens)} read / ${formatInteger(usage.cacheCreationTokens)} write`}
+          />
+        ) : (
+          <UsageMetric label="Cache" value="—" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UsageSummaryCard({
+  title,
+  summary,
+  compact = false,
+}: {
+  title: string;
+  summary: LlmUsageSummaryView;
+  compact?: boolean;
+}) {
+  return (
+    <div className={cn(
+      "rounded-lg border border-emerald-200 bg-emerald-50/60 p-3",
+      compact && "bg-emerald-50/40"
+    )}>
+      <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{title}</p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <UsageMetric label="LLM Calls" value={formatInteger(summary.totalCalls)} />
+        <UsageMetric label="Input Tokens" value={formatInteger(summary.inputTokens)} />
+        <UsageMetric label="Output Tokens" value={formatInteger(summary.outputTokens)} />
+        <UsageMetric label="Estimated Cost" value={formatUsd(summary.estimatedCostUsd)} />
+      </div>
+      {((summary.cacheReadTokens || 0) > 0 || (summary.cacheCreationTokens || 0) > 0) && (
+        <div className="mt-2 text-xs text-emerald-900">
+          Cache: {formatInteger(summary.cacheReadTokens)} read / {formatInteger(summary.cacheCreationTokens)} write
+        </div>
+      )}
+      {summary.models.length > 0 && (
+        <div className="mt-3 overflow-hidden rounded-md border border-emerald-200 bg-white">
+          <table className="w-full text-xs">
+            <thead className="bg-emerald-50 text-emerald-900">
+              <tr>
+                <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Model</th>
+                <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Calls</th>
+                <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Tokens</th>
+                <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Cost</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.models.map((model, index) => (
+                <tr key={`${model.provider || "unknown"}-${model.model || "unknown"}-${index}`} className="border-t border-emerald-100 text-slate-700">
+                  <td className="px-3 py-2 font-medium">
+                    {[model.provider, model.model].filter(Boolean).join(" · ") || "Unknown model"}
+                  </td>
+                  <td className="px-3 py-2">{formatInteger(model.calls)}</td>
+                  <td className="px-3 py-2">
+                    {formatInteger((model.inputTokens || 0) + (model.outputTokens || 0))}
+                  </td>
+                  <td className="px-3 py-2">{formatUsd(model.estimatedCostUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UsageMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-white/80 bg-white/80 px-3 py-2">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="mt-1 font-mono text-sm font-bold text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function parseStageLlmOutput(output: Record<string, unknown>): StageLlmOutputView | null {
+  const raw = typeof output.raw === "string" ? output.raw : undefined;
+  const llmOperation = typeof output.llmOperation === "string" ? output.llmOperation : undefined;
+  const llmUsage = parseLlmUsage(output.llmUsage);
+  const sessionUsage = parseLlmUsageSummary(output.sessionUsage);
+
+  if (!raw && !llmOperation && !llmUsage && !sessionUsage) {
+    return null;
+  }
+
+  return {
+    raw,
+    llmOperation,
+    llmUsage,
+    sessionUsage,
+  };
+}
+
+function getPipelineUsageSummary(contextItems: Array<{ key: string; value: string }>): LlmUsageSummaryView | null {
+  const summaryItem = contextItems.find((item) => item.key === "agent:session:usageSummary");
+  if (summaryItem) {
+    const parsed = parseJsonString(summaryItem.value);
+    const summary = parseLlmUsageSummary(parsed);
+    if (summary) {
+      return summary;
+    }
+  }
+
+  const lookupNumber = (key: string): number | undefined => {
+    const item = contextItems.find((ctx) => ctx.key === key);
+    if (!item) return undefined;
+    const parsed = parseJsonString(item.value);
+    return toNumber(parsed);
+  };
+
+  const totalCalls = lookupNumber("agent:session:llmCallCount");
+  const inputTokens = lookupNumber("agent:session:inputTokens");
+  const outputTokens = lookupNumber("agent:session:outputTokens");
+  const cacheReadTokens = lookupNumber("agent:session:cacheReadTokens");
+  const cacheCreationTokens = lookupNumber("agent:session:cacheCreationTokens");
+  const estimatedCostUsd = lookupNumber("agent:session:estimatedCostUsd");
+
+  if (
+    totalCalls === undefined &&
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    cacheReadTokens === undefined &&
+    cacheCreationTokens === undefined &&
+    estimatedCostUsd === undefined
+  ) {
+    return null;
+  }
+
+  return {
+    totalCalls,
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheCreationTokens,
+    estimatedCostUsd,
+    models: [],
+  };
+}
+
+function parseLlmUsage(value: unknown): LlmUsageView | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  return {
+    provider: toStringValue(record.provider),
+    model: toStringValue(record.model),
+    inputTokens: toNumber(record.inputTokens),
+    outputTokens: toNumber(record.outputTokens),
+    cacheReadTokens: toNumber(record.cacheReadTokens),
+    cacheCreationTokens: toNumber(record.cacheCreationTokens),
+    estimatedCostUsd: toNumber(record.estimatedCostUsd),
+  };
+}
+
+function parseLlmUsageSummary(value: unknown): LlmUsageSummaryView | null {
+  const record = asRecord(value);
+  if (!record) {
+    return null;
+  }
+
+  const models = Array.isArray(record.models)
+    ? record.models
+        .map((item) => {
+          const usage = parseLlmUsage(item);
+          const modelRecord = asRecord(item);
+          if (!usage || !modelRecord) {
+            return null;
+          }
+
+          return {
+            ...usage,
+            calls: toNumber(modelRecord.calls),
+          };
+        })
+        .filter((item): item is LlmUsageModelSummaryView => item !== null)
+    : [];
+
+  return {
+    totalCalls: toNumber(record.totalCalls),
+    inputTokens: toNumber(record.inputTokens),
+    outputTokens: toNumber(record.outputTokens),
+    cacheReadTokens: toNumber(record.cacheReadTokens),
+    cacheCreationTokens: toNumber(record.cacheCreationTokens),
+    estimatedCostUsd: toNumber(record.estimatedCostUsd),
+    models,
+  };
+}
+
+function parseJsonString(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  return value as Record<string, unknown>;
+}
+
+function toStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function toNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function formatInteger(value?: number): string {
+  if (value === undefined) {
+    return "—";
+  }
+  return Math.round(value).toLocaleString("en-US");
+}
+
+function formatUsd(value?: number): string {
+  if (value === undefined) {
+    return "—";
+  }
+
+  if (value === 0) {
+    return "$0.000000";
+  }
+
+  if (Math.abs(value) < 0.01) {
+    return `$${value.toFixed(6)}`;
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 4,
+  }).format(value);
 }

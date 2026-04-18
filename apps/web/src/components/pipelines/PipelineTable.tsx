@@ -69,6 +69,7 @@ export function PipelineTable({ pipelines, selectedId, onSelect, isPanelOpen = f
           <TableHead className="text-sm font-semibold text-foreground">Name</TableHead>
           <TableHead className="text-sm font-semibold text-foreground">Status</TableHead>
           <TableHead className="text-sm font-semibold text-foreground">Created at</TableHead>
+          <TableHead className="text-sm font-semibold text-foreground">Duration</TableHead>
           <TableHead className="text-sm font-semibold text-foreground">Finished at</TableHead>
           {!isPanelOpen && (
             <>
@@ -112,10 +113,21 @@ export function PipelineTable({ pipelines, selectedId, onSelect, isPanelOpen = f
                 </StatusBadge>
               </TableCell>
               <TableCell className="py-3 text-sm text-foreground font-mono">
-                {pipeline.startedAt}
+                <div>{pipeline.startedAtExact}</div>
+                <div className="text-xs text-muted-foreground">{pipeline.startedAt}</div>
               </TableCell>
               <TableCell className="py-3 text-sm text-foreground font-mono">
-                {pipeline.completedAt || "-"}
+                {pipeline.duration || "-"}
+              </TableCell>
+              <TableCell className="py-3 text-sm text-foreground font-mono">
+                {(pipeline.status === "success" || pipeline.status === "error") ? (
+                  pipeline.completedAtExact ? (
+                    <div>
+                      <div>{pipeline.completedAtExact}</div>
+                      <div className="text-xs text-muted-foreground">{pipeline.completedAt}</div>
+                    </div>
+                  ) : "-"
+                ) : "-"}
               </TableCell>
               {!isPanelOpen && (
                 <>

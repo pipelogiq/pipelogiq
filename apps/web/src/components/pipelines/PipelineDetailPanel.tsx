@@ -42,7 +42,9 @@ export interface PipelineExecution {
   status: UIStatus;
   environment: string;
   startedAt: string;
+  startedAtExact: string;
   completedAt?: string;
+  completedAtExact?: string;
   duration?: string;
   owner: string;
   tags: string[];

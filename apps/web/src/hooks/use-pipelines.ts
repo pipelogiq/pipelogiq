@@ -152,8 +152,12 @@ export function mapPipelineToExecution(
     status: mapPipelineStatusToUI(pipeline.status),
     environment,
     startedAt: formatDistanceToNow(new Date(pipeline.createdAt), { addSuffix: true }),
+    startedAtExact: format(new Date(pipeline.createdAt), 'yyyy-MM-dd HH:mm:ss'),
     completedAt: pipeline.finishedAt
       ? formatDistanceToNow(new Date(pipeline.finishedAt), { addSuffix: true })
+      : undefined,
+    completedAtExact: pipeline.finishedAt
+      ? format(new Date(pipeline.finishedAt), 'yyyy-MM-dd HH:mm:ss')
       : undefined,
     duration: formatDuration(pipeline.createdAt, pipeline.finishedAt || undefined),
     owner,

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.1-preview.4] - 2026-04-18
+
+Fourth `0.3.1` preview aligns the platform docs with the next SDK prerelease and highlights agent-run diagnostics that matter in live troubleshooting.
+
+### Added
+
+- **Pipeline-side LLM usage inspection** — the dashboard pipeline side panel can now show per-stage and per-session token usage, cache activity, model/provider metadata, and estimated USD cost when the matching SDK/runtime emits usage summaries.
+
+### Changed
+
+- **Agent terminal failure visibility** — platform release guidance now expects terminal tool-loop outcomes to surface as failed pipelines instead of green completions when paired with `pipelogiq-sdk-net 0.3.1-preview.4`.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.1-preview.4`.
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.1-preview.4`.
+
 ## [0.3.1-preview.3] - 2026-04-18
 
 Third `0.3.1` preview realigns release metadata, docs, and downstream package references to the next available prerelease after `0.3.1-preview.2` was already published.
@@ -310,6 +324,7 @@ First public preview release.
 
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
+[0.3.1-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.4
 [0.3.1-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.3
 [0.3.1-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.2
 [0.3.1-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.1
