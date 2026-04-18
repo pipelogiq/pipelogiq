@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.1-preview.2] - 2026-04-18
+
+Second `0.3.1` preview focused on making retry/recovery paths safer and aligning release metadata with the updated SDK/runtime pair.
+
+### Added
+
+- **Authenticated pipeline detail endpoint** — external API clients can now call `GET /pipelines/{pipelineId}` to inspect current pipeline state through the same application-scoped API key used by workers and SDK clients
+
+### Changed
+
+- **Application-scoped queue naming** — worker bootstrap and stage publishing now derive queue prefixes from the authenticated application queue id instead of the server-global app id, keeping external workers and runtime publishers aligned
+- **Append audit source labeling** — appended-stage audit logs now record whether stages were added via the API or via `stage_result`, making retry and recovery analysis much easier in live traces
+
+### Fixed
+
+- **Redelivery-safe scheduling** — `GetStageToExecute` now revalidates the stage state after lock acquisition, avoiding duplicate dispatch when a stage changed state between candidate selection and the row lock
+- **Invalid stage-status regressions** — stage status updates now reject illegal transitions such as `Completed → Running`, preventing stale redeliveries from reviving terminal stages
+- **Terminal-pipeline append guard** — result processing now refuses to append follow-up stages into pipelines that are already terminal
+
+### Upgrade Notes
+
+- Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker`
+- Upgrade `pipelogiq-sdk-net` to `0.3.1-preview.2` so worker/runtime retry deduplication and broker recovery behavior stay aligned
+
+## [0.3.1-preview.3] - 2026-04-18
+
+Third `0.3.1` preview realigns release metadata, docs, and downstream package references to the next available prerelease after `0.3.1-preview.2` was already published.
+
+### Changed
+
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.1-preview.3`
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.1-preview.3`
+
+## [0.3.1-preview.1] - 2026-04-18
+
+First `0.3.1` preview focused on transactional stage continuation and cleaner worker/runtime compatibility with the updated .NET SDK.
+
+### Added
+
+- **Appended-stage transport in stage results** — `stage_result` messages can now carry appended stage definitions, so follow-up work can be scheduled as part of the stage outcome instead of a separate append-stages HTTP round trip
+- **Stage-name to stage-id context map** — appended stages are now indexed into pipeline context, allowing downstream resume/confirmation logic to resolve responder and follow-up stages after transactional appends
+
+### Changed
+
+- **Transactional append on result processing** — `UpdateStageResult` now persists appended stages inside the same database transaction that stores the stage outcome, reducing race windows between result persistence and next-stage creation
+
+### Fixed
+
+- **Agent follow-up stage races** — built-in agent flows no longer depend on a second REST call to append think/tool/critic/responder stages after a stage finishes
+- **Worker scheduling query placeholders** — `GetStageToExecute` now uses consistent SQL parameter numbering, avoiding `could not determine data type of parameter $2` failures in the worker path
+
+### Upgrade Notes
+
+- Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker`
+- Upgrade `pipelogiq-sdk-net` to `0.3.1-preview.1` so SDK workers emit appended stages in `stage_result` instead of the legacy append-stages API path
+
 ## [0.3.0-preview.5] - 2026-04-18
 
 Sixth preview release focused on stage dispatch performance: event-driven scheduling, batch dispatch, dependency-based parallel execution, and reduced poll latency.
@@ -254,6 +310,9 @@ First public preview release.
 
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
+[0.3.1-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.3
+[0.3.1-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.2
+[0.3.1-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.1
 [0.3.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.1
 [0.3.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.2
 [0.3.0-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.0-preview.3

@@ -25,6 +25,18 @@ type StageResultMessage struct {
 	RunNextIfCurrentFailed bool              `json:"runNextIfCurrentFailed"`
 	Logs                   []StageLogMessage `json:"logs,omitempty"`
 	ContextItems           []ContextItem     `json:"contextItems,omitempty"`
+	AppendedStages         []AppendedStage   `json:"appendedStages,omitempty"`
+}
+
+type AppendedStage struct {
+	StageID          *int          `json:"stageId,omitempty"`
+	PipelineID       *int          `json:"pipelineId,omitempty"`
+	StageName        string        `json:"stageName"`
+	StageHandlerName string        `json:"stageHandlerName"`
+	Description      string        `json:"description,omitempty"`
+	Input            string        `json:"input,omitempty"`
+	Options          *StageOptions `json:"options,omitempty"`
+	IsEvent          *bool         `json:"isEvent,omitempty"`
 }
 
 type StageLogMessage struct {

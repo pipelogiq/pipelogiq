@@ -28,10 +28,11 @@ services:
       APP_VERSION: ${PIPELOGIQ_VERSION:-dev}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
+      LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-false}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
-      JWT_SECRET: ${JWT_SECRET}
+      JWT_SECRET: ${JWT_SECRET:-local-dev-jwt-secret-0123456789abcdef}
       HTTP_ADDR: ":8080"
       EXTERNAL_HTTP_ADDR: ":8081"
       LOG_LEVEL: ${LOG_LEVEL:-info}

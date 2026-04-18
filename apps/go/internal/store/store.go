@@ -493,22 +493,22 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 	}()
 
 	var stageID int
-	err = tx.QueryRowContext(ctx, `
-		WITH candidate AS (
-			SELECT s.id
+		err = tx.QueryRowContext(ctx, `
+			WITH candidate AS (
+				SELECT s.id
 			FROM stage s
 			JOIN pipeline p ON p.id = s.pipeline_id
 			LEFT JOIN stage_options so_self ON so_self.id = (
 				SELECT MAX(so2.id) FROM stage_options so2 WHERE so2.stage_id = s.id
 			)
-			WHERE p.is_completed = false
-			  AND (
-				s.status = $1
-				OR (s.status = $3 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
-				OR (s.status = $4 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
-			  )
-			  AND COALESCE(s.is_skipped,false) = false
-			  AND COALESCE(s.is_event,false) = false
+				WHERE p.is_completed = false
+				  AND (
+					s.status = $1
+					OR (s.status = $2 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
+					OR (s.status = $3 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
+				  )
+				  AND COALESCE(s.is_skipped,false) = false
+				  AND COALESCE(s.is_event,false) = false
 			  AND NOT EXISTS (
 				SELECT 1 FROM stage sb
 				WHERE sb.pipeline_id = p.id
@@ -519,21 +519,21 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 					  THEN ',' || so_self.depends_on || ',' LIKE '%,' || sb.name || ',%'
 					  ELSE sb.id < s.id
 					END
-				  )
-				  AND NOT (
-					sb.status IN ($5, $6)
-					OR (
-						sb.status = $7
-						AND COALESCE(so_self.run_next_if_failed, false)
-					)
-				  )
+					  )
+					  AND NOT (
+						sb.status IN ($4, $5)
+						OR (
+							sb.status = $6
+							AND COALESCE(so_self.run_next_if_failed, false)
+						)
+					  )
 			  )
 			ORDER BY p.id, s.id
 			LIMIT 1
 		)
-		SELECT id FROM candidate
-	`, types.StageStatusNotStarted, types.StageStatusPending, types.StageStatusRetryScheduled,
-		types.StageStatusThrottled, types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
+			SELECT id FROM candidate
+		`, types.StageStatusNotStarted, types.StageStatusRetryScheduled, types.StageStatusThrottled,
+			types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Commit()
@@ -565,6 +565,17 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 	`, s.forUpdateOfClause("s")), stageID)
 	if err != nil {
 		return nil, err
+	}
+
+	// After acquiring the lock, verify the stage is still in a dispatchable state.
+	// A concurrent transaction may have already transitioned it to Pending.
+	switch row.StageStatus {
+	case types.StageStatusNotStarted, types.StageStatusRetryScheduled, types.StageStatusThrottled:
+	default:
+		s.logger.Warn("stage status changed between candidate selection and lock acquisition",
+			"stageId", row.StageID, "status", row.StageStatus)
+		_ = tx.Commit()
+		return nil, nil
 	}
 
 	if s.policyRuntime != nil {
@@ -980,6 +991,22 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		return nil, err
 	}
 
+	var pipeline struct {
+		ID          int            `db:"id"`
+		Status      sql.NullString `db:"status"`
+		IsCompleted bool           `db:"is_completed"`
+	}
+	if err = tx.GetContext(ctx, &pipeline, fmt.Sprintf(`
+		SELECT id, status, is_completed
+		FROM pipeline
+		WHERE id = $1%s
+	`, s.forUpdateClause()), stage.PipelineID); err != nil {
+		return nil, err
+	}
+	if isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
+		return nil, ErrPipelineAppendNotAllowed
+	}
+
 	// idempotency: process only active stage executions.
 	if stage.Status != types.StageStatusPending && stage.Status != types.StageStatusRunning {
 		err = tx.Commit()
@@ -1091,14 +1118,31 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		}
 	}
 
+	appendedStages, err := mapStageResultAppendedStages(msg.AppendedStages)
+	if err != nil {
+		return nil, err
+	}
+	addedStages, err := s.appendStagesTx(
+		ctx,
+		tx,
+		stage.PipelineID,
+		appendedStages,
+		fmt.Sprintf("stage_result:%d", msg.StageID),
+		"stage result",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	resultSummary := fmt.Sprintf(
-		"Stage result processed [success=%t, waitingForApproval=%t, newStatus=%s, errorCode=%s, logs=%d, contextItems=%d, result=%s]",
+		"Stage result processed [success=%t, waitingForApproval=%t, newStatus=%s, errorCode=%s, logs=%d, contextItems=%d, appendedStages=%d, result=%s]",
 		msg.IsSuccess,
 		msg.IsWaitingForApproval,
 		newStatus,
 		blankIfEmpty(msg.ErrorCode, "-"),
 		len(msg.Logs),
 		len(msg.ContextItems),
+		len(addedStages),
 		stageLogPreview(msg.Result, 900),
 	)
 	if err = s.insertStageLogTx(ctx, tx, msg.StageID, pickStageResultLogLevel(msg.IsSuccess, msg.IsWaitingForApproval), resultSummary); err != nil {
@@ -1193,6 +1237,37 @@ func valueTypeOrDefault(vt string) string {
 	return vt
 }
 
+func mapStageResultAppendedStages(appended []types.AppendedStage) ([]types.StageCreate, error) {
+	if len(appended) == 0 {
+		return nil, nil
+	}
+
+	mapped := make([]types.StageCreate, 0, len(appended))
+	for _, stage := range appended {
+		runNextIfFailed := false
+		if stage.Options != nil && stage.Options.RunNextIfFailed != nil {
+			runNextIfFailed = *stage.Options.RunNextIfFailed
+		}
+
+		isEvent := false
+		if stage.IsEvent != nil {
+			isEvent = *stage.IsEvent
+		}
+
+		mapped = append(mapped, types.StageCreate{
+			Name:            stage.StageName,
+			StageHandler:    stage.StageHandlerName,
+			Description:     stage.Description,
+			Input:           strings.TrimSpace(stage.Input),
+			Options:         stage.Options,
+			IsEvent:         isEvent,
+			RunNextIfFailed: runNextIfFailed,
+		})
+	}
+
+	return mapped, nil
+}
+
 // UpdateStageStatus updates status and returns pipeline snapshot.
 func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusMessage) (*types.PipelineResponse, error) {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
@@ -1212,6 +1287,13 @@ func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusM
 	`, msg.StageID).Scan(&oldStatus, &pipelineID)
 	if err != nil {
 		return nil, err
+	}
+
+	if !isValidStageTransition(oldStatus, msg.Status) {
+		s.logger.Warn("rejecting invalid stage status transition",
+			"stageId", msg.StageID, "from", oldStatus, "to", msg.Status)
+		_ = tx.Commit()
+		return s.GetPipelineWithStages(ctx, pipelineID)
 	}
 
 	if _, err = tx.ExecContext(ctx, `

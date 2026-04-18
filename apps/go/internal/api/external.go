@@ -155,6 +155,7 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 
 	// External routes — no JWT, API key validated in handler
 	router.Post("/pipelines", s.handleCreatePipeline)
+	router.Get("/pipelines/{pipelineId}", s.handleGetPipeline)
 	router.Post("/pipelines/{pipelineId}/stages", s.handleAppendPipelineStages)
 	router.Post("/stages/{stageId}/resume", s.handleResumeStage)
 	router.Post("/jobs/pull", s.handlePullJob)
@@ -259,10 +260,64 @@ func (s *ExternalServer) handleCreatePipeline(w http.ResponseWriter, r *http.Req
 			DLQTTL:      s.cfg.QueueDLQMessageTTL,
 			ContentType: "application/json",
 		}
-		queue := extStageQueueName(s.cfg.AppID, stage.StageHandlerName)
+		queue := constants.StageNextQueueName(constants.ApplicationQueueID(appID), stage.StageHandlerName)
 		if err := s.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
 			s.logger.Error("failed to publish event stage", "err", err, "queue", queue)
 		}
+	}
+
+	writeJSON(w, pipeline, http.StatusOK)
+}
+
+func (s *ExternalServer) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := parseRouteID(chi.URLParam(r, "pipelineId"))
+	if err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"pipelineId must be a positive integer",
+			map[string][]string{"pipelineId": {"pipelineId must be greater than 0"}},
+		)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	appID, err := s.validateExternalAPIKey(ctx, r)
+	if err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusUnauthorized,
+			"https://api.pipelogiq.dev/errors/unauthorized",
+			"Unauthorized",
+			"Invalid API key",
+			nil,
+		)
+		return
+	}
+
+	pipeline, err := s.store.GetPipelineFullDetail(ctx, pipelineID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	if pipeline.ApplicationID != nil && *pipeline.ApplicationID != appID {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusForbidden,
+			"https://api.pipelogiq.dev/errors/forbidden",
+			"Forbidden",
+			"Pipeline does not belong to the authenticated application",
+			nil,
+		)
+		return
 	}
 
 	writeJSON(w, pipeline, http.StatusOK)
@@ -722,10 +777,12 @@ func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Re
 
 	sessionToken := uuid.NewString() + "." + uuid.NewString()
 	sessionExpiresAt := time.Now().UTC().Add(s.cfg.WorkerSessionTTL)
+	queueAppID := constants.ApplicationQueueID(appID)
+
 	workerID, err := s.store.RegisterWorkerSession(
 		ctx,
 		appID,
-		s.cfg.AppID,
+		queueAppID,
 		"rabbitmq",
 		req,
 		sessionToken,
@@ -753,7 +810,7 @@ func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Re
 		Application: types.WorkerApplicationInfo{
 			ApplicationID:   appID,
 			ApplicationName: appName,
-			AppID:           s.cfg.AppID,
+			AppID:           queueAppID,
 		},
 		MessageBroker: types.WorkerBrokerInfo{
 			Type:              "rabbitmq",
@@ -918,10 +975,6 @@ func (s *ExternalServer) cleanupExpired(ctx context.Context) {
 			s.pendingMu.Unlock()
 		}
 	}
-}
-
-func extStageQueueName(appID, handler string) string {
-	return fmt.Sprintf("%s_%s_%s", appID, handler, constants.StageNext)
 }
 
 func deref(v *string) string {

@@ -24,6 +24,8 @@ var (
 	ErrStageResumeConflict      = errors.New("stage resume conflict")
 )
 
+const appendedStageIDsContextKey = "pipelogiq:appendedStageIds"
+
 func IsPipelineNotFoundError(err error) bool {
 	return errors.Is(err, ErrPipelineNotFound)
 }
@@ -98,8 +100,29 @@ func (s *Store) AppendStages(
 		return nil, ErrPipelineAppendNotAllowed
 	}
 
-	added := make([]types.StageDTO, 0, len(req.Stages))
-	for _, incoming := range req.Stages {
+	added, err := s.appendStagesTx(ctx, tx, pipelineID, req.Stages, actor, "API")
+	if err != nil {
+		return nil, err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
+
+	return &types.AppendStagesResponse{Stages: added}, nil
+}
+
+func (s *Store) appendStagesTx(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	pipelineID int,
+	stages []types.StageCreate,
+	actor string,
+	source string,
+) ([]types.StageDTO, error) {
+	added := make([]types.StageDTO, 0, len(stages))
+	for _, incoming := range stages {
 		stageName := strings.TrimSpace(incoming.Name)
 		handlerName := strings.TrimSpace(incoming.StageHandler)
 		runNextIfFailed := incoming.RunNextIfFailed
@@ -111,7 +134,7 @@ func (s *Store) AppendStages(
 		spanID := randomHex(8)
 
 		var stageID int
-		if err = tx.QueryRowContext(ctx, `
+		if err := tx.QueryRowContext(ctx, `
 			INSERT INTO stage
 				(name, stage_handler_name, description, status, pipeline_id, created_at, is_event, span_id)
 			VALUES
@@ -130,21 +153,21 @@ func (s *Store) AppendStages(
 			return nil, fmt.Errorf("insert stage: %w", err)
 		}
 
-		if _, err = tx.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO stage_io (input, stage_id) VALUES ($1, $2)
 		`, nullableString(incoming.Input), stageID); err != nil {
 			return nil, fmt.Errorf("insert stage io: %w", err)
 		}
 
-		if err = s.insertStageOptions(ctx, tx, stageID, incoming.Options); err != nil {
+		if err := s.insertStageOptions(ctx, tx, stageID, incoming.Options); err != nil {
 			return nil, fmt.Errorf("insert stage options: %w", err)
 		}
 
-		if err = s.insertStageAuditTx(
+		if err := s.insertStageAuditTx(
 			ctx,
 			tx,
 			stageID,
-			buildAppendStageAuditMessage(pipelineID, actor, incoming, handlerName, runNextIfFailed),
+			buildAppendStageAuditMessage(pipelineID, actor, incoming, handlerName, runNextIfFailed, source),
 		); err != nil {
 			return nil, fmt.Errorf("insert append audit log: %w", err)
 		}
@@ -168,12 +191,70 @@ func (s *Store) AppendStages(
 		added[i].NextStageID = &next
 	}
 
-	if err = tx.Commit(); err != nil {
-		return nil, err
+	if err := s.upsertAppendedStageIDsTx(ctx, tx, pipelineID, added); err != nil {
+		return nil, fmt.Errorf("upsert appended stage id map: %w", err)
 	}
-	committed = true
 
-	return &types.AppendStagesResponse{Stages: added}, nil
+	return added, nil
+}
+
+func (s *Store) upsertAppendedStageIDsTx(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	pipelineID int,
+	added []types.StageDTO,
+) error {
+	if len(added) == 0 {
+		return nil
+	}
+
+	stageIDs := make(map[string]int, len(added))
+	var existingRaw sql.NullString
+	err := tx.GetContext(ctx, &existingRaw, `
+		SELECT value
+		FROM pipeline_context_item
+		WHERE pipeline_id = $1 AND key = $2
+		ORDER BY id DESC
+		LIMIT 1
+	`, pipelineID, appendedStageIDsContextKey)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if existingRaw.Valid && strings.TrimSpace(existingRaw.String) != "" {
+		_ = json.Unmarshal([]byte(existingRaw.String), &stageIDs)
+	}
+
+	for _, stage := range added {
+		stageName := strings.TrimSpace(stage.Name)
+		if stageName == "" {
+			continue
+		}
+		stageIDs[stageName] = stage.ID
+	}
+
+	encoded, err := json.Marshal(stageIDs)
+	if err != nil {
+		return err
+	}
+
+	res, err := tx.ExecContext(ctx, `
+		UPDATE pipeline_context_item
+		SET value = $1, value_type = $2
+		WHERE pipeline_id = $3 AND key = $4
+	`, string(encoded), "", pipelineID, appendedStageIDsContextKey)
+	if err != nil {
+		return err
+	}
+	affected, _ := res.RowsAffected()
+	if affected > 0 {
+		return nil
+	}
+
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO pipeline_context_item (key, value, value_type, pipeline_id)
+		VALUES ($1, $2, $3, $4)
+	`, appendedStageIDsContextKey, string(encoded), "", pipelineID)
+	return err
 }
 
 func (s *Store) ResumeStageApproval(
@@ -461,6 +542,35 @@ func isSQLiteLockError(err error) bool {
 		strings.Contains(message, "sqlite_locked")
 }
 
+// isValidStageTransition enforces a strict state machine for stage status
+// transitions. Prevents regressions like Completed→Running on message
+// redelivery.
+func isValidStageTransition(from, to string) bool {
+	if from == to {
+		return false
+	}
+	switch from {
+	case types.StageStatusNotStarted:
+		return to == types.StageStatusPending || to == types.StageStatusSkipped
+	case types.StageStatusPending:
+		return to == types.StageStatusRunning || to == types.StageStatusFailed
+	case types.StageStatusRunning:
+		return to == types.StageStatusCompleted ||
+			to == types.StageStatusFailed ||
+			to == types.StageStatusWaitingApproval
+	case types.StageStatusRetryScheduled:
+		return to == types.StageStatusNotStarted || to == types.StageStatusPending
+	case types.StageStatusThrottled:
+		return to == types.StageStatusNotStarted || to == types.StageStatusPending
+	case types.StageStatusWaitingApproval:
+		return to == types.StageStatusCompleted || to == types.StageStatusFailed
+	case types.StageStatusCompleted, types.StageStatusFailed, types.StageStatusSkipped:
+		return false
+	default:
+		return true
+	}
+}
+
 func isPipelineTerminalStatus(status string, isCompleted bool) bool {
 	if isCompleted {
 		return true
@@ -525,6 +635,7 @@ func buildAppendStageAuditMessage(
 	incoming types.StageCreate,
 	handlerName string,
 	runNextIfFailed bool,
+	source string,
 ) string {
 	parts := []string{
 		fmt.Sprintf("pipeline=%d", pipelineID),
@@ -557,7 +668,11 @@ func buildAppendStageAuditMessage(
 		parts = append(parts, fmt.Sprintf("input=%s", preview))
 	}
 
-	return "Stage appended via API [" + strings.Join(parts, ", ") + "]"
+	sourceLabel := strings.TrimSpace(source)
+	if sourceLabel == "" {
+		sourceLabel = "unknown source"
+	}
+	return fmt.Sprintf("Stage appended via %s [%s]", sourceLabel, strings.Join(parts, ", "))
 }
 
 func randomHex(size int) string {

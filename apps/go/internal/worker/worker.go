@@ -227,7 +227,7 @@ func (w *Worker) runPublisher(ctx context.Context) error {
 				break
 			}
 
-			queue := stageQueueName(w.cfg.AppID, stage.StageHandlerName)
+			queue := constants.StageNextQueueName(constants.ApplicationQueueID(stage.AppID), stage.StageHandlerName)
 			body, _ := json.Marshal(stage)
 			opts := mq.QueueOptions{
 				Durable:     true,
@@ -400,10 +400,6 @@ func stageTimeoutWatchInterval(timeout time.Duration) time.Duration {
 	}
 
 	return interval
-}
-
-func stageQueueName(appID string, handler string) string {
-	return appID + "_" + handler + "_" + constants.StageNext
 }
 
 func (w *Worker) publishPipelineUpdate(ctx context.Context, pipeline *types.PipelineResponse) {

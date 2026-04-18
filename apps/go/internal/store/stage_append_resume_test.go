@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -269,6 +270,84 @@ func TestUpdateStageResult_FailedStageWithRunNextIfFailedContinuation_KeepsPipel
 	}
 }
 
+func TestUpdateStageResult_AppendedStages_AreInsertedAndMappedInContext(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	pipelineID := insertPipelineRow(t, db, "stage-result-append", types.PipelineStatusRunning, false)
+	currentStageID := insertStageRow(t, db, pipelineID, "agent:orchestrator", types.StageStatusPending)
+
+	pipeline, err := st.UpdateStageResult(context.Background(), types.StageResultMessage{
+		StageID:   currentStageID,
+		Result:    "ReAct mode: think stage appended. Loop begins.",
+		IsSuccess: true,
+		AppendedStages: []types.AppendedStage{
+			{
+				StageName:        "agent:think",
+				StageHandlerName: "AgentThinkHandler",
+				Options: &types.StageOptions{
+					RetryInterval: ptrInt(120),
+					MaxRetries:    ptrInt(30),
+				},
+			},
+			{
+				StageName:        "agent:responder",
+				StageHandlerName: "AgentResponderHandler",
+				Options: &types.StageOptions{
+					RunNextIfFailed: ptrBool(true),
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateStageResult() error = %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("expected pipeline snapshot, got nil")
+	}
+	if pipeline.Status != types.PipelineStatusRunning {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusRunning)
+	}
+
+	var stageCount int
+	if err := db.Get(&stageCount, `SELECT COUNT(*) FROM stage WHERE pipeline_id = $1`, pipelineID); err != nil {
+		t.Fatalf("count appended stages: %v", err)
+	}
+	if stageCount != 3 {
+		t.Fatalf("stage count = %d, want 3", stageCount)
+	}
+
+	next, err := st.GetStageToExecute(context.Background())
+	if err != nil {
+		t.Fatalf("GetStageToExecute() error = %v", err)
+	}
+	if next == nil {
+		t.Fatal("expected appended think stage to become runnable")
+	}
+	if next.StageHandlerName != "AgentThinkHandler" {
+		t.Fatalf("next stage handler = %q, want %q", next.StageHandlerName, "AgentThinkHandler")
+	}
+
+	var rawStageMap string
+	if err := db.Get(&rawStageMap, `
+		SELECT value
+		FROM pipeline_context_item
+		WHERE pipeline_id = $1 AND key = $2
+	`, pipelineID, appendedStageIDsContextKey); err != nil {
+		t.Fatalf("load appended stage id map: %v", err)
+	}
+
+	var stageMap map[string]int
+	if err := json.Unmarshal([]byte(rawStageMap), &stageMap); err != nil {
+		t.Fatalf("unmarshal appended stage id map: %v", err)
+	}
+	if _, ok := stageMap["agent:think"]; !ok {
+		t.Fatalf("expected stage map to contain agent:think, got %#v", stageMap)
+	}
+	if _, ok := stageMap["agent:responder"]; !ok {
+		t.Fatalf("expected stage map to contain agent:responder, got %#v", stageMap)
+	}
+}
+
 func TestGetStageToExecute_AllowsRunNextIfFailedStageAfterEarlierFailure(t *testing.T) {
 	st, db := setupStageOpsTestStore(t)
 	pipelineID := insertPipelineRow(t, db, "append-followup-after-failure", types.PipelineStatusRunning, false)
@@ -466,6 +545,10 @@ func insertStageRow(t *testing.T, db *sqlx.DB, pipelineID int, name, status stri
 }
 
 func ptrInt(v int) *int {
+	return &v
+}
+
+func ptrBool(v bool) *bool {
 	return &v
 }
 
