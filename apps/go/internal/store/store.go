@@ -493,7 +493,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 	}()
 
 	var stageID int
-		err = tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 			WITH candidate AS (
 				SELECT s.id
 			FROM stage s
@@ -533,7 +533,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		)
 			SELECT id FROM candidate
 		`, types.StageStatusNotStarted, types.StageStatusRetryScheduled, types.StageStatusThrottled,
-			types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
+		types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Commit()
