@@ -899,7 +899,7 @@ function parseLlmUsageSummary(value: unknown): LlmUsageSummaryView | null {
 
   const models = Array.isArray(record.models)
     ? record.models
-        .map((item) => {
+        .map((item): LlmUsageModelSummaryView | null => {
           const usage = parseLlmUsage(item);
           const modelRecord = asRecord(item);
           if (!usage || !modelRecord) {
