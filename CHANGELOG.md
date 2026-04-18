@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.1-preview.3] - 2026-04-18
+
+Third `0.3.1` preview realigns release metadata, docs, and downstream package references to the next available prerelease after `0.3.1-preview.2` was already published.
+
+### Changed
+
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.1-preview.3`
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.1-preview.3`
+
 ## [0.3.1-preview.2] - 2026-04-18
 
 Second `0.3.1` preview focused on making retry/recovery paths safer and aligning release metadata with the updated SDK/runtime pair.
@@ -28,15 +37,6 @@ Second `0.3.1` preview focused on making retry/recovery paths safer and aligning
 
 - Rebuild and redeploy both `pipelogiq-app` and `pipelogiq-worker`
 - Upgrade `pipelogiq-sdk-net` to `0.3.1-preview.2` so worker/runtime retry deduplication and broker recovery behavior stay aligned
-
-## [0.3.1-preview.3] - 2026-04-18
-
-Third `0.3.1` preview realigns release metadata, docs, and downstream package references to the next available prerelease after `0.3.1-preview.2` was already published.
-
-### Changed
-
-- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.1-preview.3`
-- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.1-preview.3`
 
 ## [0.3.1-preview.1] - 2026-04-18
 
