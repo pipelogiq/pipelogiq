@@ -21,8 +21,6 @@ var SupportedIntegrationTypes = []IntegrationType{
 	IntegrationTypeOpenTelemetry,
 	IntegrationTypeAlerting,
 	IntegrationTypeGrafana,
-	IntegrationTypeSentry,
-	IntegrationTypeDatadog,
 	IntegrationTypeGraylog,
 }
 
@@ -69,6 +67,7 @@ type TraceFilter struct {
 	Status string
 	Since  *time.Time
 	Limit  int
+	Offset int
 }
 
 type TraceRecord struct {

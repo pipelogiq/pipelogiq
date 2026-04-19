@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.2-preview.4] - 2026-04-19
+
+Fourth `0.3.2` preview aligns the platform with the latest SDK timeout fix for long-running agent reasoning steps and refreshes public release metadata.
+
+### Changed
+
+- Verified the current Go control-plane baseline with `go test ./internal/store ./internal/api` before cutting this preview.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.2-preview.4`.
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.2-preview.4`.
+
 ## [0.3.2-preview.3] - 2026-04-19
 
 Third `0.3.2` preview keeps the platform docs and release metadata aligned with the latest SDK robustness fix for duplicate OpenAI tool-call argument keys.
@@ -357,6 +367,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.4
 [0.3.2-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.3
 [0.3.2-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.2
 [0.3.2-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.1

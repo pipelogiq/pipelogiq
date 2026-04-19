@@ -39,6 +39,7 @@ func NewHandler(observabilityService service.Interface, logger *slog.Logger) *Ha
 func RegisterRoutes(r chi.Router, handler *Handler) {
 	r.Get("/config", handler.GetConfig)
 	r.Post("/config", handler.SaveConfig)
+	r.Delete("/config/{type}", handler.DeleteConfig)
 	r.Get("/status", handler.GetStatus)
 	r.Post("/test", handler.TestConnection)
 	r.Get("/traces", handler.GetTraces)

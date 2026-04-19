@@ -36,16 +36,18 @@ const statusOptions = [
   { value: "running", label: "Running", color: "bg-blue-500" },
   { value: "success", label: "Completed", color: "bg-emerald-500" },
   { value: "error", label: "Failed", color: "bg-red-500" },
+  { value: "waiting", label: "Waiting", color: "bg-slate-500" },
+  { value: "queued", label: "Queued", color: "bg-slate-400" },
   { value: "paused", label: "Paused", color: "bg-amber-500" },
-  { value: "throttled", label: "Throttled", color: "bg-orange-500" },
 ];
 
 const statusShortLabels: Record<string, string> = {
   running: "Run",
   success: "OK",
   error: "Fail",
+  waiting: "Wait",
+  queued: "Queue",
   paused: "Pause",
-  throttled: "Throt",
 };
 
 type PeriodMode = "all" | "last" | "range";
@@ -121,7 +123,9 @@ export function PipelineSearchBar({
 
   const removeContextFilter = (index: number) => {
     const newContextFilters = filters.contextFilters.filter((_, i) => i !== index);
-    updateFilters({ contextFilters: newContextFilters });
+    const newFilters = { ...filters, contextFilters: newContextFilters };
+    updateFilters(newFilters);
+    onFiltersChange(newFilters);
     const cf = filters.contextFilters[index];
     setSearchInput((prev) => prev.replace(`${cf.key}:${cf.value}`, "").trim());
   };
@@ -130,27 +134,32 @@ export function PipelineSearchBar({
     const newStatuses = selectedStatuses.includes(statusValue)
       ? selectedStatuses.filter((s) => s !== statusValue)
       : [...selectedStatuses, statusValue];
+    const newFilters = { ...filters, status: newStatuses.length === 0 ? "all" : newStatuses.join(",") };
     setSelectedStatuses(newStatuses);
-    updateFilters({ status: newStatuses.length === 0 ? "all" : newStatuses.join(",") });
+    updateFilters(newFilters);
+    onFiltersChange(newFilters);
   };
 
   const clearStatuses = () => {
+    const newFilters = { ...filters, status: "all" };
     setSelectedStatuses([]);
-    updateFilters({ status: "all" });
+    updateFilters(newFilters);
+    onFiltersChange(newFilters);
   };
 
   const handlePeriodApply = () => {
+    let newFilters: SearchFilters;
+
     if (periodMode === "all") {
-      updateFilters({ dateRange: "all" });
+      newFilters = { ...filters, dateRange: "all" };
     } else if (periodMode === "last") {
-      updateFilters({
-        dateRange: `last:${lastValue}:${lastUnit}`,
-      });
+      newFilters = { ...filters, dateRange: `last:${lastValue}:${lastUnit}` };
     } else {
-      updateFilters({
-        dateRange: `range:${rangeFrom || "?"}-${rangeTo || "?"}`,
-      });
+      newFilters = { ...filters, dateRange: `range:${rangeFrom || "?"}-${rangeTo || "?"}` };
     }
+
+    updateFilters(newFilters);
+    onFiltersChange(newFilters);
     setPeriodOpen(false);
   };
 
@@ -217,7 +226,9 @@ export function PipelineSearchBar({
                       setLastUnit("minutes");
                       setRangeFrom("");
                       setRangeTo("");
-                      updateFilters({ dateRange: "all" });
+                      const newFilters = { ...filters, dateRange: "all" };
+                      updateFilters(newFilters);
+                      onFiltersChange(newFilters);
                       setPeriodOpen(false);
                     }}
                   >
@@ -313,8 +324,9 @@ export function PipelineSearchBar({
                           s === "running" && "bg-blue-100 text-blue-700",
                           s === "success" && "bg-emerald-100 text-emerald-700",
                           s === "error" && "bg-red-100 text-red-700",
+                          s === "waiting" && "bg-slate-100 text-slate-700",
+                          s === "queued" && "bg-slate-100 text-slate-700",
                           s === "paused" && "bg-amber-100 text-amber-700",
-                          s === "throttled" && "bg-orange-100 text-orange-700"
                         )}
                       >
                         <span className={cn("h-1.5 w-1.5 rounded-full", opt?.color)} />

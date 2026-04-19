@@ -29,9 +29,10 @@ const (
 type Interface interface {
 	GetConfig(ctx context.Context) (model.ObservabilityConfigResponse, error)
 	SaveConfig(ctx context.Context, req model.SaveConfigRequest) (model.ObservabilityConfigResponse, error)
+	DeleteConfig(ctx context.Context, integrationType string) error
 	GetStatus(ctx context.Context) (model.ObservabilityStatusResponse, error)
 	TestConnection(ctx context.Context, req model.TestConnectionRequest) (model.TestConnectionResult, error)
-	GetTraces(ctx context.Context, search, status, timeRange string) ([]model.TraceEntry, error)
+	GetTraces(ctx context.Context, search, status, timeRange string, page, pageSize int) (model.TracesResponse, error)
 	GetInsights(ctx context.Context, timeRange string) (model.InsightsResponse, error)
 }
 
@@ -140,6 +141,23 @@ func (s *Service) SaveConfig(ctx context.Context, req model.SaveConfigRequest) (
 
 	// TODO: avoid storing secrets in plain JSON config; integrate secret storage/env indirection.
 	return s.GetConfig(ctx)
+}
+
+func (s *Service) DeleteConfig(ctx context.Context, integrationType string) error {
+	parsed, ok := model.ParseIntegrationType(integrationType)
+	if !ok {
+		return &AppError{Code: "invalid_integration_type", Message: "Unknown integration type: " + integrationType}
+	}
+
+	if err := s.repo.DeleteIntegration(ctx, parsed); err != nil {
+		return fmt.Errorf("delete integration config: %w", err)
+	}
+
+	if err := s.repo.EnsureIntegrations(ctx, []model.IntegrationType{parsed}); err != nil {
+		return fmt.Errorf("re-initialize integration after delete: %w", err)
+	}
+
+	return nil
 }
 
 func (s *Service) GetStatus(ctx context.Context) (model.ObservabilityStatusResponse, error) {
@@ -283,22 +301,31 @@ func (s *Service) TestConnection(ctx context.Context, req model.TestConnectionRe
 	}, nil
 }
 
-func (s *Service) GetTraces(ctx context.Context, search, status, timeRange string) ([]model.TraceEntry, error) {
+func (s *Service) GetTraces(ctx context.Context, search, status, timeRange string, page, pageSize int) (model.TracesResponse, error) {
 	filter := model.TraceFilter{
 		Search: strings.TrimSpace(search),
 		Status: strings.TrimSpace(status),
-		Limit:  50,
+		Limit:  pageSize,
+		Offset: (page - 1) * pageSize,
 	}
 	if since := parseTimeRangeStart(timeRange); since != nil {
 		filter.Since = since
 	}
 
+	totalCount, err := s.repo.CountTraces(ctx, filter)
+	if err != nil {
+		if isMissingTableError(err) {
+			return model.TracesResponse{Page: page, PageSize: pageSize}, nil
+		}
+		return model.TracesResponse{}, err
+	}
+
 	rows, err := s.repo.ListTraces(ctx, filter)
 	if err != nil {
 		if isMissingTableError(err) {
-			return []model.TraceEntry{}, nil
+			return model.TracesResponse{Page: page, PageSize: pageSize, TotalCount: totalCount}, nil
 		}
-		return nil, err
+		return model.TracesResponse{}, err
 	}
 
 	entries := make([]model.TraceEntry, 0, len(rows))
@@ -325,7 +352,12 @@ func (s *Service) GetTraces(ctx context.Context, search, status, timeRange strin
 		})
 	}
 
-	return entries, nil
+	return model.TracesResponse{
+		Items:      entries,
+		Page:       page,
+		PageSize:   pageSize,
+		TotalCount: totalCount,
+	}, nil
 }
 
 func (s *Service) GetInsights(ctx context.Context, timeRange string) (model.InsightsResponse, error) {
@@ -515,22 +547,24 @@ func computeIntegrationStatus(
 		return model.IntegrationStatusConfigured
 	}
 
-	if health.LastError != nil && strings.TrimSpace(*health.LastError) != "" {
-		if health.LastSuccessAt == nil {
-			return model.IntegrationStatusDisconnected
-		}
+	hasError := health.LastError != nil && strings.TrimSpace(*health.LastError) != ""
+	hasSuccess := health.LastSuccessAt != nil
+
+	if hasError && hasSuccess {
 		if health.LastTestedAt != nil && health.LastTestedAt.After(*health.LastSuccessAt) {
-			return model.IntegrationStatusDisconnected
+			if now.Sub(health.LastSuccessAt.UTC()) > freshnessWindow {
+				return model.IntegrationStatusDisconnected
+			}
+			return model.IntegrationStatusConnected
 		}
 	}
 
-	if health.LastSuccessAt != nil {
-		if health.LastTestedAt == nil || !health.LastTestedAt.After(*health.LastSuccessAt) {
-			return model.IntegrationStatusConnected
-		}
-		if now.Sub(health.LastSuccessAt.UTC()) <= freshnessWindow {
-			return model.IntegrationStatusConnected
-		}
+	if hasError && !hasSuccess {
+		return model.IntegrationStatusDisconnected
+	}
+
+	if hasSuccess {
+		return model.IntegrationStatusConnected
 	}
 
 	return model.IntegrationStatusConfigured
@@ -541,8 +575,6 @@ func validateConfigByType(integrationType model.IntegrationType, config map[stri
 		model.IntegrationTypeOpenTelemetry: {"endpoint", "protocol"},
 		model.IntegrationTypePrometheus:    {"scrapeEndpoint"},
 		model.IntegrationTypeGrafana:       {"dashboardUrl"},
-		model.IntegrationTypeSentry:        {"dsn", "environment"},
-		model.IntegrationTypeDatadog:       {"site", "apiKey"},
 		model.IntegrationTypeGraylog:       {"baseUrl", "provider", "searchUrlTemplate"},
 	}
 

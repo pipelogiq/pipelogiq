@@ -15,8 +15,10 @@ type Repository interface {
 	UpdateIntegrationStatus(ctx context.Context, integrationType model.IntegrationType, status model.IntegrationStatus) error
 	RecordHealthSuccess(ctx context.Context, integrationType model.IntegrationType, testedAt time.Time) error
 	RecordHealthFailure(ctx context.Context, integrationType model.IntegrationType, testedAt time.Time, message string) error
+	DeleteIntegration(ctx context.Context, integrationType model.IntegrationType) error
 
 	ListTraces(ctx context.Context, filter model.TraceFilter) ([]model.TraceRecord, error)
+	CountTraces(ctx context.Context, filter model.TraceFilter) (int, error)
 	ListStageMetrics(ctx context.Context, since time.Time) ([]model.StageMetricRecord, error)
 	ListPipelineSummaries(ctx context.Context, since time.Time) ([]model.PipelineSummaryRecord, error)
 }

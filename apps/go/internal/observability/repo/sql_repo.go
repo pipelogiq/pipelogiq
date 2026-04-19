@@ -195,6 +195,20 @@ func (r *SQLRepository) RecordHealthFailure(
 	return err
 }
 
+func (r *SQLRepository) DeleteIntegration(ctx context.Context, integrationType model.IntegrationType) error {
+	healthQuery := r.db.Rebind(`DELETE FROM observability_integration_health WHERE type = ?`)
+	if _, err := r.db.ExecContext(ctx, healthQuery, string(integrationType)); err != nil {
+		return fmt.Errorf("delete integration health (%s): %w", integrationType, err)
+	}
+
+	configQuery := r.db.Rebind(`DELETE FROM observability_integration_config WHERE type = ?`)
+	if _, err := r.db.ExecContext(ctx, configQuery, string(integrationType)); err != nil {
+		return fmt.Errorf("delete integration config (%s): %w", integrationType, err)
+	}
+
+	return nil
+}
+
 func (r *SQLRepository) ListTraces(ctx context.Context, filter model.TraceFilter) ([]model.TraceRecord, error) {
 	limit := filter.Limit
 	if limit <= 0 {
@@ -245,9 +259,9 @@ func (r *SQLRepository) ListTraces(ctx context.Context, filter model.TraceFilter
 	builder.WriteString(`
 		GROUP BY p.id, p.name, p.trace_id, p.status, p.created_at, p.finished_at
 		ORDER BY p.created_at DESC
-		LIMIT ?
+		LIMIT ? OFFSET ?
 	`)
-	args = append(args, limit)
+	args = append(args, limit, filter.Offset)
 
 	query := r.db.Rebind(builder.String())
 	rows := []traceRow{}
@@ -269,6 +283,44 @@ func (r *SQLRepository) ListTraces(ctx context.Context, filter model.TraceFilter
 	}
 
 	return result, nil
+}
+
+func (r *SQLRepository) CountTraces(ctx context.Context, filter model.TraceFilter) (int, error) {
+	builder := strings.Builder{}
+	builder.WriteString(`SELECT COUNT(*) FROM pipeline p WHERE 1=1`)
+
+	args := make([]any, 0)
+	if filter.Search != "" {
+		builder.WriteString(`
+			AND (
+				LOWER(COALESCE(p.name, '')) LIKE ?
+				OR CAST(p.id AS TEXT) = ?
+				OR LOWER(COALESCE(p.trace_id, '')) LIKE ?
+			)
+		`)
+		searchPattern := "%" + strings.ToLower(strings.TrimSpace(filter.Search)) + "%"
+		exactID := strings.TrimSpace(filter.Search)
+		args = append(args, searchPattern, exactID, searchPattern)
+	}
+
+	if filter.Status != "" && filter.Status != "all" {
+		if dbStatus, ok := mapTraceStatusFilter(filter.Status); ok {
+			builder.WriteString(` AND p.status = ? `)
+			args = append(args, dbStatus)
+		}
+	}
+
+	if filter.Since != nil {
+		builder.WriteString(` AND p.created_at >= ? `)
+		args = append(args, filter.Since.UTC())
+	}
+
+	query := r.db.Rebind(builder.String())
+	var count int
+	if err := r.db.GetContext(ctx, &count, query, args...); err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func (r *SQLRepository) ListStageMetrics(ctx context.Context, since time.Time) ([]model.StageMetricRecord, error) {

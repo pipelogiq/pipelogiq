@@ -4,7 +4,10 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/go-chi/chi/v5"
+
 	"pipelogiq/internal/observability/model"
+	"pipelogiq/internal/observability/service"
 )
 
 func (h *Handler) GetConfig(w http.ResponseWriter, r *http.Request) {
@@ -37,4 +40,22 @@ func (h *Handler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, response, http.StatusOK)
+}
+
+func (h *Handler) DeleteConfig(w http.ResponseWriter, r *http.Request) {
+	integrationType := chi.URLParam(r, "type")
+	if integrationType == "" {
+		h.writeError(w, &service.AppError{Code: "invalid_payload", Message: "Integration type is required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
+
+	if err := h.service.DeleteConfig(ctx, integrationType); err != nil {
+		h.writeError(w, err)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

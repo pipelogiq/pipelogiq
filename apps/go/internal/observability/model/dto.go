@@ -73,6 +73,13 @@ type TraceEntry struct {
 	Timestamp    string `json:"timestamp"`
 }
 
+type TracesResponse struct {
+	Items      []TraceEntry `json:"items"`
+	Page       int          `json:"page"`
+	PageSize   int          `json:"pageSize"`
+	TotalCount int          `json:"totalCount"`
+}
+
 type SlowestStage struct {
 	PipelineName string `json:"pipelineName"`
 	StageName    string `json:"stageName"`
