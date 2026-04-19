@@ -9,7 +9,7 @@ version: "3.9"
 #   docker compose -f infra/compose/docker-compose.registry.yml up -d
 #
 # Pin a specific release with PIPELOGIQ_VERSION:
-#   PIPELOGIQ_VERSION=v0.3.2-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+#   PIPELOGIQ_VERSION=v0.3.2-preview.2 docker compose -f infra/compose/docker-compose.registry.yml up -d
 
 networks:
   pipelogiq:

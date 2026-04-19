@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.2-preview.2] - 2026-04-19
+
+Second `0.3.2` preview aligns the platform with the latest SDK fixes for OpenAI request compatibility and tightens pipeline behavior around terminal invalid-request failures.
+
+### Changed
+
+- **Terminal invalid-request handling** — stage-result processing now treats `LLM_INVALID_REQUEST` as a non-retryable failure, so invalid planner/think requests fail immediately instead of going into automatic `RetryScheduled` loops.
+- **Pipeline side-panel header density** — pause/resume actions in pipeline inspection now sit inline with `Started` and `Duration`, reducing wasted vertical space in the details header.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.2-preview.2`.
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.2-preview.2`.
+
 ## [0.3.2-preview.1] - 2026-04-19
 
 First `0.3.2` preview aligns the platform with the new SDK release that adds OpenAI planner support and per-step model/provider routing, while refining how AI usage is presented in pipeline inspection.
@@ -337,6 +348,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.2
 [0.3.2-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.1
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2

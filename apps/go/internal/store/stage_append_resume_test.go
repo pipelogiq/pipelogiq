@@ -302,6 +302,38 @@ func TestUpdateStageResult_ToolLoopDoesNotUseAutomaticStageRetry(t *testing.T) {
 	}
 }
 
+func TestUpdateStageResult_LlmInvalidRequestDoesNotUseAutomaticStageRetry(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	pipelineID := insertPipelineRow(t, db, "llm-invalid-request-no-auto-retry", types.PipelineStatusRunning, false)
+	failedStageID := insertStageRow(t, db, pipelineID, "agent-think", types.StageStatusPending)
+	insertStageRetryOptions(t, db, failedStageID, 30, 120)
+
+	pipeline, err := st.UpdateStageResult(context.Background(), types.StageResultMessage{
+		StageID:   failedStageID,
+		Result:    "OpenAI invalid request",
+		IsSuccess: false,
+		ErrorCode: "LLM_INVALID_REQUEST",
+	})
+	if err != nil {
+		t.Fatalf("UpdateStageResult() error = %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("expected pipeline snapshot, got nil")
+	}
+	if pipeline.Status != types.PipelineStatusFailed {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusFailed)
+	}
+
+	var stageStatus string
+	if err := db.Get(&stageStatus, `SELECT status FROM stage WHERE id = $1`, failedStageID); err != nil {
+		t.Fatalf("load failed stage status: %v", err)
+	}
+	if stageStatus != types.StageStatusFailed {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusFailed)
+	}
+}
+
 func TestUpdateStageResult_AppendedStages_AreInsertedAndMappedInContext(t *testing.T) {
 	st, db := setupStageOpsTestStore(t)
 	pipelineID := insertPipelineRow(t, db, "stage-result-append", types.PipelineStatusRunning, false)

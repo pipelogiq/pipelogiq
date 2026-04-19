@@ -1275,7 +1275,7 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 
 func shouldSkipAutomaticRetry(errorCode string) bool {
 	switch strings.ToUpper(strings.TrimSpace(errorCode)) {
-	case "TOOL_LOOP", "BUDGET_EXCEEDED":
+	case "TOOL_LOOP", "BUDGET_EXCEEDED", "LLM_INVALID_REQUEST":
 		return true
 	default:
 		return false

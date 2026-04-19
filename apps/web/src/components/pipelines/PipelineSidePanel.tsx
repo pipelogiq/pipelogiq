@@ -183,50 +183,52 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           </button>
         </div>
 
-        <div className="flex items-center gap-4 mt-2.5 text-xs">
-          <div>
-            <span className="font-semibold text-slate-500 uppercase tracking-wider">Started </span>
-            <span className="font-mono font-bold text-slate-900">{pipeline.startedAt}</span>
+        <div className="mt-2.5 flex items-center gap-3 text-xs">
+          <div className="flex min-w-0 flex-wrap items-center gap-4">
+            <div>
+              <span className="font-semibold text-slate-500 uppercase tracking-wider">Started </span>
+              <span className="font-mono font-bold text-slate-900">{pipeline.startedAt}</span>
+            </div>
+            <span className="text-slate-300">|</span>
+            <div>
+              <span className="font-semibold text-slate-500 uppercase tracking-wider">Duration </span>
+              <span className="font-mono font-bold text-slate-900">{pipeline.duration || "—"}</span>
+            </div>
           </div>
-          <span className="text-slate-300">|</span>
-          <div>
-            <span className="font-semibold text-slate-500 uppercase tracking-wider">Duration </span>
-            <span className="font-mono font-bold text-slate-900">{pipeline.duration || "—"}</span>
-          </div>
-        </div>
 
-        <div className="mt-3 flex items-center gap-2">
-          {pipeline.status === "paused" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
-              disabled={resumePipeline.isPending}
-              onClick={() => resumePipeline.mutate(pipelineId)}
-            >
-              {resumePipeline.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <PlayCircle className="h-3.5 w-3.5" />
-              )}
-              Resume
-            </Button>
-          ) : pipeline.status !== "success" && pipeline.status !== "error" ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
-              disabled={pausePipeline.isPending}
-              onClick={() => pausePipeline.mutate(pipelineId)}
-            >
-              {pausePipeline.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Pause className="h-3.5 w-3.5" />
-              )}
-              Pause
-            </Button>
-          ) : null}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {pipeline.status === "paused" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+                disabled={resumePipeline.isPending}
+                onClick={() => resumePipeline.mutate(pipelineId)}
+              >
+                {resumePipeline.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <PlayCircle className="h-3.5 w-3.5" />
+                )}
+                Resume
+              </Button>
+            ) : pipeline.status !== "success" && pipeline.status !== "error" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 px-3 text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
+                disabled={pausePipeline.isPending}
+                onClick={() => pausePipeline.mutate(pipelineId)}
+              >
+                {pausePipeline.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Pause className="h-3.5 w-3.5" />
+                )}
+                Pause
+              </Button>
+            ) : null}
+          </div>
         </div>
 
         {pipeline.traceId && (
