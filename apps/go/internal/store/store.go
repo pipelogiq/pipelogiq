@@ -307,10 +307,7 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID int) (*types.Pipelin
 		return nil, err
 	}
 
-	status := computePipelineStatus(states)
-	if !row.IsCompleted && row.Status != nil && strings.TrimSpace(*row.Status) != "" {
-		status = *row.Status
-	}
+	status := resolvePipelineStatus(nullableStatus(row.Status), row.IsCompleted, states)
 	isEvent := s.getPipelineIsEvent(ctx, pipelineID)
 
 	return &types.PipelineResponse{
@@ -396,23 +393,37 @@ func (s *Store) getPipelineIsEvent(ctx context.Context, pipelineID int) *bool {
 }
 
 func computePipelineStatus(stageStatuses []string) string {
+	if len(stageStatuses) == 0 {
+		return types.PipelineStatusNotStarted
+	}
+
 	hasFailed := false
 	hasRunning := false
-	allFinished := len(stageStatuses) > 0
-	allNotStarted := len(stageStatuses) > 0
+	hasPending := false
+	hasNotStarted := false
+	hasProgress := false
+	allFinished := true
+	allNotStarted := true
 
 	for _, st := range stageStatuses {
 		switch st {
 		case types.StageStatusFailed:
 			hasFailed = true
+			hasProgress = true
 			allNotStarted = false
-		case types.StageStatusRunning, types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusThrottled, types.StageStatusWaitingApproval:
+		case types.StageStatusRunning:
 			hasRunning = true
-			allNotStarted = false
 			allFinished = false
+			allNotStarted = false
+		case types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusThrottled, types.StageStatusWaitingApproval:
+			hasPending = true
+			allFinished = false
+			allNotStarted = false
 		case types.StageStatusCompleted, types.StageStatusSkipped:
+			hasProgress = true
 			allNotStarted = false
 		case types.StageStatusNotStarted:
+			hasNotStarted = true
 			allFinished = false
 		default:
 			allFinished = false
@@ -421,17 +432,49 @@ func computePipelineStatus(stageStatuses []string) string {
 	}
 
 	switch {
-	case hasFailed && !hasRunning:
+	case hasRunning:
+		return types.PipelineStatusRunning
+	case hasPending:
+		return types.PipelineStatusPending
+	case allNotStarted:
+		return types.PipelineStatusNotStarted
+	case hasFailed && !hasNotStarted:
 		return types.PipelineStatusFailed
 	case allFinished && !hasFailed:
 		return types.PipelineStatusCompleted
-	case allNotStarted:
-		return types.PipelineStatusNotStarted
-	case hasRunning || hasFailed:
-		return types.PipelineStatusRunning
+	case hasFailed || hasNotStarted || hasProgress:
+		return types.PipelineStatusPending
 	default:
 		return types.PipelineStatusNotStarted
 	}
+}
+
+func nullableStatus(status *string) string {
+	if status == nil {
+		return ""
+	}
+	return strings.TrimSpace(*status)
+}
+
+func isPausedPipelineStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case strings.ToLower(types.PipelineStatusPaused),
+		strings.ToLower(types.PipelineStatusCancelled),
+		"canceled":
+		return true
+	default:
+		return false
+	}
+}
+
+func resolvePipelineStatus(rowStatus string, isCompleted bool, stageStatuses []string) string {
+	if isPausedPipelineStatus(rowStatus) && !isCompleted {
+		return types.PipelineStatusPaused
+	}
+	if isCompleted && strings.TrimSpace(rowStatus) != "" {
+		return rowStatus
+	}
+	return computePipelineStatus(stageStatuses)
 }
 
 func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.StageResponse, error) {
@@ -502,6 +545,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 				SELECT MAX(so2.id) FROM stage_options so2 WHERE so2.stage_id = s.id
 			)
 				WHERE p.is_completed = false
+				  AND COALESCE(p.status, '') NOT IN ($7, $8)
 				  AND (
 					s.status = $1
 					OR (s.status = $2 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
@@ -533,7 +577,8 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		)
 			SELECT id FROM candidate
 		`, types.StageStatusNotStarted, types.StageStatusRetryScheduled, types.StageStatusThrottled,
-		types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed).Scan(&stageID)
+		types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed,
+		types.PipelineStatusPaused, types.PipelineStatusCancelled).Scan(&stageID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		_ = tx.Commit()
@@ -595,7 +640,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 			}
 			if _, err = tx.ExecContext(ctx, `
 				UPDATE pipeline SET status=$1 WHERE id=$2
-			`, types.PipelineStatusRunning, row.PipelineID); err != nil {
+			`, types.PipelineStatusPending, row.PipelineID); err != nil {
 				return nil, err
 			}
 			if _, err = tx.ExecContext(ctx, `
@@ -642,7 +687,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 
 	if _, err = tx.ExecContext(ctx, `
 		UPDATE pipeline SET status=$1 WHERE id=$2
-	`, types.PipelineStatusRunning, row.PipelineID); err != nil {
+	`, types.PipelineStatusPending, row.PipelineID); err != nil {
 		return nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `
@@ -1024,8 +1069,10 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	} else if msg.IsSuccess {
 		newStatus = types.StageStatusCompleted
 	} else {
+		skipAutomaticRetry := shouldSkipAutomaticRetry(msg.ErrorCode)
+
 		// Policy-based retry takes precedence over stage_options retry.
-		if s.policyRuntime != nil {
+		if s.policyRuntime != nil && !skipAutomaticRetry {
 			allPolicies, _ := s.policyRuntime.RuntimePolicies(ctx)
 			scope, scopeErr := s.loadPolicyRuntimeScopeTx(ctx, tx, msg.StageID)
 			if scopeErr == nil {
@@ -1047,7 +1094,7 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		}
 
 		// Fall back to stage_options retry when no policy triggered a retry.
-		if newStatus != types.StageStatusRetryScheduled {
+		if newStatus != types.StageStatusRetryScheduled && !skipAutomaticRetry {
 			maxRetries := 0
 			if stage.MaxRetries.Valid {
 				maxRetries = int(stage.MaxRetries.Int64)
@@ -1062,6 +1109,8 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			}
 		}
 	}
+
+	pausedPipeline := isPausedPipelineStatus(pipeline.Status.String)
 
 	if newStatus == types.StageStatusRetryScheduled {
 		if nextRetryDelay <= 0 {
@@ -1150,9 +1199,13 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	}
 
 	if newStatus == types.StageStatusRetryScheduled {
+		nextPipelineStatus := types.PipelineStatusPending
+		if pausedPipeline {
+			nextPipelineStatus = types.PipelineStatusPaused
+		}
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE pipeline SET is_completed=false, finished_at=NULL, status=$2 WHERE id=$1
-		`, stage.PipelineID, types.PipelineStatusRunning); err != nil {
+		`, stage.PipelineID, nextPipelineStatus); err != nil {
 			return nil, err
 		}
 	} else {
@@ -1170,15 +1223,42 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			}
 		}
 
+		hasEarlierFailure := false
+		if msg.IsSuccess && msg.StageID == lastStageID {
+			hasEarlierFailure, err = s.hasPriorFailedStageTx(ctx, tx, stage.PipelineID, msg.StageID)
+			if err != nil {
+				return nil, err
+			}
+		}
+
 		completePipeline := ((!msg.IsSuccess && !hasFailureContinuation) || msg.StageID == lastStageID) && !msg.IsWaitingForApproval
 		if completePipeline {
 			pStatus := types.PipelineStatusCompleted
-			if !msg.IsSuccess {
+			if !msg.IsSuccess || hasEarlierFailure {
 				pStatus = types.PipelineStatusFailed
 			}
 			if _, err = tx.ExecContext(ctx, `
 				UPDATE pipeline SET is_completed=true, finished_at=CURRENT_TIMESTAMP, status=$2 WHERE id=$1
 			`, stage.PipelineID, pStatus); err != nil {
+				return nil, err
+			}
+		} else {
+			nextPipelineStatus := types.PipelineStatusPending
+			if pausedPipeline {
+				nextPipelineStatus = types.PipelineStatusPaused
+			} else {
+				var stageStatuses []string
+				if err = sqlx.SelectContext(ctx, tx, &stageStatuses, `SELECT status FROM stage WHERE pipeline_id=$1 ORDER BY id`, stage.PipelineID); err != nil {
+					return nil, err
+				}
+				nextPipelineStatus = computePipelineStatus(stageStatuses)
+				if nextPipelineStatus == types.PipelineStatusRunning {
+					nextPipelineStatus = types.PipelineStatusPending
+				}
+			}
+			if _, err = tx.ExecContext(ctx, `
+				UPDATE pipeline SET is_completed=false, finished_at=NULL, status=$2 WHERE id=$1
+			`, stage.PipelineID, nextPipelineStatus); err != nil {
 				return nil, err
 			}
 		}
@@ -1191,6 +1271,15 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	s.LogStageChange(ctx, stage.PipelineID, msg.StageID, stage.Status, newStatus, "result_consumer")
 
 	return s.GetPipelineWithStages(ctx, stage.PipelineID)
+}
+
+func shouldSkipAutomaticRetry(errorCode string) bool {
+	switch strings.ToUpper(strings.TrimSpace(errorCode)) {
+	case "TOOL_LOOP", "BUDGET_EXCEEDED":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Store) hasFailureContinuationStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, failedStageID int) (bool, error) {
@@ -1207,6 +1296,25 @@ func (s *Store) hasFailureContinuationStageTx(ctx context.Context, tx *sqlx.Tx, 
 			  AND COALESCE(so.run_next_if_failed, false)
 		)
 	`, pipelineID, failedStageID); err != nil {
+		return false, err
+	}
+
+	return exists, nil
+}
+
+func (s *Store) hasPriorFailedStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, currentStageID int) (bool, error) {
+	var exists bool
+	if err := tx.GetContext(ctx, &exists, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM stage s
+			WHERE s.pipeline_id = $1
+			  AND s.id < $2
+			  AND COALESCE(s.is_event, false) = false
+			  AND COALESCE(s.is_skipped, false) = false
+			  AND s.status = $3
+		)
+	`, pipelineID, currentStageID, types.StageStatusFailed); err != nil {
 		return false, err
 	}
 
@@ -1282,10 +1390,22 @@ func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusM
 
 	var oldStatus string
 	var pipelineID int
-	err = tx.QueryRowContext(ctx, `
-		SELECT status, pipeline_id FROM stage WHERE id = $1 FOR UPDATE
-	`, msg.StageID).Scan(&oldStatus, &pipelineID)
+	err = tx.QueryRowContext(ctx, fmt.Sprintf(`
+		SELECT status, pipeline_id FROM stage WHERE id = $1%s
+	`, s.forUpdateClause()), msg.StageID).Scan(&oldStatus, &pipelineID)
 	if err != nil {
+		return nil, err
+	}
+
+	var pipeline struct {
+		Status      sql.NullString `db:"status"`
+		IsCompleted bool           `db:"is_completed"`
+	}
+	if err = tx.GetContext(ctx, &pipeline, fmt.Sprintf(`
+		SELECT status, is_completed
+		FROM pipeline
+		WHERE id = $1%s
+	`, s.forUpdateClause()), pipelineID); err != nil {
 		return nil, err
 	}
 
@@ -1296,10 +1416,47 @@ func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusM
 		return s.GetPipelineWithStages(ctx, pipelineID)
 	}
 
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE stage SET status=$1 WHERE id=$2
-	`, msg.Status, msg.StageID); err != nil {
-		return nil, err
+	switch msg.Status {
+	case types.StageStatusRunning:
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE stage
+			SET status=$1, started_at=CURRENT_TIMESTAMP
+			WHERE id=$2
+		`, msg.Status, msg.StageID); err != nil {
+			return nil, err
+		}
+	default:
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE stage SET status=$1 WHERE id=$2
+		`, msg.Status, msg.StageID); err != nil {
+			return nil, err
+		}
+	}
+
+	if !isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
+		nextPipelineStatus := nullableStatus(&msg.Status)
+		switch msg.Status {
+		case types.StageStatusRunning:
+			nextPipelineStatus = types.PipelineStatusRunning
+		case types.StageStatusPending, types.StageStatusRetryScheduled, types.StageStatusThrottled, types.StageStatusWaitingApproval:
+			nextPipelineStatus = types.PipelineStatusPending
+		default:
+			var stageStatuses []string
+			if err = sqlx.SelectContext(ctx, tx, &stageStatuses, `SELECT status FROM stage WHERE pipeline_id=$1 ORDER BY id`, pipelineID); err != nil {
+				return nil, err
+			}
+			nextPipelineStatus = computePipelineStatus(stageStatuses)
+		}
+
+		if isPausedPipelineStatus(pipeline.Status.String) {
+			nextPipelineStatus = types.PipelineStatusPaused
+		}
+
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE pipeline SET status=$1, is_completed=false, finished_at=NULL WHERE id=$2
+		`, nextPipelineStatus, pipelineID); err != nil {
+			return nil, err
+		}
 	}
 
 	if err = tx.Commit(); err != nil {

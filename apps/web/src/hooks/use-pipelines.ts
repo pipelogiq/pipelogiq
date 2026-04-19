@@ -21,6 +21,18 @@ function formatDuration(startDate?: string, endDate?: string): string {
   return `${Math.floor(diff / 3600000)}h ${Math.floor((diff % 3600000) / 60000)}m`;
 }
 
+function shouldShowStageTiming(status?: StageResponse['status']): boolean {
+  switch (status) {
+    case 'Running':
+    case 'Completed':
+    case 'Failed':
+    case 'WaitingForApproval':
+      return true;
+    default:
+      return false;
+  }
+}
+
 function mapStageToAction(stage: StageResponse): PipelineAction {
   // Combine all logs into a single string
   const logsText = stage.logs
@@ -49,9 +61,13 @@ function mapStageToAction(stage: StageResponse): PipelineAction {
     handlerName: stage.stageHandlerName || undefined,
     spanId: stage.spanId || undefined,
     status: mapStageStatusToUI(stage.status),
-    duration: formatDuration(stage.startedAt, stage.finishedAt),
+    duration: shouldShowStageTiming(stage.status)
+      ? formatDuration(stage.startedAt, stage.finishedAt)
+      : undefined,
     createdAt: stage.createdAt ? format(new Date(stage.createdAt), 'HH:mm:ss.SSS') : undefined,
-    startedAt: stage.startedAt ? format(new Date(stage.startedAt), 'HH:mm:ss.SSS') : undefined,
+    startedAt: shouldShowStageTiming(stage.status) && stage.startedAt
+      ? format(new Date(stage.startedAt), 'HH:mm:ss.SSS')
+      : undefined,
     completedAt: stage.finishedAt ? format(new Date(stage.finishedAt), 'HH:mm:ss.SSS') : undefined,
     logs: logsText,
     logEntries: stage.logs || [],
@@ -112,6 +128,10 @@ type PipelineLinkTemplates = {
   logsLinkTemplate?: string;
 };
 
+function shouldShowPipelineDuration(status: PipelineResponse['status']): boolean {
+  return status === 'Completed' || status === 'Failed' || status === 'Paused' || status === 'Cancelled';
+}
+
 export function mapPipelineToExecution(
   pipeline: PipelineResponse,
   linkTemplates?: PipelineLinkTemplates,
@@ -159,7 +179,9 @@ export function mapPipelineToExecution(
     completedAtExact: pipeline.finishedAt
       ? format(new Date(pipeline.finishedAt), 'yyyy-MM-dd HH:mm:ss')
       : undefined,
-    duration: formatDuration(pipeline.createdAt, pipeline.finishedAt || undefined),
+    duration: shouldShowPipelineDuration(pipeline.status)
+      ? formatDuration(pipeline.createdAt, pipeline.finishedAt || undefined)
+      : undefined,
     owner,
     tags,
     correlationId,
@@ -207,7 +229,8 @@ export function usePipelines(params?: GetPipelinesParams) {
       const hasActive = data.items.some((pipeline) =>
         pipeline.status === 'running' ||
         pipeline.status === 'waiting' ||
-        pipeline.status === 'throttled'
+        pipeline.status === 'throttled' ||
+        (pipeline.status === 'paused' && pipeline.stages.some((stage) => stage.status === 'running'))
       );
       return hasActive ? 5000 : false;
     },
@@ -234,7 +257,8 @@ export function usePipeline(id: number) {
       return (
         data.status === 'running' ||
         data.status === 'waiting' ||
-        data.status === 'throttled'
+        data.status === 'throttled' ||
+        (data.status === 'paused' && data.stages.some((stage) => stage.status === 'running'))
       ) ? 3000 : false;
     },
   });
@@ -274,6 +298,30 @@ export function useSkipStage() {
   return useMutation({
     mutationFn: (stageId: number) =>
       pipelinesApi.skipStage({ stageId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+    },
+  });
+}
+
+export function usePausePipeline() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pipelineId: number) => pipelinesApi.pausePipeline(pipelineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+    },
+  });
+}
+
+export function useResumePipeline() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (pipelineId: number) => pipelinesApi.resumePipeline(pipelineId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
       queryClient.invalidateQueries({ queryKey: ['pipeline'] });

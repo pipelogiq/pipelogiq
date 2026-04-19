@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 )
 
@@ -55,6 +57,60 @@ func (s *Server) handleRerunStage(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.RerunStage(ctx, req.StageID, req.RerunAllNextStages); err != nil {
 		s.logger.Error("rerun stage failed", "err", err)
 		http.Error(w, "failed to rerun stage", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handlePausePipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid pipeline id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err = s.store.PausePipeline(ctx, pipelineID); err != nil {
+		switch {
+		case errors.Is(err, store.ErrPipelineNotFound):
+			http.Error(w, "pipeline not found", http.StatusNotFound)
+		case errors.Is(err, store.ErrPipelineNotPausable):
+			http.Error(w, "pipeline is not pausable", http.StatusConflict)
+		default:
+			s.logger.Error("pause pipeline failed", "pipelineId", pipelineID, "err", err)
+			http.Error(w, "failed to pause pipeline", http.StatusInternalServerError)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) handleResumePipeline(w http.ResponseWriter, r *http.Request) {
+	pipelineID, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		http.Error(w, "invalid pipeline id", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if err = s.store.ResumePipeline(ctx, pipelineID); err != nil {
+		switch {
+		case errors.Is(err, store.ErrPipelineNotFound):
+			http.Error(w, "pipeline not found", http.StatusNotFound)
+		case errors.Is(err, store.ErrPipelineNotPaused):
+			http.Error(w, "pipeline is not paused", http.StatusConflict)
+		case errors.Is(err, store.ErrPipelineNotPausable):
+			http.Error(w, "pipeline cannot be resumed", http.StatusConflict)
+		default:
+			s.logger.Error("resume pipeline failed", "pipelineId", pipelineID, "err", err)
+			http.Error(w, "failed to resume pipeline", http.StatusInternalServerError)
+		}
 		return
 	}
 

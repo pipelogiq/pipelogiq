@@ -14,7 +14,9 @@ const (
 
 const (
 	PipelineStatusNotStarted = "NotStarted"
+	PipelineStatusPending    = "Pending"
 	PipelineStatusRunning    = "Running"
+	PipelineStatusPaused     = "Paused"
 	PipelineStatusCompleted  = "Completed"
 	PipelineStatusFailed     = "Failed"
 	PipelineStatusCancelled  = "Cancelled"

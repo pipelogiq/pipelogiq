@@ -254,8 +254,8 @@ func TestUpdateStageResult_FailedStageWithRunNextIfFailedContinuation_KeepsPipel
 	if pipeline == nil {
 		t.Fatal("expected pipeline snapshot, got nil")
 	}
-	if pipeline.Status != types.PipelineStatusRunning {
-		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusRunning)
+	if pipeline.Status != types.PipelineStatusPending {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusPending)
 	}
 
 	next, err := st.GetStageToExecute(context.Background())
@@ -267,6 +267,38 @@ func TestUpdateStageResult_FailedStageWithRunNextIfFailedContinuation_KeepsPipel
 	}
 	if next.StageID != responderStageID {
 		t.Fatalf("next stage id = %d, want %d", next.StageID, responderStageID)
+	}
+}
+
+func TestUpdateStageResult_ToolLoopDoesNotUseAutomaticStageRetry(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	pipelineID := insertPipelineRow(t, db, "tool-loop-no-auto-retry", types.PipelineStatusRunning, false)
+	failedStageID := insertStageRow(t, db, pipelineID, "agent-think", types.StageStatusPending)
+	insertStageRetryOptions(t, db, failedStageID, 30, 120)
+
+	pipeline, err := st.UpdateStageResult(context.Background(), types.StageResultMessage{
+		StageID:   failedStageID,
+		Result:    "Tool loop detected for 'saveBudgetResult' — responder appended.",
+		IsSuccess: false,
+		ErrorCode: "TOOL_LOOP",
+	})
+	if err != nil {
+		t.Fatalf("UpdateStageResult() error = %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("expected pipeline snapshot, got nil")
+	}
+	if pipeline.Status != types.PipelineStatusFailed {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusFailed)
+	}
+
+	var stageStatus string
+	if err := db.Get(&stageStatus, `SELECT status FROM stage WHERE id = $1`, failedStageID); err != nil {
+		t.Fatalf("load failed stage status: %v", err)
+	}
+	if stageStatus != types.StageStatusFailed {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusFailed)
 	}
 }
 
@@ -304,8 +336,8 @@ func TestUpdateStageResult_AppendedStages_AreInsertedAndMappedInContext(t *testi
 	if pipeline == nil {
 		t.Fatal("expected pipeline snapshot, got nil")
 	}
-	if pipeline.Status != types.PipelineStatusRunning {
-		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusRunning)
+	if pipeline.Status != types.PipelineStatusPending {
+		t.Fatalf("pipeline status = %q, want %q", pipeline.Status, types.PipelineStatusPending)
 	}
 
 	var stageCount int
@@ -364,6 +396,62 @@ func TestGetStageToExecute_AllowsRunNextIfFailedStageAfterEarlierFailure(t *test
 	}
 	if next.StageID != followupStageID {
 		t.Fatalf("next stage id = %d, want %d", next.StageID, followupStageID)
+	}
+}
+
+func TestPausePipeline_StopsSchedulingUntilResume(t *testing.T) {
+	st, db := setupStageOpsTestStore(t)
+	ctx := context.Background()
+
+	pipelineID := insertPipelineRow(t, db, "pause-resume", types.PipelineStatusRunning, false)
+	currentStageID := insertStageRow(t, db, pipelineID, "current", types.StageStatusPending)
+	nextStageID := insertStageRow(t, db, pipelineID, "next", types.StageStatusNotStarted)
+
+	if _, err := st.UpdateStageStatus(ctx, types.SetStageStatusMessage{
+		StageID: currentStageID,
+		Status:  types.StageStatusRunning,
+	}); err != nil {
+		t.Fatalf("UpdateStageStatus(running) error = %v", err)
+	}
+
+	if err := st.PausePipeline(ctx, pipelineID); err != nil {
+		t.Fatalf("PausePipeline() error = %v", err)
+	}
+
+	pipeline, err := st.UpdateStageResult(ctx, types.StageResultMessage{
+		StageID:   currentStageID,
+		Result:    "done",
+		IsSuccess: true,
+	})
+	if err != nil {
+		t.Fatalf("UpdateStageResult() error = %v", err)
+	}
+
+	if pipeline.Status != types.PipelineStatusPaused {
+		t.Fatalf("pipeline status after paused stage result = %q, want %q", pipeline.Status, types.PipelineStatusPaused)
+	}
+
+	next, err := st.GetStageToExecute(ctx)
+	if err != nil {
+		t.Fatalf("GetStageToExecute() while paused error = %v", err)
+	}
+	if next != nil {
+		t.Fatalf("expected no stage while paused, got stage %d", next.StageID)
+	}
+
+	if err := st.ResumePipeline(ctx, pipelineID); err != nil {
+		t.Fatalf("ResumePipeline() error = %v", err)
+	}
+
+	next, err = st.GetStageToExecute(ctx)
+	if err != nil {
+		t.Fatalf("GetStageToExecute() after resume error = %v", err)
+	}
+	if next == nil {
+		t.Fatal("expected next stage after resume")
+	}
+	if next.StageID != nextStageID {
+		t.Fatalf("next stage id = %d, want %d", next.StageID, nextStageID)
 	}
 }
 
@@ -559,5 +647,15 @@ func insertStageRunNextIfFailedOption(t *testing.T, db *sqlx.DB, stageID int, en
 		VALUES ($1, $2)
 	`, stageID, enabled); err != nil {
 		t.Fatalf("insert stage option: %v", err)
+	}
+}
+
+func insertStageRetryOptions(t *testing.T, db *sqlx.DB, stageID int, maxRetries int, retryIntervalSeconds int) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO stage_options (stage_id, max_retries, retry_interval)
+		VALUES ($1, $2, $3)
+	`, stageID, maxRetries, retryIntervalSeconds); err != nil {
+		t.Fatalf("insert retry stage option: %v", err)
 	}
 }

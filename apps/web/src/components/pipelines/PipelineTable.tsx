@@ -117,7 +117,9 @@ export function PipelineTable({ pipelines, selectedId, onSelect, isPanelOpen = f
                 <div className="text-xs text-muted-foreground">{pipeline.startedAt}</div>
               </TableCell>
               <TableCell className="py-3 text-sm text-foreground font-mono">
-                {pipeline.duration || "-"}
+                {(pipeline.status === "success" || pipeline.status === "error" || pipeline.status === "paused")
+                  ? (pipeline.duration || "-")
+                  : "-"}
               </TableCell>
               <TableCell className="py-3 text-sm text-foreground font-mono">
                 {(pipeline.status === "success" || pipeline.status === "error") ? (

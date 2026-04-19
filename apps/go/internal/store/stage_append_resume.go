@@ -401,6 +401,16 @@ func (s *Store) resumeStageApprovalOnce(
 		return fmt.Errorf("load pipeline stage statuses: %w", err)
 	}
 
+	var pipelineStatusRow sql.NullString
+	if err = tx.GetContext(ctx, &pipelineStatusRow, `
+		SELECT status
+		FROM pipeline
+		WHERE id = $1
+	`, stage.PipelineID); err != nil {
+		return fmt.Errorf("load pipeline status: %w", err)
+	}
+
+	pausedPipeline := isPausedPipelineStatus(pipelineStatusRow.String)
 	pipelineStatus := computePipelineStatus(statuses)
 	if isPipelineTerminalStatus(pipelineStatus, false) {
 		if _, err = tx.ExecContext(ctx, `
@@ -411,6 +421,9 @@ func (s *Store) resumeStageApprovalOnce(
 			return fmt.Errorf("update pipeline terminal status: %w", err)
 		}
 	} else {
+		if pausedPipeline {
+			pipelineStatus = types.PipelineStatusPaused
+		}
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE pipeline
 			SET status = $1, is_completed = false, finished_at = NULL

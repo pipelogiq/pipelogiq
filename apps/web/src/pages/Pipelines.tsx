@@ -18,9 +18,9 @@ function mapUIStatusToAPI(status: string): string[] {
     case 'running':
       return ['Running'];
     case 'waiting':
-      return ['NotStarted', 'Pending', 'RetryScheduled'];
+      return ['NotStarted', 'Pending'];
     case 'paused':
-      return ['Skipped'];
+      return ['Paused', 'Cancelled'];
     default:
       return [];
   }

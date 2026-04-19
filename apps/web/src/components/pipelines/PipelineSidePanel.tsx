@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban } from "lucide-react";
+import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { PipelineAction } from "./PipelineDetailPanel";
@@ -8,7 +8,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { usePipeline, useRerunStage, useSkipStage } from "@/hooks/use-pipelines";
+import { usePipeline, useRerunStage, useSkipStage, usePausePipeline, useResumePipeline } from "@/hooks/use-pipelines";
 import { Button } from "@/components/ui/button";
 import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
 
@@ -17,7 +17,7 @@ interface PipelineSidePanelProps {
   onClose: () => void;
 }
 
-type TabType = "stages" | "logs" | "context";
+type TabType = "stages" | "logs" | "context" | "ai-usage";
 
 type LlmUsageView = {
   provider?: string;
@@ -50,8 +50,17 @@ type StageLlmOutputView = {
   sessionUsage?: LlmUsageSummaryView | null;
 };
 
+type StageUsageEntry = {
+  action: PipelineAction;
+  index: number;
+  llmOperation?: string;
+  usage: LlmUsageView;
+};
+
 export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProps) {
   const { data: pipeline, isLoading, error } = usePipeline(pipelineId);
+  const pausePipeline = usePausePipeline();
+  const resumePipeline = useResumePipeline();
   const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<TabType>("stages");
 
@@ -104,7 +113,25 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   };
 
   const stageCount = pipeline.actions.length;
-  const pipelineUsageSummary = getPipelineUsageSummary(pipeline.context);
+  const parsedStageOutputs = pipeline.actions.map((action) => parseStageLlmOutput(action.output));
+  const pipelineUsageSummary = getPipelineUsageSummary(pipeline.context)
+    ?? getLatestStageSessionUsage(parsedStageOutputs);
+  const stageUsageEntries = pipeline.actions.flatMap((action, index) => {
+    const parsedOutput = parsedStageOutputs[index];
+    if (!parsedOutput?.llmUsage) {
+      return [];
+    }
+
+    return [{
+      action,
+      index,
+      llmOperation: parsedOutput.llmOperation,
+      usage: parsedOutput.llmUsage,
+    }];
+  });
+  const hasAiUsageTab = Boolean(pipelineUsageSummary) || stageUsageEntries.length > 0;
+  const visibleContextItems = pipeline.context.filter((item) => !isAiUsageContextKey(item.key));
+  const resolvedActiveTab = activeTab === "ai-usage" && !hasAiUsageTab ? "context" : activeTab;
 
   const getStatusDisplay = () => {
     switch (pipeline.status) {
@@ -168,6 +195,40 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           </div>
         </div>
 
+        <div className="mt-3 flex items-center gap-2">
+          {pipeline.status === "paused" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+              disabled={resumePipeline.isPending}
+              onClick={() => resumePipeline.mutate(pipelineId)}
+            >
+              {resumePipeline.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <PlayCircle className="h-3.5 w-3.5" />
+              )}
+              Resume
+            </Button>
+          ) : pipeline.status !== "success" && pipeline.status !== "error" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
+              disabled={pausePipeline.isPending}
+              onClick={() => pausePipeline.mutate(pipelineId)}
+            >
+              {pausePipeline.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Pause className="h-3.5 w-3.5" />
+              )}
+              Pause
+            </Button>
+          ) : null}
+        </div>
+
         {pipeline.traceId && (
             <div className="mt-2.5 flex items-center justify-between gap-2 p-2 bg-white rounded-md border border-slate-200 text-xs">
               <div className="flex items-center gap-2 min-w-0">
@@ -228,16 +289,17 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
       <div className="px-6 border-b border-border bg-white">
         <div className="flex">
           {([
-            { key: "stages" as TabType, label: `Stages (${stageCount})` },
-            { key: "logs" as TabType, label: "Logs" },
-            { key: "context" as TabType, label: "Context" },
+            { key: "stages" as const, label: `Stages (${stageCount})` },
+            { key: "logs" as const, label: "Logs" },
+            { key: "context" as const, label: "Context" },
+            ...(hasAiUsageTab ? [{ key: "ai-usage" as const, label: "AI Usage" }] : []),
           ]).map(tab => (
               <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
                   className={cn(
                       "flex-1 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px text-center",
-                      activeTab === tab.key
+                      resolvedActiveTab === tab.key
                           ? "border-primary text-foreground"
                           : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
                   )}
@@ -249,7 +311,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
       </div>
       {/* Tab Content */}
       <div className="flex-1 min-h-0 overflow-hidden bg-slate-50">
-        {activeTab === "stages" && (
+        {resolvedActiveTab === "stages" && (
           <ScrollArea className="h-full">
             <div className="p-4 space-y-3">
               {pipeline.actions.map((action, index) => (
@@ -266,12 +328,13 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           </ScrollArea>
         )}
 
-        {activeTab === "logs" && (
+        {resolvedActiveTab === "logs" && (
           <ScrollArea className="h-full">
             <div className="p-4 space-y-4">
               {pipeline.actions.map((action, index) => {
+                const stageOutput = getDisplayStageOutput(action.output);
                 const hasInput = hasPayloadContent(action.input);
-                const hasOutput = hasPayloadContent(action.output);
+                const hasOutput = hasPayloadContent(stageOutput);
                 const hasEntries = (action.logEntries?.length || 0) > 0;
 
                 if (!hasInput && !hasOutput && !hasEntries) {
@@ -315,7 +378,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                           <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Output</p>
                           {hasOutput ? (
                             <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
-                              {formatPayloadPreview(action.output)}
+                              {formatPayloadPreview(stageOutput)}
                             </pre>
                           ) : (
                             <p className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600 [overflow-wrap:anywhere]">
@@ -346,7 +409,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
               })}
               {pipeline.actions.every(action =>
                 !hasPayloadContent(action.input) &&
-                !hasPayloadContent(action.output) &&
+                !hasPayloadContent(getDisplayStageOutput(action.output)) &&
                 (!action.logEntries || action.logEntries.length === 0)
               ) && (
                 <div className="bg-white m-0 rounded-lg border border-slate-200 p-6">
@@ -357,42 +420,40 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           </ScrollArea>
         )}
 
-        {activeTab === "context" && (
+        {resolvedActiveTab === "context" && (
           <ScrollArea className="h-full">
             <div className="p-4">
-              {pipelineUsageSummary && (
-                <div className="mb-4">
-                  <UsageSummaryCard
-                    title="Pipeline LLM Usage"
-                    summary={pipelineUsageSummary}
-                  />
-                </div>
-              )}
               <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-                <table className="w-full table-fixed text-sm">
-                  <colgroup>
-                    <col className="w-[30%]" />
-                    <col className="w-[70%]" />
-                  </colgroup>
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Key</th>
-                      <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Value</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pipeline.context.map((ctx, index) => (
-                      <tr key={index} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                        <td className="max-w-0 break-all px-4 py-3 align-top font-mono font-bold text-slate-900 [overflow-wrap:anywhere]">
-                          {ctx.key}
-                        </td>
-                        <td className="min-w-0 px-4 py-3 align-top">
-                          <ContextValueViewer item={ctx} className="w-full min-w-0" />
-                        </td>
+                {visibleContextItems.length > 0 ? (
+                  <table className="w-full table-fixed text-sm">
+                    <colgroup>
+                      <col className="w-[30%]" />
+                      <col className="w-[70%]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Key</th>
+                        <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Value</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {visibleContextItems.map((ctx, index) => (
+                        <tr key={index} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                          <td className="max-w-0 break-all px-4 py-3 align-top font-mono font-bold text-slate-900 [overflow-wrap:anywhere]">
+                            {ctx.key}
+                          </td>
+                          <td className="min-w-0 px-4 py-3 align-top">
+                            <ContextValueViewer item={ctx} className="w-full min-w-0" />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <div className="px-4 py-6 text-sm text-slate-500">
+                    No context items to display.
+                  </div>
+                )}
               </div>
               {/*<div className="mt-5">
                 <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Tags</p>
@@ -404,6 +465,34 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                   ))}
                 </div>
               </div>*/}
+            </div>
+          </ScrollArea>
+        )}
+
+        {resolvedActiveTab === "ai-usage" && hasAiUsageTab && (
+          <ScrollArea className="h-full">
+            <div className="p-4 space-y-4">
+              {pipelineUsageSummary && (
+                <UsageSummaryCard
+                  title="Pipeline LLM Usage"
+                  summary={pipelineUsageSummary}
+                />
+              )}
+
+              {stageUsageEntries.length > 0 ? (
+                <div className="space-y-3">
+                  {stageUsageEntries.map((entry) => (
+                    <StageUsageCard
+                      key={`${entry.action.id}-ai-usage`}
+                      entry={entry}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                  No stage-level AI usage available.
+                </div>
+              )}
             </div>
           </ScrollArea>
         )}
@@ -483,6 +572,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
   const rerunStage = useRerunStage();
   const skipStage = useSkipStage();
   const parsedStageOutput = parseStageLlmOutput(action.output);
+  const displayStageOutput = getDisplayStageOutput(action.output);
   const spanUrl = action.spanId && traceUrl
     ? `${traceUrl}${traceUrl.includes('?') ? '&' : '?'}spanId=${encodeURIComponent(action.spanId)}`
     : '';
@@ -528,18 +618,21 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
   };
 
   const getOutputPreview = () => {
-    if (action.output && Object.keys(action.output).length > 0) {
-      const firstValue = Object.values(action.output)[0];
+    if (displayStageOutput && typeof displayStageOutput === "object" && !Array.isArray(displayStageOutput)) {
+      const firstValue = Object.values(displayStageOutput as Record<string, unknown>)[0];
       if (typeof firstValue === "string") return firstValue;
       if (typeof firstValue === "boolean") return firstValue ? "Success" : "Failed";
       return JSON.stringify(firstValue);
+    }
+    if (typeof displayStageOutput === "string") {
+      return displayStageOutput;
     }
     return action.status === "queued" ? "Not started" : action.status === "waiting" ? "Pending..." : "Processing...";
   };
 
   const statusInfo = getStatusLabel();
   const hasInput = hasPayloadContent(action.input);
-  const hasOutput = hasPayloadContent(action.output);
+  const hasOutput = hasPayloadContent(displayStageOutput);
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
@@ -604,10 +697,16 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                   </Button>
                 </div>
             )}
-            <div className="grid grid-cols-3 gap-4 text-sm mb-4">
-              {action.startedAt && (
+            <div className="grid grid-cols-2 gap-4 text-sm mb-4 md:grid-cols-4">
+              {action.createdAt && (
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Created</p>
+                  <p className="font-mono font-bold text-slate-900">{action.createdAt}</p>
+                </div>
+              )}
+              {action.startedAt && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Started</p>
                   <p className="font-mono font-bold text-slate-900">{action.startedAt}</p>
                 </div>
               )}
@@ -661,38 +760,12 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
                   Output
                 </p>
-                {parsedStageOutput ? (
-                  <div className="space-y-3">
-                    {parsedStageOutput.llmUsage && (
-                      <UsageCard
-                        title={parsedStageOutput.llmOperation
-                          ? `LLM Usage · ${parsedStageOutput.llmOperation}`
-                          : "LLM Usage"}
-                        usage={parsedStageOutput.llmUsage}
-                      />
-                    )}
-                    {parsedStageOutput.sessionUsage && (
-                      <UsageSummaryCard
-                        title="Pipeline Usage So Far"
-                        summary={parsedStageOutput.sessionUsage}
-                        compact
-                      />
-                    )}
-                    {parsedStageOutput.raw && (
-                      <pre className={cn(
-                        "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
-                        action.status === "error" ? "text-red-700" : "text-slate-700"
-                      )}>
-                        {parsedStageOutput.raw}
-                      </pre>
-                    )}
-                  </div>
-                ) : hasOutput ? (
+                {hasOutput ? (
                   <pre className={cn(
                     "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
                     action.status === "error" ? "text-red-700" : "text-slate-700"
                   )}>
-                    {formatPayloadPreview(action.output)}
+                    {formatPayloadPreview(displayStageOutput)}
                   </pre>
                 ) : (
                   <p className={cn(
@@ -703,6 +776,17 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                   </p>
                 )}
               </div>
+
+              {parsedStageOutput?.llmUsage && (
+                <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
+                  <UsageCard
+                    title={parsedStageOutput.llmOperation
+                      ? `AI Usage · ${parsedStageOutput.llmOperation}`
+                      : "AI Usage"}
+                    usage={parsedStageOutput.llmUsage}
+                  />
+                </div>
+              )}
             </div>
 
           </div>
@@ -801,6 +885,37 @@ function UsageSummaryCard({
   );
 }
 
+function StageUsageCard({ entry }: { entry: StageUsageEntry }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-mono text-xs font-bold text-slate-500">
+          #{(entry.index + 1).toString().padStart(2, "0")}
+        </span>
+        <span className="min-w-0 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+          {entry.action.name}
+        </span>
+        {entry.action.handlerName && (
+          <span className="min-w-0 break-all text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            {entry.action.handlerName}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-slate-500">
+        {entry.action.startedAt && <span>STARTED {entry.action.startedAt}</span>}
+        {entry.action.completedAt && <span>FINISHED {entry.action.completedAt}</span>}
+        {entry.action.duration && <span>DURATION {entry.action.duration}</span>}
+      </div>
+      <div className="mt-3">
+        <UsageCard
+          title={entry.llmOperation ? `Stage AI Usage · ${entry.llmOperation}` : "Stage AI Usage"}
+          usage={entry.usage}
+        />
+      </div>
+    </div>
+  );
+}
+
 function UsageMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-white/80 bg-white/80 px-3 py-2">
@@ -874,13 +989,58 @@ function getPipelineUsageSummary(contextItems: Array<{ key: string; value: strin
   };
 }
 
+function getLatestStageSessionUsage(outputs: Array<StageLlmOutputView | null>): LlmUsageSummaryView | null {
+  for (let index = outputs.length - 1; index >= 0; index -= 1) {
+    const summary = outputs[index]?.sessionUsage;
+    if (summary) {
+      return summary;
+    }
+  }
+
+  return null;
+}
+
+function getDisplayStageOutput(output: Record<string, unknown>): unknown {
+  const sanitized = stripStageLlmMetadata(output);
+  const keys = Object.keys(sanitized);
+
+  if (keys.length === 0) {
+    return undefined;
+  }
+
+  if (keys.length === 1 && typeof sanitized.raw === "string") {
+    return sanitized.raw;
+  }
+
+  return sanitized;
+}
+
+function stripStageLlmMetadata(output: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = { ...output };
+  delete sanitized.llmOperation;
+  delete sanitized.llmUsage;
+  delete sanitized.sessionUsage;
+  return sanitized;
+}
+
+function isAiUsageContextKey(key: string): boolean {
+  return key === "agent:session:usageSummary" || key.startsWith("agent:session:") && (
+    key.endsWith("inputTokens") ||
+    key.endsWith("outputTokens") ||
+    key.endsWith("cacheReadTokens") ||
+    key.endsWith("cacheCreationTokens") ||
+    key.endsWith("estimatedCostUsd") ||
+    key.endsWith("llmCallCount")
+  );
+}
+
 function parseLlmUsage(value: unknown): LlmUsageView | null {
   const record = asRecord(value);
   if (!record) {
     return null;
   }
 
-  return {
+  const usage = {
     provider: toStringValue(record.provider),
     model: toStringValue(record.model),
     inputTokens: toNumber(record.inputTokens),
@@ -889,6 +1049,8 @@ function parseLlmUsage(value: unknown): LlmUsageView | null {
     cacheCreationTokens: toNumber(record.cacheCreationTokens),
     estimatedCostUsd: toNumber(record.estimatedCostUsd),
   };
+
+  return hasUsageData(usage) ? usage : null;
 }
 
 function parseLlmUsageSummary(value: unknown): LlmUsageSummaryView | null {
@@ -914,7 +1076,7 @@ function parseLlmUsageSummary(value: unknown): LlmUsageSummaryView | null {
         .filter((item): item is LlmUsageModelSummaryView => item !== null)
     : [];
 
-  return {
+  const summary = {
     totalCalls: toNumber(record.totalCalls),
     inputTokens: toNumber(record.inputTokens),
     outputTokens: toNumber(record.outputTokens),
@@ -923,6 +1085,8 @@ function parseLlmUsageSummary(value: unknown): LlmUsageSummaryView | null {
     estimatedCostUsd: toNumber(record.estimatedCostUsd),
     models,
   };
+
+  return hasUsageSummaryData(summary) ? summary : null;
 }
 
 function parseJsonString(value: string): unknown {
@@ -953,6 +1117,30 @@ function toNumber(value: unknown): number | undefined {
     return Number.isFinite(parsed) ? parsed : undefined;
   }
   return undefined;
+}
+
+function hasUsageData(usage: LlmUsageView): boolean {
+  return Boolean(
+    usage.provider ||
+    usage.model ||
+    usage.inputTokens !== undefined ||
+    usage.outputTokens !== undefined ||
+    usage.cacheReadTokens !== undefined ||
+    usage.cacheCreationTokens !== undefined ||
+    usage.estimatedCostUsd !== undefined
+  );
+}
+
+function hasUsageSummaryData(summary: LlmUsageSummaryView): boolean {
+  return Boolean(
+    summary.totalCalls !== undefined ||
+    summary.inputTokens !== undefined ||
+    summary.outputTokens !== undefined ||
+    summary.cacheReadTokens !== undefined ||
+    summary.cacheCreationTokens !== undefined ||
+    summary.estimatedCostUsd !== undefined ||
+    summary.models.length > 0
+  );
 }
 
 function formatInteger(value?: number): string {

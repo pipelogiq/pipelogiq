@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"log/slog"
@@ -193,6 +194,79 @@ func TestSequentialScheduling(t *testing.T) {
 	}
 	if msg == nil || msg.StageID != sC {
 		t.Fatalf("expected stage C (id=%d), got %v", sC, msg)
+	}
+}
+
+func TestGetStageToExecute_MarksPipelinePending(t *testing.T) {
+	st, db := setupSchedulingStore(t)
+	ctx := context.Background()
+
+	pid := insertPipeline(t, db, "pending-pipeline")
+	stageID := insertStage(t, db, pid, "A", "handler")
+
+	msg, err := st.GetStageToExecute(ctx)
+	if err != nil {
+		t.Fatalf("GetStageToExecute: %v", err)
+	}
+	if msg == nil || msg.StageID != stageID {
+		t.Fatalf("expected stage %d, got %#v", stageID, msg)
+	}
+
+	var pipelineStatus string
+	if err := db.Get(&pipelineStatus, `SELECT status FROM pipeline WHERE id = $1`, pid); err != nil {
+		t.Fatalf("load pipeline status: %v", err)
+	}
+	if pipelineStatus != types.PipelineStatusPending {
+		t.Fatalf("pipeline status = %q, want %q", pipelineStatus, types.PipelineStatusPending)
+	}
+
+	var row struct {
+		Status    string       `db:"status"`
+		StartedAt sql.NullTime `db:"started_at"`
+	}
+	if err := db.Get(&row, `SELECT status, started_at FROM stage WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("load stage: %v", err)
+	}
+	if row.Status != types.StageStatusPending {
+		t.Fatalf("stage status = %q, want %q", row.Status, types.StageStatusPending)
+	}
+	if !row.StartedAt.Valid {
+		t.Fatal("expected started_at to be set when stage becomes pending")
+	}
+}
+
+func TestUpdateStageStatus_RunningSetsStartedAtAndPipelineRunning(t *testing.T) {
+	st, db := setupSchedulingStore(t)
+	ctx := context.Background()
+
+	pid := insertPipeline(t, db, "running-pipeline")
+	stageID := insertStage(t, db, pid, "A", "handler")
+
+	if _, err := st.GetStageToExecute(ctx); err != nil {
+		t.Fatalf("GetStageToExecute: %v", err)
+	}
+
+	if _, err := st.UpdateStageStatus(ctx, types.SetStageStatusMessage{
+		StageID: stageID,
+		Status:  types.StageStatusRunning,
+	}); err != nil {
+		t.Fatalf("UpdateStageStatus: %v", err)
+	}
+
+	var pipelineStatus string
+	if err := db.Get(&pipelineStatus, `SELECT status FROM pipeline WHERE id = $1`, pid); err != nil {
+		t.Fatalf("load pipeline status: %v", err)
+	}
+	if pipelineStatus != types.PipelineStatusRunning {
+		t.Fatalf("pipeline status = %q, want %q", pipelineStatus, types.PipelineStatusRunning)
+	}
+
+	var startedAt sql.NullTime
+	if err := db.Get(&startedAt, `SELECT started_at FROM stage WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("load stage started_at: %v", err)
+	}
+	if !startedAt.Valid {
+		t.Fatal("expected started_at to be set when stage becomes running")
 	}
 }
 

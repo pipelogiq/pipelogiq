@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +12,11 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"pipelogiq/internal/types"
+)
+
+var (
+	ErrPipelineNotPausable = errors.New("pipeline is not pausable")
+	ErrPipelineNotPaused   = errors.New("pipeline is not paused")
 )
 
 func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest) (*types.PagedResult[types.PipelineResponse], error) {
@@ -131,7 +138,7 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 	// Get pipelines
 	args = append(args, pageSize, offset)
 	query := fmt.Sprintf(`
-		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at, p.finished_at, p.application_id
+		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at, p.finished_at, p.is_completed, p.application_id
 		FROM pipeline p
 		WHERE %s
 		ORDER BY p.created_at DESC
@@ -146,6 +153,8 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 
 	pipelines := []types.PipelineResponse{}
 	pipelineIDs := []int{}
+	pipelineStatuses := make(map[int]string)
+	pipelineCompleted := make(map[int]bool)
 	for rows.Next() {
 		var p struct {
 			ID            int        `db:"id"`
@@ -154,22 +163,18 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 			Status        *string    `db:"status"`
 			CreatedAt     time.Time  `db:"created_at"`
 			FinishedAt    *time.Time `db:"finished_at"`
+			IsCompleted   bool       `db:"is_completed"`
 			ApplicationID *int       `db:"application_id"`
 		}
 		if err := rows.StructScan(&p); err != nil {
 			continue
 		}
 
-		status := types.PipelineStatusNotStarted
-		if p.Status != nil {
-			status = *p.Status
-		}
-
 		pipeline := types.PipelineResponse{
 			ID:            p.ID,
 			Name:          p.Name,
 			TraceID:       p.TraceID,
-			Status:        status,
+			Status:        types.PipelineStatusNotStarted,
 			CreatedAt:     p.CreatedAt,
 			FinishedAt:    p.FinishedAt,
 			ApplicationID: p.ApplicationID,
@@ -177,6 +182,8 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 
 		pipelines = append(pipelines, pipeline)
 		pipelineIDs = append(pipelineIDs, p.ID)
+		pipelineStatuses[p.ID] = nullableStatus(p.Status)
+		pipelineCompleted[p.ID] = p.IsCompleted
 	}
 
 	// Load all stages for all pipelines in one query
@@ -191,6 +198,18 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 				stages = []types.StageResponse{}
 			}
 			pipelines[i].Stages = stages
+			stageStatuses := make([]string, 0, len(stages))
+			for _, stage := range stages {
+				if strings.TrimSpace(stage.Status) == "" {
+					continue
+				}
+				stageStatuses = append(stageStatuses, stage.Status)
+			}
+			pipelines[i].Status = resolvePipelineStatus(
+				pipelineStatuses[pipelines[i].ID],
+				pipelineCompleted[pipelines[i].ID],
+				stageStatuses,
+			)
 		}
 	}
 
@@ -278,7 +297,7 @@ func (s *Store) RerunStage(ctx context.Context, stageID int, rerunAllNext bool) 
 	_, err = tx.ExecContext(ctx, `
 		UPDATE pipeline SET status = $1, is_completed = false, finished_at = NULL
 		WHERE id = $2
-	`, types.PipelineStatusRunning, pipelineID)
+	`, types.PipelineStatusPending, pipelineID)
 	if err != nil {
 		return fmt.Errorf("reset pipeline: %w", err)
 	}
@@ -418,4 +437,101 @@ func parseQueryInt(value string) *int {
 		return &i
 	}
 	return nil
+}
+
+func (s *Store) PausePipeline(ctx context.Context, pipelineID int) error {
+	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var pipeline struct {
+		Status      sql.NullString `db:"status"`
+		IsCompleted bool           `db:"is_completed"`
+	}
+	if err = tx.GetContext(ctx, &pipeline, fmt.Sprintf(`
+		SELECT status, is_completed
+		FROM pipeline
+		WHERE id = $1%s
+	`, s.forUpdateClause()), pipelineID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPipelineNotFound
+		}
+		return err
+	}
+
+	if isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
+		return ErrPipelineNotPausable
+	}
+	if isPausedPipelineStatus(pipeline.Status.String) {
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE pipeline
+		SET status = $1, is_completed = false
+		WHERE id = $2
+	`, types.PipelineStatusPaused, pipelineID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func (s *Store) ResumePipeline(ctx context.Context, pipelineID int) error {
+	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	var pipeline struct {
+		Status      sql.NullString `db:"status"`
+		IsCompleted bool           `db:"is_completed"`
+	}
+	if err = tx.GetContext(ctx, &pipeline, fmt.Sprintf(`
+		SELECT status, is_completed
+		FROM pipeline
+		WHERE id = $1%s
+	`, s.forUpdateClause()), pipelineID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrPipelineNotFound
+		}
+		return err
+	}
+
+	if !isPausedPipelineStatus(pipeline.Status.String) {
+		return ErrPipelineNotPaused
+	}
+	if pipeline.IsCompleted {
+		return ErrPipelineNotPausable
+	}
+
+	stageStatuses := []string{}
+	if err = sqlx.SelectContext(ctx, tx, &stageStatuses, `SELECT status FROM stage WHERE pipeline_id=$1 ORDER BY id`, pipelineID); err != nil {
+		return err
+	}
+
+	nextStatus := computePipelineStatus(stageStatuses)
+	if _, err = tx.ExecContext(ctx, `
+		UPDATE pipeline
+		SET status = $1, is_completed = false, finished_at = NULL
+		WHERE id = $2
+	`, nextStatus, pipelineID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }

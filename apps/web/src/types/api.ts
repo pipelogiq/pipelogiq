@@ -225,7 +225,7 @@ export interface WorkerEventResponse {
 }
 
 // Status types
-export type PipelineStatus = 'NotStarted' | 'Running' | 'Completed' | 'Failed' | 'Cancelled';
+export type PipelineStatus = 'NotStarted' | 'Pending' | 'Running' | 'Paused' | 'Completed' | 'Failed' | 'Cancelled';
 export type StageStatus =
   | 'NotStarted'
   | 'Running'
@@ -246,10 +246,13 @@ export function mapPipelineStatusToUI(status: PipelineStatus): UIStatus {
       return 'success';
     case 'Failed':
       return 'error';
+    case 'Paused':
     case 'Cancelled':
       return 'paused';
     case 'Running':
       return 'running';
+    case 'Pending':
+      return 'waiting';
     case 'NotStarted':
       return 'queued';
     default:

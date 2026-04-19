@@ -156,6 +156,18 @@ export const pipelinesApi = {
     return request<StageLog[]>(path);
   },
 
+  pausePipeline: async (pipelineId: number): Promise<void> => {
+    await request<void>(`/pipelines/${pipelineId}/pause`, {
+      method: 'POST',
+    });
+  },
+
+  resumePipeline: async (pipelineId: number): Promise<void> => {
+    await request<void>(`/pipelines/${pipelineId}/resume`, {
+      method: 'POST',
+    });
+  },
+
   rerunStage: async (data: RerunStageRequest): Promise<void> => {
     await request<void>('/pipelines/rerunStage', {
       method: 'POST',
