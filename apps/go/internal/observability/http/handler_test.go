@@ -36,15 +36,20 @@ func TestHandlersHappyPath(t *testing.T) {
 			Message:   "Connection established successfully",
 			LatencyMs: &latency,
 		},
-		tracesResponse: []model.TraceEntry{
-			{
-				TraceID:      "trace-1",
-				PipelineName: "pipeline-a",
-				Status:       "success",
-				DurationMs:   123,
-				SpansCount:   2,
-				Timestamp:    "2026-02-16T12:00:00Z",
+		tracesResponse: model.TracesResponse{
+			Items: []model.TraceEntry{
+				{
+					TraceID:      "trace-1",
+					PipelineName: "pipeline-a",
+					Status:       "success",
+					DurationMs:   123,
+					SpansCount:   2,
+					Timestamp:    "2026-02-16T12:00:00Z",
+				},
 			},
+			Page:       1,
+			PageSize:   50,
+			TotalCount: 1,
 		},
 		insightsResponse: model.InsightsResponse{
 			SlowestStages: []model.SlowestStage{
@@ -137,7 +142,7 @@ type mockService struct {
 	configResponse   model.ObservabilityConfigResponse
 	statusResponse   model.ObservabilityStatusResponse
 	testResponse     model.TestConnectionResult
-	tracesResponse   []model.TraceEntry
+	tracesResponse   model.TracesResponse
 	insightsResponse model.InsightsResponse
 }
 
@@ -149,6 +154,10 @@ func (m *mockService) SaveConfig(context.Context, model.SaveConfigRequest) (mode
 	return m.configResponse, nil
 }
 
+func (m *mockService) DeleteConfig(context.Context, string) error {
+	return nil
+}
+
 func (m *mockService) GetStatus(context.Context) (model.ObservabilityStatusResponse, error) {
 	return m.statusResponse, nil
 }
@@ -157,7 +166,7 @@ func (m *mockService) TestConnection(context.Context, model.TestConnectionReques
 	return m.testResponse, nil
 }
 
-func (m *mockService) GetTraces(context.Context, string, string, string) ([]model.TraceEntry, error) {
+func (m *mockService) GetTraces(context.Context, string, string, string, int, int) (model.TracesResponse, error) {
 	return m.tracesResponse, nil
 }
 
