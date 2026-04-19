@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.2-preview.1] - 2026-04-19
+
+First `0.3.2` preview aligns the platform with the new SDK release that adds OpenAI planner support and per-step model/provider routing, while refining how AI usage is presented in pipeline inspection.
+
+### Added
+
+- **Dedicated AI usage tab in pipeline inspection** — the dashboard pipeline side panel now renders pipeline-level and stage-level AI usage in a separate `AI Usage` tab when usage data is available, keeping token/cost diagnostics visible without mixing them into raw output and context payloads.
+
+### Changed
+
+- **Pipeline stage AI usage presentation** — stage-level LLM usage is now displayed as its own block instead of being embedded inside the `Output` section, and pipeline usage summaries are no longer duplicated inside per-stage views.
+- **Context tab cleanup for usage metadata** — agent usage accumulator keys (`agent:session:*`) are now hidden from the `Context` tab because they are represented in the dedicated AI usage surface instead.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.2-preview.1`.
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.2-preview.1`.
+
 ## [0.3.1-preview.4] - 2026-04-18
 
 Fourth `0.3.1` preview aligns the platform docs with the next SDK prerelease and highlights agent-run diagnostics that matter in live troubleshooting.
@@ -322,6 +337,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.1
 [0.1.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.1
 [0.1.0-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.1.0-preview.2
 [0.3.1-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.1-preview.4
