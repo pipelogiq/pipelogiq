@@ -14,7 +14,7 @@ import { ConfigureLogsDialog } from "./ConfigureLogsDialog";
 import { ConfigureGrafanaDialog } from "./ConfigureGrafanaDialog";
 import { ConfigureAlertingDialog } from "./ConfigureAlertingDialog";
 import type { Integration, IntegrationType, OtelConfig, GrafanaConfig, AlertingConfig } from "@/types/observability";
-import { cn } from "@/lib/utils";
+import { cn, statusToVariant, statusLabel } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 const localTempoTraceLinkTemplate =
@@ -108,28 +108,6 @@ OTEL_SERVICE_NAME=pipelogiq`;
         dashboardUrl: "http://localhost:3100",
       },
     });
-  };
-
-  const statusToVariant = (s: string) => {
-    switch (s) {
-      case "connected": return "success" as const;
-      case "configured": return "warning" as const;
-      case "disconnected":
-      case "error":
-        return "error" as const;
-      default:
-        return "default" as const;
-    }
-  };
-
-  const statusLabel = (s: string) => {
-    switch (s) {
-      case "connected": return "Connected";
-      case "configured": return "Configured";
-      case "disconnected": return "Disconnected";
-      case "error": return "Error";
-      default: return "Not configured";
-    }
   };
 
   const hasConfigDialog = (type: IntegrationType) =>

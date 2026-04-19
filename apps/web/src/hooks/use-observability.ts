@@ -17,10 +17,10 @@ const INTEGRATION_META: Record<string, Pick<Integration, 'name' | 'description' 
   opentelemetry: { name: 'OpenTelemetry',  description: 'Export traces and spans via OTLP protocol',    icon: '🔭' },
   alerting:      { name: 'Alerts',          description: 'Route notifications to chat, webhook, and on-call tools', icon: '🚨' },
   grafana:       { name: 'Grafana',         description: 'Visualize metrics and dashboards',              icon: '📈' },
-  sentry:        { name: 'Sentry',          description: 'Error tracking and performance monitoring',     icon: '🐛' },
-  datadog:       { name: 'Datadog',         description: 'APM and infrastructure monitoring',             icon: '🐕' },
   graylog:       { name: 'Logs',  description: 'Centralized log management and search',        icon: '📋' },
 };
+
+const SUPPORTED_INTEGRATION_TYPES = new Set(Object.keys(INTEGRATION_META));
 
 // ── Hooks ──
 
@@ -32,10 +32,12 @@ export function useObservabilityConfig() {
       // Backend DTO omits name/description/icon — merge static metadata in
       return {
         ...config,
-        integrations: config.integrations.map(i => ({
-          ...INTEGRATION_META[i.type],
-          ...i,
-        })),
+        integrations: config.integrations
+          .filter(i => SUPPORTED_INTEGRATION_TYPES.has(i.type))
+          .map(i => ({
+            ...INTEGRATION_META[i.type],
+            ...i,
+          })),
       };
     },
   });

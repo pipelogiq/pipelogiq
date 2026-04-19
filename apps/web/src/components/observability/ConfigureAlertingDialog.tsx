@@ -94,9 +94,7 @@ function buildAlertingFormState(cfg: Partial<AlertingConfig>): AlertingFormState
   const events = toStringArray(cfg.enabledEvents);
   return {
     channels: toStringArray(cfg.channels) as AlertChannel[],
-    enabledEvents: (events.length
-      ? events
-      : ["stage_failed", "stage_rerun_manual", "stage_skipped_manual", "worker_failed", "policy_triggered"]) as AlertEvent[],
+    enabledEvents: events as AlertEvent[],
     sendResolved: Boolean(cfg.sendResolved ?? true),
     dedupeWindowSeconds: String(cfg.dedupeWindowSeconds ?? 300),
     telegramBotToken: cfg.telegramBotToken || "",

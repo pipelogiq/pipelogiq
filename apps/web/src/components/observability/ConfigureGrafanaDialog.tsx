@@ -23,7 +23,7 @@ interface ConfigureGrafanaDialogProps {
 
 export function ConfigureGrafanaDialog({ open, onOpenChange, integration }: ConfigureGrafanaDialogProps) {
   const existing = (integration.config || {}) as Partial<GrafanaConfig>;
-  const [dashboardUrl, setDashboardUrl] = useState(existing.dashboardUrl || "http://localhost:3100");
+  const [dashboardUrl, setDashboardUrl] = useState(existing.dashboardUrl || "");
 
   const saveMutation = useSaveIntegrationConfig();
 

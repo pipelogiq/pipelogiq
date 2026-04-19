@@ -27,7 +27,7 @@ import { Search, Copy, Check, ExternalLink, ArrowRight, Loader2 } from "lucide-r
 import { useObservabilityTraces, useObservabilityConfig, buildTraceLink } from "@/hooks/use-observability";
 import type { TimeRange, TraceEntry, OtelConfig } from "@/types/observability";
 import { formatDistanceToNow } from "date-fns";
-import { cn } from "@/lib/utils";
+import { cn, formatMs } from "@/lib/utils";
 
 interface TracesTabProps {
   timeRange: TimeRange;
@@ -188,7 +188,7 @@ function TraceRow({ trace, traceLinkTemplate, copiedId, onCopy }: TraceRowProps)
         </StatusBadge>
       </TableCell>
       <TableCell className="text-right font-mono text-sm">
-        {formatDuration(trace.durationMs)}
+        {formatMs(trace.durationMs)}
       </TableCell>
       <TableCell className="text-right text-sm">
         {trace.spansCount}
@@ -239,8 +239,3 @@ function TraceRow({ trace, traceLinkTemplate, copiedId, onCopy }: TraceRowProps)
   );
 }
 
-function formatDuration(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(2)}s`;
-  return `${(ms / 60_000).toFixed(1)}m`;
-}

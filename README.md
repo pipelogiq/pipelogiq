@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml/badge.svg)](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: Preview v0.3.2-preview.2](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.2-orange)](CHANGELOG.md)
+[![Status: Preview v0.3.2-preview.3](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.3-orange)](CHANGELOG.md)
 
-> **Preview (v0.3.2-preview.2).** Breaking changes may occur before v1.0.
+> **Preview (v0.3.2-preview.3).** Breaking changes may occur before v1.0.
 
 Execution control plane for distributed, event-driven workflows.
 
@@ -40,7 +40,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.2-preview.2 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.3.2-preview.3 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source

@@ -1,7 +1,7 @@
 // Integration status lifecycle: not_configured → configured → connected ↔ disconnected / error
 export type IntegrationStatus = 'not_configured' | 'configured' | 'connected' | 'disconnected' | 'error';
 
-export type IntegrationType = 'opentelemetry' | 'alerting' | 'grafana' | 'sentry' | 'datadog' | 'graylog';
+export type IntegrationType = 'opentelemetry' | 'alerting' | 'grafana' | 'graylog';
 
 // Per-integration configs
 
@@ -57,16 +57,6 @@ export interface GrafanaConfig {
   dashboardUrl: string;
 }
 
-export interface SentryConfig {
-  dsn: string;
-  environment: string;
-}
-
-export interface DatadogConfig {
-  site: string; // e.g. datadoghq.com
-  apiKey: string;
-}
-
 export interface LogsConfig {
   provider: 'graylog' | 'loki' | 'elastic';
   baseUrl: string;
@@ -78,8 +68,6 @@ export type IntegrationConfigData =
   | { type: 'opentelemetry'; config: OtelConfig }
   | { type: 'alerting'; config: AlertingConfig }
   | { type: 'grafana'; config: GrafanaConfig }
-  | { type: 'sentry'; config: SentryConfig }
-  | { type: 'datadog'; config: DatadogConfig }
   | { type: 'graylog'; config: LogsConfig };
 
 export interface Integration {

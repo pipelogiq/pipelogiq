@@ -2,6 +2,7 @@ import { KpiCard } from "@/components/ui/kpi-card";
 import { Activity, AlertTriangle, TrendingUp, Clock, Loader2 } from "lucide-react";
 import { useObservabilityInsights } from "@/hooks/use-observability";
 import type { TimeRange } from "@/types/observability";
+import { formatMs } from "@/lib/utils";
 
 interface MetricsTabProps {
   timeRange: TimeRange;
@@ -122,24 +123,13 @@ export function MetricsTab({ timeRange }: MetricsTabProps) {
         </div>
       </div>
 
-      {/* Metrics / Grafana / Tempo info */}
+      {/* Metrics info */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h4 className="mb-2 text-sm font-semibold">Metrics / Grafana / Tempo</h4>
+        <h4 className="mb-2 text-sm font-semibold">Prometheus Metrics</h4>
         <p className="text-sm text-muted-foreground mb-3">
-          Local compose defaults expose Prometheus-compatible `/metrics` endpoints and an OpenTelemetry trace backend via Tempo + Grafana.
+          Pipelogiq exposes Prometheus-compatible metrics at the <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">/metrics</code> endpoint on each running process. Configure your Prometheus scraper or Grafana to collect these metrics.
         </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <code className="rounded-md bg-muted px-3 py-1.5 text-sm font-mono">/metrics</code>
-          <code className="rounded-md bg-muted px-3 py-1.5 text-sm font-mono">http://localhost:3100</code>
-          <code className="rounded-md bg-muted px-3 py-1.5 text-sm font-mono">tempo:4317</code>
-        </div>
       </div>
     </div>
   );
-}
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60_000).toFixed(1)}m`;
 }

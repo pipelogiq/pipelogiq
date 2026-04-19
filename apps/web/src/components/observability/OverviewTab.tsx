@@ -14,7 +14,7 @@ import { ConfigureLogsDialog } from "./ConfigureLogsDialog";
 import { ConfigureGrafanaDialog } from "./ConfigureGrafanaDialog";
 import { ConfigureAlertingDialog } from "./ConfigureAlertingDialog";
 import type { TimeRange, OtelConfig, GrafanaConfig, Integration } from "@/types/observability";
-import { cn } from "@/lib/utils";
+import { cn, formatMs, statusToVariant, statusLabel } from "@/lib/utils";
 import {
   Tooltip,
   TooltipContent,
@@ -70,25 +70,6 @@ OTEL_SERVICE_NAME=pipelogiq`;
     navigator.clipboard.writeText(snippet);
     setCopiedOtel(true);
     setTimeout(() => setCopiedOtel(false), 2000);
-  };
-
-  const statusToVariant = (s?: string) => {
-    switch (s) {
-      case "connected": return "success" as const;
-      case "configured": return "warning" as const;
-      case "disconnected": case "error": return "error" as const;
-      default: return "default" as const;
-    }
-  };
-
-  const statusLabel = (s?: string) => {
-    switch (s) {
-      case "connected": return "Connected";
-      case "configured": return "Configured";
-      case "disconnected": return "Disconnected";
-      case "error": return "Error";
-      default: return "Not configured";
-    }
   };
 
   const loadError =
@@ -230,7 +211,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
               </div>
               <div className="text-sm">
                 <p className="text-muted-foreground text-xs">Dashboard URL</p>
-                <p className="text-xs font-mono">{grafanaConfig.dashboardUrl || "http://localhost:3100"}</p>
+                <p className="text-xs font-mono">{grafanaConfig.dashboardUrl || "Not set"}</p>
               </div>
               <div className="flex gap-2">
                 {grafanaConfig.dashboardUrl && (
@@ -396,14 +377,6 @@ OTEL_SERVICE_NAME=pipelogiq`;
       </div>
     </TooltipProvider>
   );
-}
-
-// ── Helpers ──
-
-function formatMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60_000).toFixed(1)}m`;
 }
 
 function DurationBar({ durationMs, maxMs }: { durationMs: number; maxMs: number }) {
