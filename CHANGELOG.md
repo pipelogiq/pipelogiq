@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.2-preview.5] - 2026-04-21
+
+Fifth `0.3.2` preview aligns the platform docs with the latest SDK prerelease and tightens a few live-operations paths around stage scheduling and pipeline update delivery.
+
+### Changed
+
+- **Long-lived pending stages stay pending** — orphan recovery and the active-timeout watcher no longer reset or fail `Pending` stages automatically; only genuinely stuck `Running` stages are recovered or timed out now.
+- **Stage update delivery trimmed to fanout** — worker pipeline updates are now published only to `StageUpdated.fanout`, which is the path consumed by the API WebSocket broadcaster, avoiding unread backlog in the legacy `StageUpdated` queue.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.2-preview.5`.
+- Upgrade target for the matching .NET SDK is now `pipelogiq-sdk-net 0.3.2-preview.5`.
+
 ## [0.3.2-preview.4] - 2026-04-19
 
 Fourth `0.3.2` preview aligns the platform with the latest SDK timeout fix for long-running agent reasoning steps and refreshes public release metadata.
@@ -367,6 +378,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.5
 [0.3.2-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.4
 [0.3.2-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.3
 [0.3.2-preview.2]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.2

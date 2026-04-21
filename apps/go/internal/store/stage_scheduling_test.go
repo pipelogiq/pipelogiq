@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -267,6 +268,96 @@ func TestUpdateStageStatus_RunningSetsStartedAtAndPipelineRunning(t *testing.T) 
 	}
 	if !startedAt.Valid {
 		t.Fatal("expected started_at to be set when stage becomes running")
+	}
+}
+
+func TestRecoverOrphanedStages_LogsReasonForRunningReset(t *testing.T) {
+	st, db := setupSchedulingStore(t)
+	ctx := context.Background()
+
+	pid := insertPipeline(t, db, "orphan-running")
+	stageID := insertStage(t, db, pid, "agent:think", "AgentThinkHandler")
+
+	startedAt := time.Now().UTC().Add(-6 * time.Minute)
+	if _, err := db.Exec(`
+		UPDATE stage
+		SET status = $1, started_at = $2
+		WHERE id = $3
+	`, types.StageStatusRunning, startedAt, stageID); err != nil {
+		t.Fatalf("mark stage running: %v", err)
+	}
+
+	recovered, err := st.RecoverOrphanedStages(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("RecoverOrphanedStages: %v", err)
+	}
+	if recovered != 1 {
+		t.Fatalf("recovered = %d, want 1", recovered)
+	}
+
+	var stageStatus string
+	if err := db.Get(&stageStatus, `SELECT status FROM stage WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("load stage status: %v", err)
+	}
+	if stageStatus != types.StageStatusNotStarted {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusNotStarted)
+	}
+
+	var logs []string
+	if err := db.Select(&logs, `
+		SELECT log
+		FROM stage_log
+		WHERE stage_id = $1
+		ORDER BY id
+	`, stageID); err != nil {
+		t.Fatalf("load stage logs: %v", err)
+	}
+	if len(logs) < 2 {
+		t.Fatalf("expected at least 2 stage logs, got %d: %#v", len(logs), logs)
+	}
+
+	reasonLog := logs[len(logs)-1]
+	if !strings.Contains(reasonLog, "Orphan recovery reset this stage") {
+		t.Fatalf("reason log missing orphan recovery message: %q", reasonLog)
+	}
+	if !strings.Contains(reasonLog, "marked the stage Running") {
+		t.Fatalf("reason log missing running explanation: %q", reasonLog)
+	}
+	if !strings.Contains(reasonLog, "threshold 5m0s") {
+		t.Fatalf("reason log missing threshold: %q", reasonLog)
+	}
+}
+
+func TestRecoverOrphanedStages_DoesNotResetPending(t *testing.T) {
+	st, db := setupSchedulingStore(t)
+	ctx := context.Background()
+
+	pid := insertPipeline(t, db, "pending-left-alone")
+	stageID := insertStage(t, db, pid, "agent:think", "AgentThinkHandler")
+
+	startedAt := time.Now().UTC().Add(-30 * time.Minute)
+	if _, err := db.Exec(`
+		UPDATE stage
+		SET status = $1, started_at = $2
+		WHERE id = $3
+	`, types.StageStatusPending, startedAt, stageID); err != nil {
+		t.Fatalf("mark stage pending: %v", err)
+	}
+
+	recovered, err := st.RecoverOrphanedStages(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("RecoverOrphanedStages: %v", err)
+	}
+	if recovered != 0 {
+		t.Fatalf("recovered = %d, want 0", recovered)
+	}
+
+	var stageStatus string
+	if err := db.Get(&stageStatus, `SELECT status FROM stage WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("load stage status: %v", err)
+	}
+	if stageStatus != types.StageStatusPending {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusPending)
 	}
 }
 

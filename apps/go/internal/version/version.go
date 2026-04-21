@@ -10,7 +10,7 @@ import (
 
 // Set via ldflags at build time:
 //
-//	-X pipelogiq/internal/version.Version=v0.3.2-preview.4
+//	-X pipelogiq/internal/version.Version=v0.3.2-preview.5
 //	-X pipelogiq/internal/version.Commit=abc1234
 //	-X pipelogiq/internal/version.Date=2025-01-01T00:00:00Z
 var (

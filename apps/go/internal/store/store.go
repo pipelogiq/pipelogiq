@@ -904,11 +904,11 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 	return true, nil
 }
 
-// RecoverOrphanedStages finds stages stuck in Running/Pending longer than the
-// recovery threshold and resets them to NotStarted so the publisher re-schedules
-// them. Unlike MarkActiveTooLong (which fails stages after the full timeout),
-// this uses a shorter threshold to give stages a second chance after a worker
-// crash or restart.
+// RecoverOrphanedStages finds stages stuck in Running longer than the recovery
+// threshold and resets them to NotStarted so the publisher re-schedules them.
+// Unlike MarkActiveTooLong (which fails stages after the full timeout), this
+// uses a shorter threshold to give stages a second chance after a worker crash
+// or restart.
 func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.Duration) (int64, error) {
 	if stuckThreshold <= 0 {
 		stuckThreshold = 60 * time.Second
@@ -921,9 +921,9 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		FROM stage s
 		JOIN pipeline p ON p.id = s.pipeline_id
 		WHERE p.is_completed = false
-		  AND s.status IN ($1, $2)
-		  AND (COALESCE(s.started_at, s.created_at)) < $3
-	`, types.StageStatusPending, types.StageStatusRunning, cutoff)
+		  AND s.status = $1
+		  AND (COALESCE(s.started_at, s.created_at)) < $2
+	`, types.StageStatusRunning, cutoff)
 	if err != nil {
 		return 0, err
 	}
@@ -953,14 +953,24 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		}
 
 		var status string
+		var startedAt sql.NullTime
+		var createdAt time.Time
 		lockErr := tx.QueryRowContext(ctx, fmt.Sprintf(`
-			SELECT s.status FROM stage s WHERE s.id = $1%s
-		`, s.forUpdateOfClause("s")), o.StageID).Scan(&status)
+			SELECT s.status, s.started_at, s.created_at
+			FROM stage s
+			WHERE s.id = $1%s
+		`, s.forUpdateOfClause("s")), o.StageID).Scan(&status, &startedAt, &createdAt)
 
 		if lockErr != nil || !isWatchedActiveStageStatus(status) {
 			_ = tx.Rollback()
 			continue
 		}
+
+		lastActiveAt := createdAt.UTC()
+		if startedAt.Valid {
+			lastActiveAt = startedAt.Time.UTC()
+		}
+		stuckFor := time.Since(lastActiveAt).Round(time.Second)
 
 		_, execErr := tx.ExecContext(ctx, `
 			UPDATE stage SET status = $1, started_at = NULL, finished_at = NULL
@@ -976,15 +986,39 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		}
 
 		s.LogStageChange(ctx, o.PipelineID, o.StageID, status, types.StageStatusNotStarted, "orphan_recovery")
+		s.logStageMessage(ctx, o.StageID, "WARNING", buildOrphanRecoveryReason(status, stuckFor, stuckThreshold, lastActiveAt))
 		count++
 	}
 
 	return count, nil
 }
 
+func buildOrphanRecoveryReason(status string, stuckFor, threshold time.Duration, lastActiveAt time.Time) string {
+	if stuckFor < 0 {
+		stuckFor = 0
+	}
+
+	base := fmt.Sprintf(
+		"Orphan recovery reset this stage after it remained %s for %s (threshold %s, last activity %s).",
+		status,
+		stuckFor,
+		threshold.Round(time.Second),
+		lastActiveAt.Format(time.RFC3339),
+	)
+
+	switch status {
+	case types.StageStatusPending:
+		return base + " The stage was scheduled but no worker pickup, Running transition, or stage result was recorded before the recovery window expired, so it was returned to NotStarted for re-scheduling."
+	case types.StageStatusRunning:
+		return base + " A worker had marked the stage Running, but no completion, failure, or follow-up status update was recorded before the recovery window expired, so it was returned to NotStarted for re-scheduling."
+	default:
+		return base + " No further progress was recorded before the recovery window expired, so it was returned to NotStarted for re-scheduling."
+	}
+}
+
 func isWatchedActiveStageStatus(status string) bool {
 	switch status {
-	case types.StageStatusPending, types.StageStatusRunning:
+	case types.StageStatusRunning:
 		return true
 	default:
 		return false

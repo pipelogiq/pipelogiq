@@ -495,16 +495,9 @@ func (w *Worker) publishPipelineUpdate(ctx context.Context, pipeline *types.Pipe
 		return
 	}
 
-	pubOpts := mq.QueueOptions{
-		Durable:     true,
-		DLQEnabled:  w.cfg.QueueDLQEnabled,
-		DLQTTL:      w.cfg.QueueDLQMessageTTL,
-		ContentType: "application/json",
-	}
-
-	if err := w.mq.PublishWithRetry(ctx, constants.StageUpdated, payload, pubOpts, nil); err != nil {
-		w.logger.Error("publish stage updated failed", "pipelineId", pipeline.ID, "err", err)
-	}
+	// Stage updates are consumed via the fanout exchange by the API/WebSocket
+	// broadcaster. Publishing the same payload into the legacy durable queue
+	// only accumulates unread backlog when no direct consumer is attached.
 	if err := w.mq.PublishToExchange(ctx, constants.StageUpdated+".fanout", payload); err != nil {
 		w.logger.Error("publish stage updated to fanout failed", "pipelineId", pipeline.ID, "err", err)
 	}

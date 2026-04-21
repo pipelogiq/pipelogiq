@@ -125,6 +125,20 @@ func (s *Store) insertStageLogTx(ctx context.Context, tx *sqlx.Tx, stageID int, 
 	return err
 }
 
+func (s *Store) logStageMessage(ctx context.Context, stageID int, logLevel string, message string) {
+	if strings.TrimSpace(message) == "" {
+		return
+	}
+
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO stage_log (log, log_level, created_at, stage_id)
+		VALUES ($1, $2, $3, $4)
+	`, message, strings.ToUpper(strings.TrimSpace(logLevel)), time.Now().UTC(), stageID)
+	if err != nil {
+		s.logger.Error("failed to insert stage log message", "stage_id", stageID, "err", err)
+	}
+}
+
 func stageLogPreview(value string, maxLen int) string {
 	trimmed := strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(value, "\r", " "), "\n", " "))
 	if trimmed == "" {

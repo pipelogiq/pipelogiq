@@ -65,7 +65,7 @@ func TestMarkActiveTooLongFailsRunningStage(t *testing.T) {
 	}
 }
 
-func TestMarkActiveTooLongHonorsStageSpecificTimeout(t *testing.T) {
+func TestMarkActiveTooLongLeavesPendingStageUntouched(t *testing.T) {
 	st, db := setupStageTimeoutTestStore(t)
 
 	pipelineID := insertTimeoutPipeline(t, db, "pending-pipeline", types.PipelineStatusRunning)
@@ -80,25 +80,20 @@ func TestMarkActiveTooLongHonorsStageSpecificTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MarkActiveTooLong() error = %v", err)
 	}
-	if affected != 1 {
-		t.Fatalf("MarkActiveTooLong() affected = %d, want 1", affected)
+	if affected != 0 {
+		t.Fatalf("MarkActiveTooLong() affected = %d, want 0", affected)
 	}
 
 	var stageStatus string
-	var stageOutput string
 	if err := db.QueryRow(`
-		SELECT s.status, COALESCE(io.output, '')
+		SELECT s.status
 		FROM stage s
-		LEFT JOIN stage_io io ON io.stage_id = s.id
 		WHERE s.id = $1
-	`, stageID).Scan(&stageStatus, &stageOutput); err != nil {
+	`, stageID).Scan(&stageStatus); err != nil {
 		t.Fatalf("query stage: %v", err)
 	}
-	if stageStatus != types.StageStatusFailed {
-		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusFailed)
-	}
-	if !strings.Contains(stageOutput, "pending for too long") {
-		t.Fatalf("stage output = %q, want pending timeout message", stageOutput)
+	if stageStatus != types.StageStatusPending {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusPending)
 	}
 }
 
