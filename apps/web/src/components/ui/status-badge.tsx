@@ -10,6 +10,7 @@ const statusBadgeVariants = cva(
         warning: "bg-status-warning-bg text-status-warning",
         error: "bg-status-error-bg text-status-error",
         running: "bg-status-running-bg text-status-running",
+        rescheduled: "bg-status-warning-bg text-status-warning",
         paused: "bg-status-paused-bg text-status-paused",
         throttled: "bg-status-throttled-bg text-status-throttled",
         waiting: "bg-muted text-muted-foreground",
@@ -55,6 +56,7 @@ export function StatusBadge({
             className={cn(
               "animate-ping absolute inline-flex h-full w-full rounded-full opacity-75",
               status === "running" && "bg-status-running",
+              status === "rescheduled" && "bg-status-warning",
               status === "success" && "bg-status-success",
               status === "error" && "bg-status-error",
               status === "warning" && "bg-status-warning",
@@ -66,6 +68,7 @@ export function StatusBadge({
             className={cn(
               "relative inline-flex rounded-full h-2 w-2",
               status === "running" && "bg-status-running",
+              status === "rescheduled" && "bg-status-warning",
               status === "success" && "bg-status-success",
               status === "error" && "bg-status-error",
               status === "warning" && "bg-status-warning",

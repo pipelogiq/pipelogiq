@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pipelogiq External API
-  version: "0.3.2-preview.5"
+  version: "0.3.2-preview.6"
   description: External API used by SDK clients and workers.
 servers:
   - url: http://localhost:8081

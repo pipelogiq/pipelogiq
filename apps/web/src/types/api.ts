@@ -47,6 +47,7 @@ export interface StageResponse {
   createdAt: string;
   finishedAt?: string;
   startedAt?: string;
+  nextRetryAt?: string;
   output?: string;
   input?: string;
   isSkipped?: boolean;
@@ -54,6 +55,9 @@ export interface StageResponse {
   nextStageId?: number;
   logs?: StageLog[];
   options?: StageOptions;
+  failureCount?: number;
+  lastFailedAt?: string;
+  hasFailureHistory?: boolean;
 }
 
 export interface StageLog {
@@ -116,6 +120,30 @@ export interface RerunStageRequest {
 
 export interface SkipStageRequest {
   stageId: number;
+}
+
+export type BulkPipelineAction = 'pause' | 'resume' | 'rerun' | 'skip';
+
+export interface BulkPipelineActionRequest {
+  action: BulkPipelineAction;
+  pipelineIds?: number[];
+  stageIds?: number[];
+  rerunAllNextStages?: boolean;
+}
+
+export interface BulkPipelineActionItemResult {
+  id: number;
+  scope: 'pipeline' | 'stage' | string;
+  success: boolean;
+  error?: string;
+}
+
+export interface BulkPipelineActionResponse {
+  action: BulkPipelineAction;
+  requested: number;
+  succeeded: number;
+  failed: number;
+  results: BulkPipelineActionItemResult[];
 }
 
 // Application types
@@ -238,7 +266,7 @@ export type StageStatus =
   | 'Skipped';
 
 // UI status mapping (map backend status to UI status)
-export type UIStatus = 'success' | 'error' | 'running' | 'waiting' | 'throttled' | 'paused' | 'queued' | 'skipped';
+export type UIStatus = 'success' | 'error' | 'running' | 'waiting' | 'rescheduled' | 'throttled' | 'paused' | 'queued' | 'skipped';
 
 export function mapPipelineStatusToUI(status: PipelineStatus): UIStatus {
   switch (status) {
@@ -270,9 +298,10 @@ export function mapStageStatusToUI(status?: StageStatus): UIStatus {
     case 'Running':
       return 'running';
     case 'Pending':
-    case 'RetryScheduled':
     case 'WaitingForApproval':
       return 'waiting';
+    case 'RetryScheduled':
+      return 'rescheduled';
     case 'Throttled':
       return 'throttled';
     case 'Skipped':

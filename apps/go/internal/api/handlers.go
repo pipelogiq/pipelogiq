@@ -136,6 +136,92 @@ func (s *Server) handleSkipStage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (s *Server) handleBulkPipelineAction(w http.ResponseWriter, r *http.Request) {
+	var req types.BulkPipelineActionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	req.Action = types.BulkPipelineAction(strings.ToLower(strings.TrimSpace(string(req.Action))))
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	var ids []int
+	var scope string
+	var run func(int) error
+
+	switch req.Action {
+	case types.BulkPipelineActionPause:
+		ids = uniquePositiveInts(req.PipelineIDs)
+		scope = "pipeline"
+		run = func(id int) error { return s.store.PausePipeline(ctx, id) }
+	case types.BulkPipelineActionResume:
+		ids = uniquePositiveInts(req.PipelineIDs)
+		scope = "pipeline"
+		run = func(id int) error { return s.store.ResumePipeline(ctx, id) }
+	case types.BulkPipelineActionRerun:
+		ids = uniquePositiveInts(req.StageIDs)
+		scope = "stage"
+		run = func(id int) error { return s.store.RerunStage(ctx, id, req.RerunAllNextStages) }
+	case types.BulkPipelineActionSkip:
+		ids = uniquePositiveInts(req.StageIDs)
+		scope = "stage"
+		run = func(id int) error { return s.store.SkipStage(ctx, id) }
+	default:
+		http.Error(w, "unsupported bulk action", http.StatusBadRequest)
+		return
+	}
+
+	if len(ids) == 0 {
+		http.Error(w, "bulk action requires at least one target id", http.StatusBadRequest)
+		return
+	}
+
+	resp := types.BulkPipelineActionResponse{
+		Action:    req.Action,
+		Requested: len(ids),
+		Results:   make([]types.BulkPipelineActionItemResult, 0, len(ids)),
+	}
+
+	for _, id := range ids {
+		result := types.BulkPipelineActionItemResult{
+			ID:    id,
+			Scope: scope,
+		}
+		if err := run(id); err != nil {
+			result.Error = err.Error()
+			resp.Failed++
+			s.logger.Warn("bulk pipeline action item failed", "action", req.Action, "scope", scope, "id", id, "err", err)
+		} else {
+			result.Success = true
+			resp.Succeeded++
+		}
+		resp.Results = append(resp.Results, result)
+	}
+
+	writeJSON(w, resp, http.StatusOK)
+}
+
+func uniquePositiveInts(values []int) []int {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(values))
+	result := make([]int, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
 func (s *Server) handleGetPipelineLogs(w http.ResponseWriter, r *http.Request) {
 	pipelineIDStr := chi.URLParam(r, "pipelineId")
 	pipelineID, err := strconv.Atoi(pipelineIDStr)

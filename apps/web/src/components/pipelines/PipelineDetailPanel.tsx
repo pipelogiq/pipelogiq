@@ -19,8 +19,14 @@ export interface PipelineAction {
   createdAt?: string;
   startedAt?: string;
   completedAt?: string;
+  nextRetryAt?: string;
+  nextRetryAtExact?: string;
   retries?: number;
   throttleInfo?: string;
+  failureCount?: number;
+  lastFailedAt?: string;
+  lastFailedAtExact?: string;
+  hasFailureHistory?: boolean;
   error?: string;
   logs: string;
   logEntries?: StageLog[];
@@ -51,7 +57,16 @@ export interface PipelineExecution {
   correlationId: string;
   context: PipelineContext[];
   actions: PipelineAction[];
-  stages: { name: string; status: UIStatus; startedAt?: string; finishedAt?: string }[];
+  stages: {
+    id: string;
+    name: string;
+    status: UIStatus;
+    startedAt?: string;
+    finishedAt?: string;
+    nextRetryAt?: string;
+    nextRetryAtExact?: string;
+    hasFailureHistory?: boolean;
+  }[];
   executionNumber: number;
   traceId: string;
   traceUrl: string;
@@ -68,6 +83,7 @@ const statusIcons: Record<UIStatus, typeof CheckCircle2> = {
   error: XCircle,
   running: PlayCircle,
   waiting: Clock,
+  rescheduled: RotateCcw,
   throttled: Timer,
   paused: Pause,
   queued: Circle,
@@ -79,6 +95,7 @@ const statusColors: Record<UIStatus, string> = {
   error: "text-status-error",
   running: "text-status-running",
   waiting: "text-muted-foreground",
+  rescheduled: "text-status-warning",
   throttled: "text-status-throttled",
   paused: "text-status-paused",
   queued: "text-slate-400",

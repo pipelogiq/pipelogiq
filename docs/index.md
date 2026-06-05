@@ -4,6 +4,8 @@ Pipelogiq is an execution control plane for distributed, event-driven workflows.
 
 Pipelogiq is designed for platform engineers, backend developers, and DevOps teams who need to define, run, and monitor multi-stage workflows across distributed services. Workers pull jobs from the API, execute stage logic, and report results back. The control plane handles ordering, retry, failure detection, and status tracking.
 
+The dashboard supports live pipeline operations from the list view, including bulk pause/resume and failed-stage rerun/skip actions for selected pipelines. Retry-scheduled and throttled stages are shown as distinct states with their next scheduled run time, and recovered stages keep a failure-history marker after a successful rerun.
+
 ## What Pipelogiq Is Not
 
 - **Not APM** — it orchestrates workflows and bridges telemetry to external systems, but does not collect or store application metrics or traces itself
@@ -21,4 +23,4 @@ Pipelogiq is designed for platform engineers, backend developers, and DevOps tea
 
 ## Status
 
-Pipelogiq is in preview (`v0.3.2-preview.5`). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.
+Pipelogiq is in preview (`v0.3.2-preview.6`). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.

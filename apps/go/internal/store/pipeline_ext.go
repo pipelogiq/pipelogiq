@@ -33,9 +33,11 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 	offset := (pageNumber - 1) * pageSize
 
 	// Build WHERE clause
+	ctes := []string{}
 	conditions := []string{"1=1"}
 	args := []interface{}{}
 	argNum := 1
+	hasSearch := false
 
 	if req.ApplicationID != nil {
 		conditions = append(conditions, fmt.Sprintf("p.application_id = $%d", argNum))
@@ -85,25 +87,39 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		}
 	}
 
-	// Full-text search across keyword values, pipeline name, stage name/description
-	if req.Search != nil && *req.Search != "" {
-		searchPattern := "%" + *req.Search + "%"
-		conditions = append(conditions, fmt.Sprintf(`(
-			p.name ILIKE $%d
-			OR EXISTS (
-				SELECT 1 FROM stage s2 WHERE s2.pipeline_id = p.id
-				AND (s2.name ILIKE $%d OR s2.description ILIKE $%d)
-			)
-			OR EXISTS (
-				SELECT 1 FROM pipeline_keyword pk
+	// Full-text search across keyword values, pipeline name, stage name/description.
+	// Keep the expensive text matching as one precomputed set instead of correlated
+	// subqueries for every pipeline row in the page/count scan.
+	if req.Search != nil && strings.TrimSpace(*req.Search) != "" {
+		hasSearch = true
+		searchPattern := "%" + strings.TrimSpace(*req.Search) + "%"
+		ctes = append(ctes, fmt.Sprintf(`
+			search_matches AS (
+				SELECT ps.id AS pipeline_id
+				FROM pipeline ps
+				WHERE ps.name ILIKE $%d
+
+				UNION
+
+				SELECT s2.pipeline_id
+				FROM stage s2
+				WHERE s2.name ILIKE $%d OR s2.description ILIKE $%d
+
+				UNION
+
+				SELECT pk.pipeline_id
+				FROM pipeline_keyword pk
 				JOIN keyword k ON k.id = pk.keyword_id
-				WHERE pk.pipeline_id = p.id AND k.value ILIKE $%d
+				WHERE k.value ILIKE $%d
+
+				UNION
+
+				SELECT pci.pipeline_id
+				FROM pipeline_context_item pci
+				WHERE pci.key ILIKE $%d OR pci.value ILIKE $%d
 			)
-			OR EXISTS (
-				SELECT 1 FROM pipeline_context_item pci
-				WHERE pci.pipeline_id = p.id AND (pci.key ILIKE $%d OR pci.value ILIKE $%d)
-			)
-		)`, argNum, argNum, argNum, argNum, argNum, argNum))
+		`, argNum, argNum, argNum, argNum, argNum, argNum))
+		conditions = append(conditions, "p.id IN (SELECT pipeline_id FROM search_matches)")
 		args = append(args, searchPattern)
 		argNum++
 	}
@@ -117,35 +133,47 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 			argNum++
 		}
 		conditions = append(conditions, fmt.Sprintf(`
-			EXISTS (
-				SELECT 1 FROM pipeline_keyword pk
+			p.id IN (
+				SELECT pk.pipeline_id
+				FROM pipeline_keyword pk
 				JOIN keyword k ON k.id = pk.keyword_id
-				WHERE pk.pipeline_id = p.id AND k.key IN (%s)
+				WHERE k.key IN (%s)
 			)
 		`, strings.Join(keywordPlaceholders, ",")))
 	}
 
+	withClause := ""
+	if len(ctes) > 0 {
+		withClause = "WITH " + strings.Join(ctes, ",\n") + "\n"
+	}
 	whereClause := strings.Join(conditions, " AND ")
+	filterArgs := append([]interface{}{}, args...)
 
-	// Count total
 	var totalCount int
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM pipeline p WHERE %s`, whereClause)
-	err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&totalCount)
-	if err != nil {
-		return nil, fmt.Errorf("count pipelines: %w", err)
+	countQuery := fmt.Sprintf(`%sSELECT COUNT(*) FROM pipeline p WHERE %s`, withClause, whereClause)
+	if !hasSearch {
+		err := s.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&totalCount)
+		if err != nil {
+			return nil, fmt.Errorf("count pipelines: %w", err)
+		}
 	}
 
 	// Get pipelines
-	args = append(args, pageSize, offset)
+	totalCountSelect := "0 AS total_count"
+	if hasSearch {
+		totalCountSelect = "COUNT(*) OVER() AS total_count"
+	}
+	queryArgs := append(append([]interface{}{}, filterArgs...), pageSize, offset)
 	query := fmt.Sprintf(`
-		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at, p.finished_at, p.is_completed, p.application_id
+		%s
+		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at, p.finished_at, p.is_completed, p.application_id, %s
 		FROM pipeline p
 		WHERE %s
 		ORDER BY p.created_at DESC
 		LIMIT $%d OFFSET $%d
-	`, whereClause, argNum, argNum+1)
+	`, withClause, totalCountSelect, whereClause, argNum, argNum+1)
 
-	rows, err := s.db.QueryxContext(ctx, query, args...)
+	rows, err := s.db.QueryxContext(ctx, query, queryArgs...)
 	if err != nil {
 		return nil, fmt.Errorf("query pipelines: %w", err)
 	}
@@ -165,9 +193,13 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 			FinishedAt    *time.Time `db:"finished_at"`
 			IsCompleted   bool       `db:"is_completed"`
 			ApplicationID *int       `db:"application_id"`
+			TotalCount    int        `db:"total_count"`
 		}
 		if err := rows.StructScan(&p); err != nil {
 			continue
+		}
+		if hasSearch {
+			totalCount = p.TotalCount
 		}
 
 		pipeline := types.PipelineResponse{
@@ -185,6 +217,14 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		pipelineStatuses[p.ID] = nullableStatus(p.Status)
 		pipelineCompleted[p.ID] = p.IsCompleted
 	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read pipelines: %w", err)
+	}
+	if hasSearch && len(pipelines) == 0 && offset > 0 {
+		if err := s.db.QueryRowContext(ctx, countQuery, filterArgs...).Scan(&totalCount); err != nil {
+			return nil, fmt.Errorf("count pipelines: %w", err)
+		}
+	}
 
 	// Load all stages for all pipelines in one query
 	if len(pipelineIDs) > 0 {
@@ -192,12 +232,26 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		if err != nil {
 			return nil, fmt.Errorf("load stages: %w", err)
 		}
+		contextByPipeline, err := s.GetContextForPipelines(ctx, pipelineIDs)
+		if err != nil {
+			return nil, fmt.Errorf("load pipeline context: %w", err)
+		}
+		keywordsByPipeline, err := s.GetKeywordsForPipelines(ctx, pipelineIDs)
+		if err != nil {
+			return nil, fmt.Errorf("load pipeline keywords: %w", err)
+		}
 		for i := range pipelines {
 			stages := stagesByPipeline[pipelines[i].ID]
 			if stages == nil {
 				stages = []types.StageResponse{}
 			}
 			pipelines[i].Stages = stages
+			if contextItems := contextByPipeline[pipelines[i].ID]; contextItems != nil {
+				pipelines[i].PipelineContext = contextItems
+			}
+			if keywords := keywordsByPipeline[pipelines[i].ID]; keywords != nil {
+				pipelines[i].PipelineKeywords = keywords
+			}
 			stageStatuses := make([]string, 0, len(stages))
 			for _, stage := range stages {
 				if strings.TrimSpace(stage.Status) == "" {
@@ -389,6 +443,7 @@ func (s *Store) GetStagesForPipelines(ctx context.Context, pipelineIDs []int) (m
 			s.created_at AS created_at,
 			s.finished_at AS finished_at,
 			s.started_at AS started_at,
+			s.next_retry_at AS next_retry_at,
 			s.is_skipped AS is_skipped,
 			s.is_event AS is_event,
 			io.input AS input,
@@ -407,6 +462,10 @@ func (s *Store) GetStagesForPipelines(ctx context.Context, pipelineIDs []int) (m
 	stages := []types.StageResponse{}
 	if err := s.db.SelectContext(ctx, &stages, query, args...); err != nil {
 		return nil, fmt.Errorf("query stages: %w", err)
+	}
+
+	if err := s.applyStageFailureHistory(ctx, stages); err != nil {
+		return nil, err
 	}
 
 	result := make(map[int][]types.StageResponse, len(pipelineIDs))

@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [0.3.2-preview.6] - 2026-06-05
+
+Sixth `0.3.2` preview focuses on live dashboard operations, clearer retry/failure visibility, and faster pipeline list/search performance.
+
+### Added
+
+- **Bulk pipeline operations from the dashboard list** — selected pipelines can now be paused, resumed, or used as the target set for rerunning/skipping their failed stages from the pipeline list toolbar.
+- **Retry scheduling visibility** — `RetryScheduled` and throttled stages now surface as distinct dashboard states (`Rescheduled` and `Throttled`) with the next scheduled run time shown in the list, side panel, and stage tooltips.
+- **Failure-history marker** — stages that previously failed retain an icon-only failure-history marker after a successful rerun, so recovered work does not lose its incident context.
+
+### Changed
+
+- **Pipeline list loading is batched** — stages, pipeline context, keywords, and stage failure history are loaded in bounded batch queries for the visible page instead of being resolved through repeated per-row work.
+- **Pipeline search no longer uses correlated search subqueries** — search now precomputes matching pipeline IDs and returns search totals through the page query, reducing repeated text scans.
+- Public docs, OpenAPI metadata, and compose version pinning now reference `v0.3.2-preview.6`.
+
+### Performance
+
+- Added lookup indexes for pipeline list sorting/filtering, stage lookup by pipeline, pipeline keywords, pipeline context items, and stage failure-history scans.
+- Added PostgreSQL trigram indexes for dashboard substring search across pipeline names, stage names/descriptions, keyword values, and pipeline context keys/values.
+
+### Upgrade Notes
+
+- Rebuild and redeploy `pipelogiq-app` to pick up the dashboard and API changes.
+- Run Liquibase migrations for the new lookup/search indexes. The PostgreSQL migration enables `pg_trgm` if needed. If `LIQUIBASE_ENABLED=false` in a local stack, apply the migration manually before judging search performance.
+
 ## [0.3.2-preview.5] - 2026-04-21
 
 Fifth `0.3.2` preview aligns the platform docs with the latest SDK prerelease and tightens a few live-operations paths around stage scheduling and pipeline update delivery.
@@ -378,6 +404,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.6]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.6
 [0.3.2-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.5
 [0.3.2-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.4
 [0.3.2-preview.3]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.3

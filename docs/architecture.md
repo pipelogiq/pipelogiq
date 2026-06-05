@@ -102,6 +102,10 @@ RabbitMQ handles stage job dispatch and result collection. Key exchanges and que
 
 Single-page app built with React 19, TypeScript, Vite, TanStack Query, Tailwind CSS, and Radix UI. Communicates with the internal API and receives real-time updates via WebSocket.
 
+The pipeline list is the primary operations surface. It supports bulk pause/resume for selected pipelines and failed-stage rerun/skip actions scoped to the selected pipelines. Pipeline detail keeps stage controls individual, so inspection stays focused on one stage at a time.
+
+Retry and throttle states are shown explicitly in the dashboard. Internally, retry backoff uses `RetryScheduled`, which the UI presents as `Rescheduled`; throttled stages remain visible as `Throttled`. Both states show the next scheduled run time when available. Stages that failed and later recovered keep an icon-only failure-history marker.
+
 ## Stage Execution Flow
 
 1. A pipeline is created via `POST /pipelines` (external API)

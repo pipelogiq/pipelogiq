@@ -8,9 +8,10 @@ import {
   Pause,
   Circle,
   Ban,
+  RotateCcw,
 } from "lucide-react";
 
-export type StepStatus = "success" | "error" | "running" | "waiting" | "throttled" | "paused" | "queued" | "skipped";
+export type StepStatus = "success" | "error" | "running" | "waiting" | "rescheduled" | "throttled" | "paused" | "queued" | "skipped";
 
 export interface PipelineStep {
   id: string;
@@ -33,6 +34,7 @@ const statusIcons: Record<StepStatus, typeof CheckCircle2> = {
   error: XCircle,
   running: PlayCircle,
   waiting: Clock,
+  rescheduled: RotateCcw,
   throttled: Timer,
   paused: Pause,
   queued: Circle,
@@ -44,6 +46,7 @@ const statusStyles: Record<StepStatus, string> = {
   error: "border-status-error bg-status-error-bg",
   running: "border-status-running bg-status-running-bg",
   waiting: "border-border bg-muted",
+  rescheduled: "border-status-warning bg-status-warning-bg",
   throttled: "border-status-throttled bg-status-throttled-bg",
   paused: "border-status-paused bg-status-paused-bg",
   queued: "border-slate-200 bg-slate-50",
@@ -55,6 +58,7 @@ const iconColors: Record<StepStatus, string> = {
   error: "text-status-error",
   running: "text-status-running",
   waiting: "text-muted-foreground",
+  rescheduled: "text-status-warning",
   throttled: "text-status-throttled",
   paused: "text-status-paused",
   queued: "text-slate-400",

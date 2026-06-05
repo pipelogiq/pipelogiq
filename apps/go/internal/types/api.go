@@ -63,23 +63,27 @@ type PipelineResponse struct {
 }
 
 type StageResponse struct {
-	ID               int           `json:"id" db:"id"`
-	PipelineID       int           `json:"pipelineId" db:"pipeline_id"`
-	SpanID           string        `json:"spanId,omitempty" db:"span_id"`
-	Name             string        `json:"name" db:"name"`
-	StageHandlerName string        `json:"stageHandlerName,omitempty" db:"stage_handler_name"`
-	Description      string        `json:"description,omitempty" db:"description"`
-	Status           string        `json:"status,omitempty" db:"status"`
-	CreatedAt        time.Time     `json:"createdAt" db:"created_at"`
-	FinishedAt       *time.Time    `json:"finishedAt,omitempty" db:"finished_at"`
-	StartedAt        *time.Time    `json:"startedAt,omitempty" db:"started_at"`
-	Output           *string       `json:"output,omitempty" db:"output"`
-	Input            *string       `json:"input,omitempty" db:"input"`
-	IsSkipped        *bool         `json:"isSkipped,omitempty" db:"is_skipped"`
-	IsEvent          *bool         `json:"isEvent,omitempty" db:"is_event"`
-	NextStageID      *int          `json:"nextStageId,omitempty"`
-	Logs             []StageLog    `json:"logs,omitempty"`
-	Options          *StageOptions `json:"options,omitempty"`
+	ID                int           `json:"id" db:"id"`
+	PipelineID        int           `json:"pipelineId" db:"pipeline_id"`
+	SpanID            string        `json:"spanId,omitempty" db:"span_id"`
+	Name              string        `json:"name" db:"name"`
+	StageHandlerName  string        `json:"stageHandlerName,omitempty" db:"stage_handler_name"`
+	Description       string        `json:"description,omitempty" db:"description"`
+	Status            string        `json:"status,omitempty" db:"status"`
+	CreatedAt         time.Time     `json:"createdAt" db:"created_at"`
+	FinishedAt        *time.Time    `json:"finishedAt,omitempty" db:"finished_at"`
+	StartedAt         *time.Time    `json:"startedAt,omitempty" db:"started_at"`
+	NextRetryAt       *time.Time    `json:"nextRetryAt,omitempty" db:"next_retry_at"`
+	Output            *string       `json:"output,omitempty" db:"output"`
+	Input             *string       `json:"input,omitempty" db:"input"`
+	IsSkipped         *bool         `json:"isSkipped,omitempty" db:"is_skipped"`
+	IsEvent           *bool         `json:"isEvent,omitempty" db:"is_event"`
+	NextStageID       *int          `json:"nextStageId,omitempty"`
+	Logs              []StageLog    `json:"logs,omitempty"`
+	Options           *StageOptions `json:"options,omitempty"`
+	FailureCount      int           `json:"failureCount,omitempty" db:"failure_count"`
+	LastFailedAt      *time.Time    `json:"lastFailedAt,omitempty" db:"last_failed_at"`
+	HasFailureHistory bool          `json:"hasFailureHistory,omitempty" db:"has_failure_history"`
 }
 
 type AppendStagesRequest struct {
@@ -145,6 +149,37 @@ type RerunStageRequest struct {
 
 type SkipStageRequest struct {
 	StageID int `json:"stageId"`
+}
+
+type BulkPipelineAction string
+
+const (
+	BulkPipelineActionPause  BulkPipelineAction = "pause"
+	BulkPipelineActionResume BulkPipelineAction = "resume"
+	BulkPipelineActionRerun  BulkPipelineAction = "rerun"
+	BulkPipelineActionSkip   BulkPipelineAction = "skip"
+)
+
+type BulkPipelineActionRequest struct {
+	Action             BulkPipelineAction `json:"action"`
+	PipelineIDs        []int              `json:"pipelineIds,omitempty"`
+	StageIDs           []int              `json:"stageIds,omitempty"`
+	RerunAllNextStages bool               `json:"rerunAllNextStages,omitempty"`
+}
+
+type BulkPipelineActionItemResult struct {
+	ID      int    `json:"id"`
+	Scope   string `json:"scope"`
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+type BulkPipelineActionResponse struct {
+	Action    BulkPipelineAction             `json:"action"`
+	Requested int                            `json:"requested"`
+	Succeeded int                            `json:"succeeded"`
+	Failed    int                            `json:"failed"`
+	Results   []BulkPipelineActionItemResult `json:"results"`
 }
 
 type ResumeStageRequest struct {

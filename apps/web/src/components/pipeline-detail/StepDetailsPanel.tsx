@@ -32,6 +32,7 @@ const statusLabels: Record<StepStatus, string> = {
   error: "Failed",
   running: "Running",
   waiting: "Waiting",
+  rescheduled: "Rescheduled",
   throttled: "Throttled",
   paused: "Paused",
   queued: "Not Started",

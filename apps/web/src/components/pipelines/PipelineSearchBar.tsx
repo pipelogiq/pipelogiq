@@ -37,6 +37,8 @@ const statusOptions = [
   { value: "success", label: "Completed", color: "bg-emerald-500" },
   { value: "error", label: "Failed", color: "bg-red-500" },
   { value: "waiting", label: "Waiting", color: "bg-slate-500" },
+  { value: "rescheduled", label: "Rescheduled", color: "bg-yellow-500" },
+  { value: "throttled", label: "Throttled", color: "bg-orange-500" },
   { value: "queued", label: "Queued", color: "bg-slate-400" },
   { value: "paused", label: "Paused", color: "bg-amber-500" },
 ];
@@ -46,6 +48,8 @@ const statusShortLabels: Record<string, string> = {
   success: "OK",
   error: "Fail",
   waiting: "Wait",
+  rescheduled: "Retry",
+  throttled: "Throt",
   queued: "Queue",
   paused: "Pause",
 };
@@ -325,6 +329,8 @@ export function PipelineSearchBar({
                           s === "success" && "bg-emerald-100 text-emerald-700",
                           s === "error" && "bg-red-100 text-red-700",
                           s === "waiting" && "bg-slate-100 text-slate-700",
+                          s === "rescheduled" && "bg-yellow-100 text-yellow-700",
+                          s === "throttled" && "bg-orange-100 text-orange-700",
                           s === "queued" && "bg-slate-100 text-slate-700",
                           s === "paused" && "bg-amber-100 text-amber-700",
                         )}

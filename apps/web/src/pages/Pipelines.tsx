@@ -5,8 +5,11 @@ import { PipelineTable } from "@/components/pipelines/PipelineTable";
 import { PipelineSidePanel } from "@/components/pipelines/PipelineSidePanel";
 import { Pagination } from "@/components/pipelines/Pagination";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { usePipelines } from "@/hooks/use-pipelines";
-import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { toast } from "@/hooks/use-toast";
+import { useBulkPipelineAction, usePipelines } from "@/hooks/use-pipelines";
+import { Loader2, Pause, PlayCircle, RotateCcw, SkipForward } from "lucide-react";
+import type { BulkPipelineAction } from "@/types/api";
 
 // Map UI status to API status
 function mapUIStatusToAPI(status: string): string[] {
@@ -18,6 +21,9 @@ function mapUIStatusToAPI(status: string): string[] {
     case 'running':
       return ['Running'];
     case 'waiting':
+      return ['Pending'];
+    case 'rescheduled':
+    case 'throttled':
       return ['Pending'];
     case 'queued':
       return ['NotStarted'];
@@ -39,8 +45,10 @@ export default function Pipelines() {
     contextFilters: [],
   });
   const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+  const [selectedBulkPipelineIds, setSelectedBulkPipelineIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+  const bulkAction = useBulkPipelineAction();
 
   // Build API params from filters
   const apiParams = useMemo(() => {
@@ -101,6 +109,13 @@ export default function Pipelines() {
     if (!data?.items) return [];
 
     return data.items.filter((pipeline) => {
+      if (filters.status !== "all") {
+        const selectedStatuses = filters.status.split(",").map(s => s.trim()).filter(Boolean);
+        if (selectedStatuses.length > 0 && !selectedStatuses.includes(pipeline.status)) {
+          return false;
+        }
+      }
+
       // Environment filter
       if (filters.environment !== "all" && pipeline.environment !== filters.environment) {
         return false;
@@ -126,7 +141,7 @@ export default function Pipelines() {
 
       return true;
     });
-  }, [data, filters.environment, filters.owner, filters.contextFilters]);
+  }, [data, filters.status, filters.environment, filters.owner, filters.contextFilters]);
 
   // Derive effective selected ID — clears selection when pipeline is no longer in results
   const effectiveSelectedPipelineId = useMemo(() => {
@@ -136,20 +151,102 @@ export default function Pipelines() {
   }, [selectedPipelineId, filteredPipelines]);
 
   const totalResults = data?.totalCount || 0;
+  const selectedPipelines = useMemo(() => {
+    if (selectedBulkPipelineIds.size === 0) return [];
+    return filteredPipelines.filter((pipeline) => selectedBulkPipelineIds.has(pipeline.id));
+  }, [filteredPipelines, selectedBulkPipelineIds]);
+  const selectedPipelineIds = useMemo(
+    () => selectedPipelines.map((pipeline) => Number(pipeline.id)).filter((id) => Number.isFinite(id) && id > 0),
+    [selectedPipelines],
+  );
+  const selectedFailedStageIds = useMemo(
+    () => selectedPipelines.flatMap((pipeline) =>
+      pipeline.actions
+        .filter((action) => action.status === "error")
+        .map((action) => Number(action.id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    ),
+    [selectedPipelines],
+  );
+  const allVisibleSelected = filteredPipelines.length > 0 && filteredPipelines.every((pipeline) => selectedBulkPipelineIds.has(pipeline.id));
+  const someVisibleSelected = filteredPipelines.some((pipeline) => selectedBulkPipelineIds.has(pipeline.id));
+
+  const runBulkAction = useCallback(async (action: BulkPipelineAction) => {
+    const isStageAction = action === "rerun" || action === "skip";
+    const targetIds = isStageAction ? selectedFailedStageIds : selectedPipelineIds;
+    if (targetIds.length === 0) {
+      toast({
+        title: "Nothing to run",
+        description: isStageAction ? "Selected pipelines have no failed stages." : "Select at least one pipeline.",
+      });
+      return;
+    }
+
+    try {
+      const response = await bulkAction.mutateAsync({
+        action,
+        pipelineIds: isStageAction ? undefined : targetIds,
+        stageIds: isStageAction ? targetIds : undefined,
+      });
+      toast({
+        title: "Bulk action finished",
+        description: `${response.succeeded}/${response.requested} ${isStageAction ? "stages" : "pipelines"} updated.`,
+        variant: response.failed > 0 ? "destructive" : "default",
+      });
+      if (response.failed === 0) {
+        setSelectedBulkPipelineIds(new Set());
+      }
+    } catch (err) {
+      toast({
+        title: "Bulk action failed",
+        description: err instanceof Error ? err.message : "Unknown error",
+        variant: "destructive",
+      });
+    }
+  }, [bulkAction, selectedFailedStageIds, selectedPipelineIds]);
+
+  const toggleBulkSelection = useCallback((pipelineId: string, selected: boolean) => {
+    setSelectedBulkPipelineIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(pipelineId);
+      } else {
+        next.delete(pipelineId);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllBulkSelection = useCallback((selected: boolean) => {
+    setSelectedBulkPipelineIds((prev) => {
+      const next = new Set(prev);
+      filteredPipelines.forEach((pipeline) => {
+        if (selected) {
+          next.add(pipeline.id);
+        } else {
+          next.delete(pipeline.id);
+        }
+      });
+      return next;
+    });
+  }, [filteredPipelines]);
 
   const handlePageChange = useCallback((page: number) => {
     setCurrentPage(page);
     setSelectedPipelineId(null);
+    setSelectedBulkPipelineIds(new Set());
   }, []);
 
   const handlePageSizeChange = useCallback((size: number) => {
     setPageSize(size);
     setCurrentPage(1);
+    setSelectedBulkPipelineIds(new Set());
   }, []);
 
   const handleFiltersChange = useCallback((f: SearchFilters) => {
     setFilters(f);
     setCurrentPage(1);
+    setSelectedBulkPipelineIds(new Set());
   }, []);
 
   if (error) {
@@ -194,12 +291,73 @@ export default function Pipelines() {
             </div>
           ) : (
             <>
+              {selectedBulkPipelineIds.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-slate-50 px-3 py-2">
+                  <span className="mr-1 text-xs font-semibold text-slate-600">
+                    {selectedBulkPipelineIds.size} selected
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={bulkAction.isPending || selectedPipelineIds.length === 0}
+                    onClick={() => runBulkAction("pause")}
+                  >
+                    <Pause className="h-3.5 w-3.5" />
+                    Pause
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={bulkAction.isPending || selectedPipelineIds.length === 0}
+                    onClick={() => runBulkAction("resume")}
+                  >
+                    <PlayCircle className="h-3.5 w-3.5" />
+                    Resume
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={bulkAction.isPending || selectedFailedStageIds.length === 0}
+                    onClick={() => runBulkAction("rerun")}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Rerun failed
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    disabled={bulkAction.isPending || selectedFailedStageIds.length === 0}
+                    onClick={() => runBulkAction("skip")}
+                  >
+                    <SkipForward className="h-3.5 w-3.5" />
+                    Skip failed
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="ml-auto h-8 text-xs"
+                    disabled={bulkAction.isPending}
+                    onClick={() => setSelectedBulkPipelineIds(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </div>
+              )}
               <ScrollArea className="flex-1">
                 <PipelineTable
                   pipelines={filteredPipelines}
                   selectedId={effectiveSelectedPipelineId}
                   onSelect={(pipeline) => setSelectedPipelineId(pipeline.id)}
                   isPanelOpen={!!effectiveSelectedPipelineId}
+                  selectedBulkIds={selectedBulkPipelineIds}
+                  onToggleBulkSelection={toggleBulkSelection}
+                  onToggleAllBulkSelection={toggleAllBulkSelection}
+                  allBulkSelected={allVisibleSelected}
+                  someBulkSelected={someVisibleSelected}
                 />
               </ScrollArea>
 

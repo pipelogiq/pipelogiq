@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { pipelinesApi, observabilityApi } from '@/api/client';
-import type { GetPipelinesParams, PipelineResponse, StageResponse } from '@/types/api';
+import type { BulkPipelineActionRequest, GetPipelinesParams, PipelineResponse, StageResponse, UIStatus } from '@/types/api';
 import type { ObservabilityConfig, OtelConfig, LogsConfig } from '@/types/observability';
 import type { PipelineExecution, PipelineAction } from '@/components/pipelines/PipelineDetailPanel';
 import { mapPipelineStatusToUI, mapStageStatusToUI } from '@/types/api';
@@ -26,6 +26,8 @@ function shouldShowStageTiming(status?: StageResponse['status']): boolean {
     case 'Running':
     case 'Completed':
     case 'Failed':
+    case 'RetryScheduled':
+    case 'Throttled':
     case 'WaitingForApproval':
       return true;
     default:
@@ -55,12 +57,16 @@ function mapStageToAction(stage: StageResponse): PipelineAction {
     output = { raw: stage.output };
   }
 
+  const status = mapStageStatusToUI(stage.status);
+  const nextRetryAt = stage.nextRetryAt ? new Date(stage.nextRetryAt) : undefined;
+  const lastFailedAt = stage.lastFailedAt ? new Date(stage.lastFailedAt) : undefined;
+
   return {
     id: String(stage.id),
     name: stage.name,
     handlerName: stage.stageHandlerName || undefined,
     spanId: stage.spanId || undefined,
-    status: mapStageStatusToUI(stage.status),
+    status,
     duration: shouldShowStageTiming(stage.status)
       ? formatDuration(stage.startedAt, stage.finishedAt)
       : undefined,
@@ -69,6 +75,12 @@ function mapStageToAction(stage: StageResponse): PipelineAction {
       ? format(new Date(stage.startedAt), 'HH:mm:ss.SSS')
       : undefined,
     completedAt: stage.finishedAt ? format(new Date(stage.finishedAt), 'HH:mm:ss.SSS') : undefined,
+    nextRetryAt: nextRetryAt ? formatDistanceToNow(nextRetryAt, { addSuffix: true }) : undefined,
+    nextRetryAtExact: nextRetryAt ? format(nextRetryAt, 'yyyy-MM-dd HH:mm:ss') : undefined,
+    failureCount: stage.failureCount || 0,
+    lastFailedAt: lastFailedAt ? formatDistanceToNow(lastFailedAt, { addSuffix: true }) : undefined,
+    lastFailedAtExact: lastFailedAt ? format(lastFailedAt, 'yyyy-MM-dd HH:mm:ss') : undefined,
+    hasFailureHistory: Boolean(stage.hasFailureHistory || (stage.failureCount || 0) > 0),
     logs: logsText,
     logEntries: stage.logs || [],
     input,
@@ -132,6 +144,20 @@ function shouldShowPipelineDuration(status: PipelineResponse['status']): boolean
   return status === 'Completed' || status === 'Failed' || status === 'Paused' || status === 'Cancelled';
 }
 
+function derivePipelineUIStatus(pipelineStatus: PipelineResponse['status'], stages: StageResponse[]): UIStatus {
+  const baseStatus = mapPipelineStatusToUI(pipelineStatus);
+  if (baseStatus !== 'waiting') {
+    return baseStatus;
+  }
+  if (stages.some((stage) => stage.status === 'Throttled')) {
+    return 'throttled';
+  }
+  if (stages.some((stage) => stage.status === 'RetryScheduled')) {
+    return 'rescheduled';
+  }
+  return baseStatus;
+}
+
 export function mapPipelineToExecution(
   pipeline: PipelineResponse,
   linkTemplates?: PipelineLinkTemplates,
@@ -169,7 +195,7 @@ export function mapPipelineToExecution(
     pipelineId: String(pipeline.id),
     pipelineName: pipeline.name,
     description: stages[0]?.description || `Pipeline #${pipeline.id}`,
-    status: mapPipelineStatusToUI(pipeline.status),
+    status: derivePipelineUIStatus(pipeline.status, stages),
     environment,
     startedAt: formatDistanceToNow(new Date(pipeline.createdAt), { addSuffix: true }),
     startedAtExact: format(new Date(pipeline.createdAt), 'yyyy-MM-dd HH:mm:ss'),
@@ -193,10 +219,14 @@ export function mapPipelineToExecution(
     })) || [],
     actions: stages.map(mapStageToAction),
     stages: stages.map(s => ({
+      id: String(s.id),
       name: s.name,
       status: mapStageStatusToUI(s.status),
       startedAt: s.startedAt || undefined,
       finishedAt: s.finishedAt || undefined,
+      nextRetryAt: s.nextRetryAt || undefined,
+      nextRetryAtExact: s.nextRetryAt ? format(new Date(s.nextRetryAt), 'yyyy-MM-dd HH:mm:ss') : undefined,
+      hasFailureHistory: Boolean(s.hasFailureHistory || (s.failureCount || 0) > 0),
     })),
     traceId,
     traceUrl,
@@ -229,6 +259,7 @@ export function usePipelines(params?: GetPipelinesParams) {
       const hasActive = data.items.some((pipeline) =>
         pipeline.status === 'running' ||
         pipeline.status === 'waiting' ||
+        pipeline.status === 'rescheduled' ||
         pipeline.status === 'throttled' ||
         (pipeline.status === 'paused' && pipeline.stages.some((stage) => stage.status === 'running'))
       );
@@ -257,6 +288,7 @@ export function usePipeline(id: number) {
       return (
         data.status === 'running' ||
         data.status === 'waiting' ||
+        data.status === 'rescheduled' ||
         data.status === 'throttled' ||
         (data.status === 'paused' && data.stages.some((stage) => stage.status === 'running'))
       ) ? 3000 : false;
@@ -322,6 +354,18 @@ export function useResumePipeline() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (pipelineId: number) => pipelinesApi.resumePipeline(pipelineId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline'] });
+      queryClient.invalidateQueries({ queryKey: ['pipeline-stages'] });
+    },
+  });
+}
+
+export function useBulkPipelineAction() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: BulkPipelineActionRequest) => pipelinesApi.bulkAction(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['pipelines'] });
       queryClient.invalidateQueries({ queryKey: ['pipeline'] });

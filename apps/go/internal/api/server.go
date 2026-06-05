@@ -116,6 +116,7 @@ func (s *Server) Run(ctx context.Context) error {
 		r.Get("/pipelines", s.handleGetPipelines)
 		r.Post("/pipelines/{id}/pause", s.handlePausePipeline)
 		r.Post("/pipelines/{id}/resume", s.handleResumePipeline)
+		r.Post("/pipelines/bulkAction", s.handleBulkPipelineAction)
 		r.Post("/pipelines/rerunStage", s.handleRerunStage)
 		r.Post("/pipelines/skipStage", s.handleSkipStage)
 		r.Get("/pipelines/logs/{pipelineId}", s.handleGetPipelineLogs)

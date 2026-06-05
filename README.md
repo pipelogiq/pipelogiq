@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml/badge.svg)](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: Preview v0.3.2-preview.5](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.5-orange)](CHANGELOG.md)
+[![Status: Preview v0.3.2-preview.6](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.6-orange)](CHANGELOG.md)
 
-> **Preview (v0.3.2-preview.5).** Breaking changes may occur before v1.0.
+> **Preview (v0.3.2-preview.6).** Breaking changes may occur before v1.0.
 
 Execution control plane for distributed, event-driven workflows.
 
@@ -14,7 +14,7 @@ Execution control plane for distributed, event-driven workflows.
 - **Stage execution** — pull-based job gateway for external workers; built-in retry with configurable max attempts and intervals
 - **Worker management** — bootstrap, heartbeat, event reporting, and graceful shutdown protocol for distributed worker fleets
 - **Observability bridge** — OpenTelemetry trace propagation (`traceparent`), Prometheus metrics, integration config for Grafana/Tempo/Sentry/Datadog
-- **Real-time dashboard** — React UI with WebSocket updates, pipeline inspection, stage logs, and worker monitoring
+- **Real-time dashboard** — React UI with WebSocket updates, bulk pipeline operations, retry scheduling visibility, pipeline inspection, stage logs, and worker monitoring
 
 ## What It Is Not
 
@@ -40,7 +40,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.2-preview.5 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.3.2-preview.6 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source

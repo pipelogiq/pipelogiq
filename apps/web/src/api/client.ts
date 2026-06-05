@@ -9,6 +9,8 @@ import type {
   GetPipelinesParams,
   RerunStageRequest,
   SkipStageRequest,
+  BulkPipelineActionRequest,
+  BulkPipelineActionResponse,
   ApplicationResponse,
   SaveApplicationRequest,
   ApiKeyResponse,
@@ -177,6 +179,13 @@ export const pipelinesApi = {
 
   skipStage: async (data: SkipStageRequest): Promise<void> => {
     await request<void>('/pipelines/skipStage', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  bulkAction: async (data: BulkPipelineActionRequest): Promise<BulkPipelineActionResponse> => {
+    return request<BulkPipelineActionResponse>('/pipelines/bulkAction', {
       method: 'POST',
       body: JSON.stringify(data),
     });

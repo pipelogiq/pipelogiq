@@ -357,6 +357,45 @@ func (s *Store) GetPipelineKeywords(ctx context.Context, pipelineID int) ([]type
 	return keywords, err
 }
 
+func (s *Store) GetKeywordsForPipelines(ctx context.Context, pipelineIDs []int) (map[int][]types.PipelineKeyword, error) {
+	result := make(map[int][]types.PipelineKeyword, len(pipelineIDs))
+	if len(pipelineIDs) == 0 {
+		return result, nil
+	}
+
+	type pipelineKeywordRow struct {
+		PipelineID int    `db:"pipeline_id"`
+		Key        string `db:"key"`
+		Value      string `db:"value"`
+	}
+
+	query, args, err := sqlx.In(`
+		SELECT pk.pipeline_id, k.key, k.value
+		FROM pipeline_keyword pk
+		JOIN keyword k ON k.id = pk.keyword_id
+		WHERE pk.pipeline_id IN (?)
+		ORDER BY pk.pipeline_id, k.id
+	`, pipelineIDs)
+	if err != nil {
+		return nil, fmt.Errorf("build pipeline keywords query: %w", err)
+	}
+	query = s.db.Rebind(query)
+
+	rows := []pipelineKeywordRow{}
+	if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("query pipeline keywords: %w", err)
+	}
+
+	for _, row := range rows {
+		result[row.PipelineID] = append(result[row.PipelineID], types.PipelineKeyword{
+			Key:   row.Key,
+			Value: row.Value,
+		})
+	}
+
+	return result, nil
+}
+
 // GetPipelineFullDetail returns pipeline with stages (including logs), context, and keywords.
 func (s *Store) GetPipelineFullDetail(ctx context.Context, pipelineID int) (*types.PipelineResponse, error) {
 	pipeline, err := s.GetPipelineWithStages(ctx, pipelineID)
@@ -491,6 +530,7 @@ func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.
 			s.created_at AS created_at,
 			s.finished_at AS finished_at,
 			s.started_at AS started_at,
+			s.next_retry_at AS next_retry_at,
 			s.is_skipped AS is_skipped,
 			s.is_event AS is_event,
 			io.input AS input,
@@ -500,6 +540,10 @@ func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.
 		WHERE s.pipeline_id=$1
 		ORDER BY s.id
 	`, pipelineID); err != nil {
+		return nil, err
+	}
+
+	if err := s.applyStageFailureHistory(ctx, rows); err != nil {
 		return nil, err
 	}
 
@@ -513,6 +557,98 @@ func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.
 	return rows, nil
 }
 
+const stageFailureHistoryLogPattern = "%status changed:%Failed [pipeline=%"
+
+type stageFailureHistory struct {
+	FailureCount int
+	LastFailedAt *time.Time
+}
+
+func (s *Store) applyStageFailureHistory(ctx context.Context, stages []types.StageResponse) error {
+	if len(stages) == 0 {
+		return nil
+	}
+
+	seen := make(map[int]struct{}, len(stages))
+	stageIDs := make([]int, 0, len(stages))
+	for _, stage := range stages {
+		if stage.ID <= 0 {
+			continue
+		}
+		if _, ok := seen[stage.ID]; ok {
+			continue
+		}
+		seen[stage.ID] = struct{}{}
+		stageIDs = append(stageIDs, stage.ID)
+	}
+	if len(stageIDs) == 0 {
+		return nil
+	}
+
+	historyByStage, err := s.loadStageFailureHistory(ctx, stageIDs)
+	if err != nil {
+		return err
+	}
+	for i := range stages {
+		history, ok := historyByStage[stages[i].ID]
+		if !ok {
+			continue
+		}
+		stages[i].FailureCount = history.FailureCount
+		stages[i].LastFailedAt = history.LastFailedAt
+		stages[i].HasFailureHistory = history.FailureCount > 0
+	}
+	return nil
+}
+
+func (s *Store) loadStageFailureHistory(ctx context.Context, stageIDs []int) (map[int]stageFailureHistory, error) {
+	result := make(map[int]stageFailureHistory)
+	if len(stageIDs) == 0 {
+		return result, nil
+	}
+
+	query, args, err := sqlx.In(`
+		SELECT stage_id, created_at
+		FROM stage_log
+		WHERE stage_id IN (?)
+		  AND log LIKE ?
+		ORDER BY stage_id, created_at DESC
+	`, stageIDs, stageFailureHistoryLogPattern)
+	if err != nil {
+		return nil, fmt.Errorf("build stage failure history query: %w", err)
+	}
+	query = s.db.Rebind(query)
+
+	rows, err := s.db.QueryxContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query stage failure history: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var stageID int
+		var createdAt sql.NullTime
+		if err := rows.Scan(&stageID, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan stage failure history: %w", err)
+		}
+
+		history := result[stageID]
+		history.FailureCount++
+		if createdAt.Valid {
+			failedAt := createdAt.Time.UTC()
+			if history.LastFailedAt == nil || failedAt.After(*history.LastFailedAt) {
+				history.LastFailedAt = &failedAt
+			}
+		}
+		result[stageID] = history
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read stage failure history: %w", err)
+	}
+
+	return result, nil
+}
+
 func (s *Store) GetPipelineContext(ctx context.Context, pipelineID int) ([]types.ContextItem, error) {
 	items := []types.ContextItem{}
 	if err := s.db.SelectContext(ctx, &items, `
@@ -521,6 +657,46 @@ func (s *Store) GetPipelineContext(ctx context.Context, pipelineID int) ([]types
 		return nil, err
 	}
 	return items, nil
+}
+
+func (s *Store) GetContextForPipelines(ctx context.Context, pipelineIDs []int) (map[int][]types.ContextItem, error) {
+	result := make(map[int][]types.ContextItem, len(pipelineIDs))
+	if len(pipelineIDs) == 0 {
+		return result, nil
+	}
+
+	type pipelineContextRow struct {
+		PipelineID int    `db:"pipeline_id"`
+		Key        string `db:"key"`
+		Value      string `db:"value"`
+		ValueType  string `db:"value_type"`
+	}
+
+	query, args, err := sqlx.In(`
+		SELECT pipeline_id, key, value, COALESCE(value_type, '') AS value_type
+		FROM pipeline_context_item
+		WHERE pipeline_id IN (?)
+		ORDER BY pipeline_id, id
+	`, pipelineIDs)
+	if err != nil {
+		return nil, fmt.Errorf("build pipeline context query: %w", err)
+	}
+	query = s.db.Rebind(query)
+
+	rows := []pipelineContextRow{}
+	if err := s.db.SelectContext(ctx, &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("query pipeline context: %w", err)
+	}
+
+	for _, row := range rows {
+		result[row.PipelineID] = append(result[row.PipelineID], types.ContextItem{
+			Key:       row.Key,
+			Value:     row.Value,
+			ValueType: row.ValueType,
+		})
+	}
+
+	return result, nil
 }
 
 // GetStageToExecute picks the next stage atomically and marks it Pending.

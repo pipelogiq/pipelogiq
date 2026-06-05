@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
+import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { PipelineAction } from "./PipelineDetailPanel";
@@ -132,6 +132,9 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   const hasAiUsageTab = Boolean(pipelineUsageSummary) || stageUsageEntries.length > 0;
   const visibleContextItems = pipeline.context.filter((item) => !isAiUsageContextKey(item.key));
   const resolvedActiveTab = activeTab === "ai-usage" && !hasAiUsageTab ? "context" : activeTab;
+  const nextScheduledAction = pipeline.actions.find((action) =>
+    (action.status === "rescheduled" || action.status === "throttled") && action.nextRetryAtExact
+  );
 
   const getStatusDisplay = () => {
     switch (pipeline.status) {
@@ -143,6 +146,8 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         return { bg: "bg-red-100", text: "text-red-800", dot: "bg-red-600", label: "Failed" };
       case "paused":
         return { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-600", label: "Paused" };
+      case "rescheduled":
+        return { bg: "bg-yellow-100", text: "text-yellow-800", dot: "bg-yellow-600", label: "Rescheduled" };
       case "throttled":
         return { bg: "bg-orange-100", text: "text-orange-800", dot: "bg-orange-600", label: "Throttled" };
       case "queued":
@@ -194,6 +199,15 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
               <span className="font-semibold text-slate-500 uppercase tracking-wider">Duration </span>
               <span className="font-mono font-bold text-slate-900">{pipeline.duration || "—"}</span>
             </div>
+            {nextScheduledAction && (
+              <>
+                <span className="text-slate-300">|</span>
+                <div>
+                  <span className="font-semibold text-slate-500 uppercase tracking-wider">Next </span>
+                  <span className="font-mono font-bold text-slate-900">{nextScheduledAction.nextRetryAtExact}</span>
+                </div>
+              </>
+            )}
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
@@ -558,6 +572,12 @@ function formatLogOutputFallback(action: PipelineAction): string {
   if (action.status === "waiting") {
     return "Pending...";
   }
+  if (action.status === "rescheduled") {
+    return action.nextRetryAtExact ? `Rescheduled for ${action.nextRetryAtExact}` : "Rescheduled";
+  }
+  if (action.status === "throttled") {
+    return action.nextRetryAtExact ? `Throttled until ${action.nextRetryAtExact}` : "Throttled";
+  }
   if (action.status === "running") {
     return "Processing...";
   }
@@ -594,6 +614,8 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
         );
       case "throttled":
         return <AlertCircle className={cn(baseClass, "text-orange-600")} />;
+      case "rescheduled":
+        return <RotateCcw className={cn(baseClass, "text-yellow-600")} />;
       case "paused":
         return <Pause className={cn(baseClass, "text-amber-600")} />;
       case "queued":
@@ -610,6 +632,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
       case "success": return { text: "Completed", class: "text-emerald-700 bg-emerald-100" };
       case "error": return { text: "Failed", class: "text-red-700 bg-red-100" };
       case "running": return { text: "Running", class: "text-blue-700 bg-blue-100" };
+      case "rescheduled": return { text: "Rescheduled", class: "text-yellow-700 bg-yellow-100" };
       case "throttled": return { text: "Throttled", class: "text-orange-700 bg-orange-100" };
       case "paused": return { text: "Paused", class: "text-amber-700 bg-amber-100" };
       case "waiting": return { text: "Pending", class: "text-slate-600 bg-slate-100" };
@@ -629,7 +652,15 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
     if (typeof displayStageOutput === "string") {
       return displayStageOutput;
     }
-    return action.status === "queued" ? "Not started" : action.status === "waiting" ? "Pending..." : "Processing...";
+    if (action.status === "queued") return "Not started";
+    if (action.status === "waiting") return "Pending...";
+    if (action.status === "rescheduled") {
+      return action.nextRetryAtExact ? `Rescheduled for ${action.nextRetryAtExact}` : "Rescheduled";
+    }
+    if (action.status === "throttled") {
+      return action.nextRetryAtExact ? `Throttled until ${action.nextRetryAtExact}` : "Throttled";
+    }
+    return "Processing...";
   };
 
   const statusInfo = getStatusLabel();
@@ -639,24 +670,35 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
       <div className="border-2 border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm hover:border-slate-300 transition-colors">
-        <CollapsibleTrigger asChild>
-          <button className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-slate-50 transition-colors text-left">
-            {getStatusIcon()}
-            <span className="font-mono text-sm font-bold text-slate-500">
-              #{(index + 1).toString().padStart(2, '0')}
-            </span>
-            <span className="flex-1 text-sm font-bold text-slate-900">
-              {action.name}
-            </span>
-            <span className={cn("text-xs font-bold px-2.5 py-1 rounded-full", statusInfo.class)}>
-              {statusInfo.text}
-            </span>
-            <ChevronDown className={cn(
-              "h-5 w-5 text-slate-400 transition-transform",
-              isExpanded && "rotate-180"
-            )} />
-          </button>
-        </CollapsibleTrigger>
+        <div className="flex items-center hover:bg-slate-50 transition-colors">
+          <CollapsibleTrigger asChild>
+            <button className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left">
+              {getStatusIcon()}
+              <span className="font-mono text-sm font-bold text-slate-500">
+                #{(index + 1).toString().padStart(2, '0')}
+              </span>
+              <span className="min-w-0 flex-1 text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+                {action.name}
+              </span>
+              {action.hasFailureHistory && action.status !== "error" && (
+                <span
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-700"
+                  title="Had a previous failure"
+                  aria-label="Had a previous failure"
+                >
+                  <AlertTriangle className="h-3 w-3" />
+                </span>
+              )}
+              <span className={cn("text-xs font-bold px-2.5 py-1 rounded-full", statusInfo.class)}>
+                {statusInfo.text}
+              </span>
+              <ChevronDown className={cn(
+                "h-5 w-5 text-slate-400 transition-transform",
+                isExpanded && "rotate-180"
+              )} />
+            </button>
+          </CollapsibleTrigger>
+        </div>
 
         <CollapsibleContent>
           <div className="px-4 pb-4 pt-3 border-t-2 border-slate-100 bg-slate-50">
@@ -722,6 +764,24 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Duration</p>
                   <p className="font-mono font-bold text-slate-900">{action.duration}</p>
+                </div>
+              )}
+              {action.nextRetryAtExact && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Scheduled</p>
+                  <p className="font-mono font-bold text-slate-900">{action.nextRetryAtExact}</p>
+                  {action.nextRetryAt && (
+                    <p className="text-xs text-slate-500">{action.nextRetryAt}</p>
+                  )}
+                </div>
+              )}
+              {action.hasFailureHistory && action.status !== "error" && (
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Previous failure</p>
+                  <p className="font-mono font-bold text-red-700">{action.lastFailedAtExact || "Recorded"}</p>
+                  {action.failureCount ? (
+                    <p className="text-xs text-red-600">{action.failureCount} failure{action.failureCount === 1 ? "" : "s"}</p>
+                  ) : null}
                 </div>
               )}
 

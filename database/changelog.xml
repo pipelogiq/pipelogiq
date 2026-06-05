@@ -150,6 +150,13 @@
                 referencedTableName="stage"/>
     </changeSet>
 
+    <changeSet id="add stage log stage created index" author="Codex">
+        <createIndex tableName="stage_log" indexName="idx_stage_log_stage_id_created_at">
+            <column name="stage_id"/>
+            <column name="created_at"/>
+        </createIndex>
+    </changeSet>
+
     <changeSet id="add table pipeline_keyword" author="Jegor">
         <createTable tableName="pipeline_keyword">
             <column name="id" type="serial" autoIncrement="true">
@@ -1002,6 +1009,53 @@
                 tableName="pipeline_context_item"
                 columnName="value_type"
                 newDataType="text"/>
+    </changeSet>
+
+    <changeSet id="add pipeline list lookup indexes" author="Codex">
+        <createIndex tableName="pipeline" indexName="idx_pipeline_created_at">
+            <column name="created_at"/>
+        </createIndex>
+
+        <createIndex tableName="pipeline" indexName="idx_pipeline_application_status_created_at">
+            <column name="application_id"/>
+            <column name="status"/>
+            <column name="created_at"/>
+        </createIndex>
+
+        <createIndex tableName="stage" indexName="idx_stage_pipeline_id_id">
+            <column name="pipeline_id"/>
+            <column name="id"/>
+        </createIndex>
+
+        <createIndex tableName="pipeline_keyword" indexName="idx_pipeline_keyword_pipeline_id">
+            <column name="pipeline_id"/>
+        </createIndex>
+
+        <createIndex tableName="pipeline_keyword" indexName="idx_pipeline_keyword_keyword_id">
+            <column name="keyword_id"/>
+        </createIndex>
+
+        <createIndex tableName="keyword" indexName="idx_keyword_key">
+            <column name="key"/>
+        </createIndex>
+
+        <createIndex tableName="pipeline_context_item" indexName="idx_pipeline_context_item_pipeline_id_id">
+            <column name="pipeline_id"/>
+            <column name="id"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="enable pipeline search trigram extension" author="Codex" dbms="postgresql">
+        <sql>CREATE EXTENSION IF NOT EXISTS pg_trgm</sql>
+    </changeSet>
+
+    <changeSet id="add pipeline search trigram indexes" author="Codex" dbms="postgresql">
+        <sql>CREATE INDEX IF NOT EXISTS idx_pipeline_name_trgm ON pipeline USING gin (name gin_trgm_ops)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_stage_name_trgm ON stage USING gin (name gin_trgm_ops)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_stage_description_trgm ON stage USING gin (description gin_trgm_ops)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_keyword_value_trgm ON keyword USING gin (value gin_trgm_ops)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_pipeline_context_item_key_trgm ON pipeline_context_item USING gin (key gin_trgm_ops)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_pipeline_context_item_value_trgm ON pipeline_context_item USING gin (value gin_trgm_ops)</sql>
     </changeSet>
 
     <changeSet id="add policy source and origin columns" author="Codex">
