@@ -93,7 +93,12 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Get(s.cfg.HealthLivenessEndpoint, s.handleHealth)
 	router.Get(s.cfg.HealthReadyEndpoint, s.handleHealth)
 	router.Get("/version", version.HandleVersion)
-	router.Handle("/metrics", promhttp.Handler())
+
+	// Metrics are served on a dedicated listener, never on the routed API surface:
+	// nginx proxies /api/ wholesale, so /metrics here would be publicly readable.
+	if addr := strings.TrimSpace(s.cfg.MetricsAddr); addr != "" {
+		go s.runMetricsServer(ctx, addr)
+	}
 
 	// Auth endpoints (public)
 	router.Post("/auth/login", s.handleLogin)
@@ -188,6 +193,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 }
 
+// runMetricsServer exposes Prometheus metrics on an address that is not routed through
+// the public nginx proxy.
+func (s *Server) runMetricsServer(ctx context.Context, addr string) {
+	srv := &http.Server{Addr: addr, Handler: promhttp.Handler()}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Shutdown(context.Background())
+	}()
+	s.logger.Info("metrics server listening", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		s.logger.Error("metrics server error", "err", err)
+	}
+}
+
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return newCORSMiddleware(s.allowedOrigins)(next)
 }
@@ -263,7 +282,7 @@ func (s *Server) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, pipeline, http.StatusOK)
+	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
 }
 
 func (s *Server) handleGetStages(w http.ResponseWriter, r *http.Request) {
@@ -277,12 +296,12 @@ func (s *Server) handleGetStages(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	stages, err := s.store.GetPipelineStages(ctx, id)
+	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, stages, http.StatusOK)
+	writeJSON(w, types.RedactPipelineResponse(pipeline).Stages, http.StatusOK)
 }
 
 func (s *Server) handleGetContext(w http.ResponseWriter, r *http.Request) {
@@ -299,7 +318,7 @@ func (s *Server) handleGetContext(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, ctxItems, http.StatusOK)
+	writeJSON(w, types.RedactContextItems(ctxItems), http.StatusOK)
 }
 
 // Alternative routes matching .NET paths
@@ -314,12 +333,12 @@ func (s *Server) handleGetPipelineStagesAlt(w http.ResponseWriter, r *http.Reque
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	stages, err := s.store.GetPipelineStages(ctx, id)
+	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, stages, http.StatusOK)
+	writeJSON(w, types.RedactPipelineResponse(pipeline).Stages, http.StatusOK)
 }
 
 func (s *Server) handleGetPipelineContextAlt(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +357,7 @@ func (s *Server) handleGetPipelineContextAlt(w http.ResponseWriter, r *http.Requ
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, ctxItems, http.StatusOK)
+	writeJSON(w, types.RedactContextItems(ctxItems), http.StatusOK)
 }
 
 func writeJSON(w http.ResponseWriter, payload any, status int) {

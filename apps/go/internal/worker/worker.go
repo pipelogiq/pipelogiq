@@ -192,8 +192,26 @@ func (w *Worker) runOrphanRecovery(ctx context.Context) error {
 	if recoveryThreshold < 30*time.Second {
 		recoveryThreshold = 30 * time.Second
 	}
+	recoveryInterval := recoveryThreshold
+	if recoveryInterval > 30*time.Second {
+		recoveryInterval = 30 * time.Second
+	}
 
 	recover := func() {
+		undispatched, err := w.store.RecoverUndispatchedStages(ctx, 30*time.Second)
+		if err != nil {
+			if ctx.Err() == nil {
+				w.logger.Error("undispatched stage recovery failed", "err", err)
+			}
+			return
+		}
+		expiredLeases, err := w.store.RecoverExpiredStageLeases(ctx)
+		if err != nil {
+			if ctx.Err() == nil {
+				w.logger.Error("expired stage lease recovery failed", "err", err)
+			}
+			return
+		}
 		recovered, err := w.store.RecoverOrphanedStages(ctx, recoveryThreshold)
 		if err != nil {
 			if ctx.Err() == nil {
@@ -201,14 +219,18 @@ func (w *Worker) runOrphanRecovery(ctx context.Context) error {
 			}
 			return
 		}
-		if recovered > 0 {
-			w.logger.Warn("recovered orphaned stages", "count", recovered, "threshold", recoveryThreshold)
+		if undispatched+expiredLeases+recovered > 0 {
+			w.logger.Warn("recovered interrupted stages",
+				"undispatched", undispatched,
+				"expiredLeases", expiredLeases,
+				"legacyOrphans", recovered,
+				"threshold", recoveryThreshold)
 		}
 	}
 
 	recover()
 
-	ticker := time.NewTicker(recoveryThreshold)
+	ticker := time.NewTicker(recoveryInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -269,6 +291,22 @@ func (w *Worker) runPublisher(ctx context.Context) error {
 				}
 				w.logger.Error("publish stage next failed", "queue", queue, "err", err)
 				break
+			}
+			recorded, err := w.store.MarkStageDispatched(ctx, stage.StageID, stage.ExecutionID)
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "dispatch confirmation persistence failed")
+				span.End()
+				w.logger.Error("record confirmed stage dispatch failed",
+					"stageId", stage.StageID,
+					"pipelineId", stage.PipelineID,
+					"err", err)
+				break
+			}
+			if !recorded {
+				w.logger.Warn("confirmed stage dispatch was already superseded",
+					"stageId", stage.StageID,
+					"pipelineId", stage.PipelineID)
 			}
 
 			span.SetStatus(codes.Ok, "dispatched")
@@ -489,7 +527,8 @@ func (w *Worker) publishPipelineUpdate(ctx context.Context, pipeline *types.Pipe
 		return
 	}
 
-	payload, err := json.Marshal(pipeline)
+	publicPipeline := types.RedactPipelineResponse(pipeline)
+	payload, err := json.Marshal(publicPipeline)
 	if err != nil {
 		w.logger.Error("marshal stage updated payload failed", "pipelineId", pipeline.ID, "err", err)
 		return

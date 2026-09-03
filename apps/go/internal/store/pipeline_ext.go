@@ -116,7 +116,11 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 
 				SELECT pci.pipeline_id
 				FROM pipeline_context_item pci
-				WHERE pci.key ILIKE $%d OR pci.value ILIKE $%d
+				WHERE pci.key ILIKE $%d
+				   OR (
+						COALESCE(pci.is_sensitive, false) = false
+						AND pci.value ILIKE $%d
+				   )
 			)
 		`, argNum, argNum, argNum, argNum, argNum, argNum))
 		conditions = append(conditions, "p.id IN (SELECT pipeline_id FROM search_matches)")
@@ -166,7 +170,9 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 	queryArgs := append(append([]interface{}{}, filterArgs...), pageSize, offset)
 	query := fmt.Sprintf(`
 		%s
-		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at, p.finished_at, p.is_completed, p.application_id, %s
+		SELECT p.id, p.name, COALESCE(p.trace_id, '') AS trace_id, p.status, p.created_at,
+		       p.finished_at, p.is_completed, p.application_id,
+		       COALESCE(p.idempotency_key, '') AS idempotency_key, %s
 		FROM pipeline p
 		WHERE %s
 		ORDER BY p.created_at DESC
@@ -185,15 +191,16 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 	pipelineCompleted := make(map[int]bool)
 	for rows.Next() {
 		var p struct {
-			ID            int        `db:"id"`
-			Name          string     `db:"name"`
-			TraceID       string     `db:"trace_id"`
-			Status        *string    `db:"status"`
-			CreatedAt     time.Time  `db:"created_at"`
-			FinishedAt    *time.Time `db:"finished_at"`
-			IsCompleted   bool       `db:"is_completed"`
-			ApplicationID *int       `db:"application_id"`
-			TotalCount    int        `db:"total_count"`
+			ID             int        `db:"id"`
+			Name           string     `db:"name"`
+			TraceID        string     `db:"trace_id"`
+			Status         *string    `db:"status"`
+			CreatedAt      time.Time  `db:"created_at"`
+			FinishedAt     *time.Time `db:"finished_at"`
+			IsCompleted    bool       `db:"is_completed"`
+			ApplicationID  *int       `db:"application_id"`
+			IdempotencyKey string     `db:"idempotency_key"`
+			TotalCount     int        `db:"total_count"`
 		}
 		if err := rows.StructScan(&p); err != nil {
 			continue
@@ -203,13 +210,14 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		}
 
 		pipeline := types.PipelineResponse{
-			ID:            p.ID,
-			Name:          p.Name,
-			TraceID:       p.TraceID,
-			Status:        types.PipelineStatusNotStarted,
-			CreatedAt:     p.CreatedAt,
-			FinishedAt:    p.FinishedAt,
-			ApplicationID: p.ApplicationID,
+			ID:             p.ID,
+			Name:           p.Name,
+			TraceID:        p.TraceID,
+			Status:         types.PipelineStatusNotStarted,
+			CreatedAt:      p.CreatedAt,
+			FinishedAt:     p.FinishedAt,
+			ApplicationID:  p.ApplicationID,
+			IdempotencyKey: p.IdempotencyKey,
 		}
 
 		pipelines = append(pipelines, pipeline)
@@ -264,6 +272,7 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 				pipelineCompleted[pipelines[i].ID],
 				stageStatuses,
 			)
+			pipelines[i].IsTerminal = types.IsTerminalPipelineStatus(pipelines[i].Status)
 		}
 	}
 
@@ -319,7 +328,19 @@ func (s *Store) RerunStage(ctx context.Context, stageID int, rerunAllNext bool) 
 	// Reset the stage
 	_, err = tx.ExecContext(ctx, `
 		UPDATE stage
-		SET status = $1, started_at = NULL, finished_at = NULL, is_skipped = false, retry_attempt = 0, next_retry_at = NULL
+		SET
+			status = $1,
+			started_at = NULL,
+			finished_at = NULL,
+			is_skipped = false,
+			retry_attempt = 0,
+			next_retry_at = NULL,
+			last_error_code = NULL,
+			failure_disposition = NULL,
+			execution_id = NULL,
+			dispatched_at = NULL,
+			lease_owner = NULL,
+			lease_expires_at = NULL
 		WHERE id = $2
 	`, types.StageStatusNotStarted, stageID)
 	if err != nil {
@@ -333,7 +354,19 @@ func (s *Store) RerunStage(ctx context.Context, stageID int, rerunAllNext bool) 
 		// Reset all subsequent stages
 		_, err = tx.ExecContext(ctx, `
 			UPDATE stage
-			SET status = $1, started_at = NULL, finished_at = NULL, is_skipped = false, retry_attempt = 0, next_retry_at = NULL
+			SET
+				status = $1,
+				started_at = NULL,
+				finished_at = NULL,
+				is_skipped = false,
+				retry_attempt = 0,
+				next_retry_at = NULL,
+				last_error_code = NULL,
+				failure_disposition = NULL,
+				execution_id = NULL,
+				dispatched_at = NULL,
+				lease_owner = NULL,
+				lease_expires_at = NULL
 			WHERE pipeline_id = $2 AND id > $3
 		`, types.StageStatusNotStarted, pipelineID, stageID)
 		if err != nil {
@@ -392,7 +425,16 @@ func (s *Store) SkipStage(ctx context.Context, stageID int) error {
 	}
 
 	_, err = tx.ExecContext(ctx, `
-		UPDATE stage SET status = $1, is_skipped = true, finished_at = NOW(), next_retry_at = NULL
+		UPDATE stage
+		SET
+			status = $1,
+			is_skipped = true,
+			finished_at = NOW(),
+			next_retry_at = NULL,
+			execution_id = NULL,
+			dispatched_at = NULL,
+			lease_owner = NULL,
+			lease_expires_at = NULL
 		WHERE id = $2
 	`, types.StageStatusSkipped, stageID)
 	if err != nil {
@@ -444,6 +486,10 @@ func (s *Store) GetStagesForPipelines(ctx context.Context, pipelineIDs []int) (m
 			s.finished_at AS finished_at,
 			s.started_at AS started_at,
 			s.next_retry_at AS next_retry_at,
+			COALESCE(s.execution_attempt, 0) AS execution_attempt,
+			COALESCE(s.retry_attempt, 0) AS retry_attempt,
+			COALESCE(s.last_error_code, '') AS last_error_code,
+			COALESCE(s.failure_disposition, '') AS failure_disposition,
 			s.is_skipped AS is_skipped,
 			s.is_event AS is_event,
 			io.input AS input,
@@ -470,6 +516,7 @@ func (s *Store) GetStagesForPipelines(ctx context.Context, pipelineIDs []int) (m
 
 	result := make(map[int][]types.StageResponse, len(pipelineIDs))
 	for i := range stages {
+		stages[i].IsTerminal = types.IsTerminalStageStatus(stages[i].Status)
 		pid := stages[i].PipelineID
 		result[pid] = append(result[pid], stages[i])
 	}

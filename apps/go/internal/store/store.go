@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
 
 	"pipelogiq/internal/types"
@@ -190,9 +192,9 @@ func (s *Store) insertKeywords(ctx context.Context, tx *sqlx.Tx, pipelineID int,
 func (s *Store) insertContextItems(ctx context.Context, tx *sqlx.Tx, pipelineID int, contextItems []types.ContextItem) error {
 	for _, item := range contextItems {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO pipeline_context_item (key, value, value_type, pipeline_id)
-			VALUES ($1, $2, $3, $4)
-		`, item.Key, item.Value, valueTypeOrDefault(item.ValueType), pipelineID); err != nil {
+			INSERT INTO pipeline_context_item (key, value, value_type, is_sensitive, pipeline_id)
+			VALUES ($1, $2, $3, $4, $5)
+		`, item.Key, item.Value, valueTypeOrDefault(item.ValueType), item.IsSensitive, pipelineID); err != nil {
 			return fmt.Errorf("insert context item %s: %w", item.Key, err)
 		}
 	}
@@ -239,9 +241,14 @@ func (s *Store) insertStageOptions(ctx context.Context, tx *sqlx.Tx, stageID int
 
 	_, err := tx.ExecContext(ctx, `
 		INSERT INTO stage_options
-			(run_next_if_failed, retry_interval, time_out, max_retries, depends_on, run_in_parallel_with, fail_if_output_empty, notify_on_failure, run_as_user, stage_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			(run_next_if_failed, retry_interval, time_out, max_retries,
+			 retry_on_error_codes, retry_backoff, max_retry_interval, retry_jitter,
+			 depends_on, run_in_parallel_with, fail_if_output_empty, notify_on_failure,
+			 run_as_user, stage_id)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	`, opt.RunNextIfFailed, opt.RetryInterval, opt.TimeOut, opt.MaxRetries,
+		joinList(opt.RetryOnErrorCodes), nullableString(strings.ToLower(strings.TrimSpace(opt.Backoff))),
+		opt.MaxRetryInterval, opt.Jitter,
 		joinList(opt.DependsOn), joinList(opt.RunInParallelWith),
 		opt.FailIfOutputEmpty, opt.NotifyOnFailure, opt.RunAsUser, stageID)
 	return err
@@ -252,6 +259,10 @@ func allNilStageOptions(opt *types.StageOptions) bool {
 		opt.RetryInterval == nil &&
 		opt.TimeOut == nil &&
 		opt.MaxRetries == nil &&
+		len(opt.RetryOnErrorCodes) == 0 &&
+		strings.TrimSpace(opt.Backoff) == "" &&
+		opt.MaxRetryInterval == nil &&
+		opt.Jitter == nil &&
 		len(opt.DependsOn) == 0 &&
 		len(opt.RunInParallelWith) == 0 &&
 		opt.FailIfOutputEmpty == nil &&
@@ -277,18 +288,20 @@ func nullableString(val string) *string {
 // GetPipeline returns pipeline with status and stage statuses.
 func (s *Store) GetPipeline(ctx context.Context, pipelineID int) (*types.PipelineResponse, error) {
 	var row struct {
-		ID            int        `db:"id"`
-		Name          string     `db:"name"`
-		TraceID       string     `db:"trace_id"`
-		Status        *string    `db:"status"`
-		CreatedAt     time.Time  `db:"created_at"`
-		FinishedAt    *time.Time `db:"finished_at"`
-		IsCompleted   bool       `db:"is_completed"`
-		ApplicationID *int       `db:"application_id"`
+		ID             int            `db:"id"`
+		Name           string         `db:"name"`
+		TraceID        string         `db:"trace_id"`
+		Status         *string        `db:"status"`
+		CreatedAt      time.Time      `db:"created_at"`
+		FinishedAt     *time.Time     `db:"finished_at"`
+		IsCompleted    bool           `db:"is_completed"`
+		ApplicationID  *int           `db:"application_id"`
+		IdempotencyKey sql.NullString `db:"idempotency_key"`
 	}
 
 	if err := s.db.GetContext(ctx, &row, `
-		SELECT id, name, COALESCE(trace_id, '') AS trace_id, status, created_at, finished_at, is_completed, application_id
+		SELECT id, name, COALESCE(trace_id, '') AS trace_id, status, created_at, finished_at,
+		       is_completed, application_id, idempotency_key
 		FROM pipeline WHERE id=$1
 	`, pipelineID); err != nil {
 		return nil, err
@@ -311,15 +324,17 @@ func (s *Store) GetPipeline(ctx context.Context, pipelineID int) (*types.Pipelin
 	isEvent := s.getPipelineIsEvent(ctx, pipelineID)
 
 	return &types.PipelineResponse{
-		ID:            row.ID,
-		Name:          row.Name,
-		TraceID:       row.TraceID,
-		Status:        status,
-		CreatedAt:     row.CreatedAt,
-		FinishedAt:    row.FinishedAt,
-		ApplicationID: row.ApplicationID,
-		StageStatuses: states,
-		IsEvent:       isEvent,
+		ID:             row.ID,
+		Name:           row.Name,
+		TraceID:        row.TraceID,
+		Status:         status,
+		CreatedAt:      row.CreatedAt,
+		FinishedAt:     row.FinishedAt,
+		ApplicationID:  row.ApplicationID,
+		StageStatuses:  states,
+		IsEvent:        isEvent,
+		IdempotencyKey: row.IdempotencyKey.String,
+		IsTerminal:     types.IsTerminalPipelineStatus(status),
 	}, nil
 }
 
@@ -531,6 +546,10 @@ func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.
 			s.finished_at AS finished_at,
 			s.started_at AS started_at,
 			s.next_retry_at AS next_retry_at,
+			COALESCE(s.execution_attempt, 0) AS execution_attempt,
+			COALESCE(s.retry_attempt, 0) AS retry_attempt,
+			COALESCE(s.last_error_code, '') AS last_error_code,
+			COALESCE(s.failure_disposition, '') AS failure_disposition,
 			s.is_skipped AS is_skipped,
 			s.is_event AS is_event,
 			io.input AS input,
@@ -548,6 +567,7 @@ func (s *Store) GetPipelineStages(ctx context.Context, pipelineID int) ([]types.
 	}
 
 	for i := range rows {
+		rows[i].IsTerminal = types.IsTerminalStageStatus(rows[i].Status)
 		if i < len(rows)-1 {
 			next := rows[i+1].ID
 			rows[i].NextStageID = &next
@@ -652,7 +672,9 @@ func (s *Store) loadStageFailureHistory(ctx context.Context, stageIDs []int) (ma
 func (s *Store) GetPipelineContext(ctx context.Context, pipelineID int) ([]types.ContextItem, error) {
 	items := []types.ContextItem{}
 	if err := s.db.SelectContext(ctx, &items, `
-		SELECT key, value, COALESCE(value_type, '') AS value_type FROM pipeline_context_item WHERE pipeline_id=$1 ORDER BY id
+		SELECT key, value, COALESCE(value_type, '') AS value_type,
+		       COALESCE(is_sensitive, false) AS is_sensitive
+		FROM pipeline_context_item WHERE pipeline_id=$1 ORDER BY id
 	`, pipelineID); err != nil {
 		return nil, err
 	}
@@ -666,14 +688,16 @@ func (s *Store) GetContextForPipelines(ctx context.Context, pipelineIDs []int) (
 	}
 
 	type pipelineContextRow struct {
-		PipelineID int    `db:"pipeline_id"`
-		Key        string `db:"key"`
-		Value      string `db:"value"`
-		ValueType  string `db:"value_type"`
+		PipelineID  int    `db:"pipeline_id"`
+		Key         string `db:"key"`
+		Value       string `db:"value"`
+		ValueType   string `db:"value_type"`
+		IsSensitive bool   `db:"is_sensitive"`
 	}
 
 	query, args, err := sqlx.In(`
-		SELECT pipeline_id, key, value, COALESCE(value_type, '') AS value_type
+		SELECT pipeline_id, key, value, COALESCE(value_type, '') AS value_type,
+		       COALESCE(is_sensitive, false) AS is_sensitive
 		FROM pipeline_context_item
 		WHERE pipeline_id IN (?)
 		ORDER BY pipeline_id, id
@@ -690,9 +714,10 @@ func (s *Store) GetContextForPipelines(ctx context.Context, pipelineIDs []int) (
 
 	for _, row := range rows {
 		result[row.PipelineID] = append(result[row.PipelineID], types.ContextItem{
-			Key:       row.Key,
-			Value:     row.Value,
-			ValueType: row.ValueType,
+			Key:         row.Key,
+			Value:       row.Value,
+			ValueType:   row.ValueType,
+			IsSensitive: row.IsSensitive,
 		})
 	}
 
@@ -773,14 +798,19 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		ApplicationID    sql.NullInt64  `db:"application_id"`
 		TraceID          sql.NullString `db:"trace_id"`
 		SpanID           sql.NullString `db:"span_id"`
+		IdempotencyKey   sql.NullString `db:"idempotency_key"`
+		TimeoutSeconds   sql.NullInt64  `db:"time_out"`
 	}
 
 	err = tx.GetContext(ctx, &row, fmt.Sprintf(`
 		SELECT s.id, s.pipeline_id, s.status AS stage_status, s.stage_handler_name, io.input, p.application_id,
-			p.trace_id, s.span_id
+			p.trace_id, s.span_id, p.idempotency_key, so.time_out
 		FROM stage s
 		JOIN pipeline p ON p.id = s.pipeline_id
 		LEFT JOIN stage_io io ON io.stage_id = s.id
+		LEFT JOIN stage_options so ON so.id = (
+			SELECT MAX(so2.id) FROM stage_options so2 WHERE so2.stage_id = s.id
+		)
 		WHERE s.id = $1
 	%s
 	`, s.forUpdateOfClause("s")), stageID)
@@ -866,9 +896,23 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 	`, types.PipelineStatusPending, row.PipelineID); err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE stage SET status=$1, started_at=CURRENT_TIMESTAMP, finished_at=NULL, next_retry_at=NULL WHERE id=$2
-	`, types.StageStatusPending, row.StageID); err != nil {
+	executionID := uuid.NewString()
+	var executionAttempt int
+	if err = tx.QueryRowContext(ctx, `
+		UPDATE stage
+		SET
+			status = $1,
+			started_at = CURRENT_TIMESTAMP,
+			finished_at = NULL,
+			next_retry_at = NULL,
+			execution_id = $2,
+			execution_attempt = COALESCE(execution_attempt, 0) + 1,
+			dispatched_at = NULL,
+			lease_owner = NULL,
+			lease_expires_at = NULL
+		WHERE id = $3
+		RETURNING execution_attempt
+	`, types.StageStatusPending, executionID, row.StageID).Scan(&executionAttempt); err != nil {
 		return nil, err
 	}
 
@@ -883,11 +927,11 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 		row.StageID,
 		"INFO",
 		fmt.Sprintf(
-			"Stage scheduled for execution [pipeline=%d, handler=%s, contextItems=%d, input=%s]",
+			"Stage scheduled for execution [pipeline=%d, handler=%s, attempt=%d, contextItems=%d]",
 			row.PipelineID,
 			row.StageHandlerName.String,
+			executionAttempt,
 			len(ctxItems),
-			stageLogPreview(row.Input.String, 900),
 		),
 	); err != nil {
 		return nil, err
@@ -900,12 +944,23 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 	s.LogStageChange(ctx, row.PipelineID, row.StageID, row.StageStatus, types.StageStatusPending, "publisher")
 
 	appID := int(row.ApplicationID.Int64)
+	var timeoutSeconds *int
+	if row.TimeoutSeconds.Valid {
+		value := int(row.TimeoutSeconds.Int64)
+		timeoutSeconds = &value
+	}
 	msg := &types.StageNextMessage{
 		AppID:            appID,
 		StageID:          row.StageID,
 		PipelineID:       &row.PipelineID,
+		ExecutionID:      executionID,
+		Attempt:          executionAttempt,
+		IdempotencyKey:   row.IdempotencyKey.String,
+		TimeoutSeconds:   timeoutSeconds,
 		TraceID:          row.TraceID.String,
 		SpanID:           row.SpanID.String,
+		Traceparent:      formatTraceparent(row.TraceID.String, row.SpanID.String),
+		Tracestate:       contextStringValue(ctxItems, "tracestate"),
 		StageHandlerName: row.StageHandlerName.String,
 		Input:            row.Input.String,
 		ContextItems:     ctxItems,
@@ -916,11 +971,35 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 func (s *Store) getContextItemsTx(ctx context.Context, tx *sqlx.Tx, pipelineID int) ([]types.ContextItem, error) {
 	items := []types.ContextItem{}
 	if err := tx.SelectContext(ctx, &items, `
-		SELECT key, value, value_type FROM pipeline_context_item WHERE pipeline_id=$1
+		SELECT key, value, value_type, COALESCE(is_sensitive, false) AS is_sensitive
+		FROM pipeline_context_item WHERE pipeline_id=$1
 	`, pipelineID); err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func formatTraceparent(traceID string, spanID string) string {
+	traceID = strings.ToLower(strings.TrimSpace(traceID))
+	spanID = strings.ToLower(strings.TrimSpace(spanID))
+	if len(traceID) != 32 || len(spanID) != 16 {
+		return ""
+	}
+	return "00-" + traceID + "-" + spanID + "-01"
+}
+
+func contextStringValue(items []types.ContextItem, key string) string {
+	for _, item := range items {
+		if !strings.EqualFold(strings.TrimSpace(item.Key), key) {
+			continue
+		}
+		var decoded string
+		if json.Unmarshal([]byte(item.Value), &decoded) == nil {
+			return decoded
+		}
+		return item.Value
+	}
+	return ""
 }
 
 func (s *Store) MarkPendingTooLong(ctx context.Context, olderThan time.Duration) (int64, error) {
@@ -982,12 +1061,14 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 	}()
 
 	var stage struct {
-		PipelineID       int           `db:"pipeline_id"`
-		Status           string        `db:"status"`
-		CreatedAt        time.Time     `db:"created_at"`
-		StartedAt        sql.NullTime  `db:"started_at"`
-		TimeoutSeconds   sql.NullInt64 `db:"time_out"`
-		PipelineComplete bool          `db:"is_completed"`
+		PipelineID       int            `db:"pipeline_id"`
+		Status           string         `db:"status"`
+		CreatedAt        time.Time      `db:"created_at"`
+		StartedAt        sql.NullTime   `db:"started_at"`
+		TimeoutSeconds   sql.NullInt64  `db:"time_out"`
+		PipelineComplete bool           `db:"is_completed"`
+		ExecutionID      sql.NullString `db:"execution_id"`
+		ExecutionAttempt int            `db:"execution_attempt"`
 	}
 
 	lockQuery := fmt.Sprintf(`
@@ -997,7 +1078,9 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 			s.created_at,
 			s.started_at,
 			so.time_out,
-			p.is_completed
+			p.is_completed,
+			s.execution_id,
+			COALESCE(s.execution_attempt, 0) AS execution_attempt
 		FROM stage s
 		JOIN pipeline p ON p.id = s.pipeline_id
 		LEFT JOIN stage_options so ON so.stage_id = s.id
@@ -1055,28 +1138,28 @@ func (s *Store) failActiveStageIfTimedOut(ctx context.Context, stageID int, fall
 		return false, nil
 	}
 
-	msg := fmt.Sprintf("Stage has been %s for too long - %.0f seconds", strings.ToLower(strings.TrimSpace(stage.Status)), age.Seconds())
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE stage SET status=$1, finished_at=CURRENT_TIMESTAMP, next_retry_at=NULL WHERE id=$2
-	`, types.StageStatusFailed, stageID); err != nil {
-		return false, err
-	}
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE pipeline SET is_completed=true, finished_at=CURRENT_TIMESTAMP, status=$2 WHERE id=$1
-	`, stage.PipelineID, types.PipelineStatusFailed); err != nil {
-		return false, err
-	}
-	if _, err = tx.ExecContext(ctx, `
-		UPDATE stage_io SET output=$1 WHERE stage_id=$2
-	`, msg, stageID); err != nil {
-		return false, err
-	}
-
 	if err = tx.Commit(); err != nil {
 		return false, err
 	}
 
-	s.LogStageChange(ctx, stage.PipelineID, stageID, stage.Status, types.StageStatusFailed, "stage_timeout_watcher")
+	retryable := true
+	msg := fmt.Sprintf(
+		"Stage has been %s for too long - %.0f seconds",
+		strings.ToLower(strings.TrimSpace(stage.Status)),
+		age.Seconds(),
+	)
+	if _, err = s.UpdateStageResult(ctx, types.StageResultMessage{
+		PipelineID:  &stage.PipelineID,
+		StageID:     stageID,
+		ExecutionID: stage.ExecutionID.String,
+		Attempt:     stage.ExecutionAttempt,
+		Result:      msg,
+		IsSuccess:   false,
+		ErrorCode:   types.ErrorCodeTimeout,
+		Retryable:   &retryable,
+	}); err != nil {
+		return false, err
+	}
 	return true, nil
 }
 
@@ -1098,6 +1181,7 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		JOIN pipeline p ON p.id = s.pipeline_id
 		WHERE p.is_completed = false
 		  AND s.status = $1
+		  AND (s.lease_expires_at IS NULL OR s.lease_expires_at <= CURRENT_TIMESTAMP)
 		  AND (COALESCE(s.started_at, s.created_at)) < $2
 	`, types.StageStatusRunning, cutoff)
 	if err != nil {
@@ -1131,13 +1215,22 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		var status string
 		var startedAt sql.NullTime
 		var createdAt time.Time
+		var timeoutSeconds sql.NullInt64
+		var leaseExpiresAt sql.NullTime
 		lockErr := tx.QueryRowContext(ctx, fmt.Sprintf(`
-			SELECT s.status, s.started_at, s.created_at
+			SELECT s.status, s.started_at, s.created_at, so.time_out, s.lease_expires_at
 			FROM stage s
-			WHERE s.id = $1%s
-		`, s.forUpdateOfClause("s")), o.StageID).Scan(&status, &startedAt, &createdAt)
+			LEFT JOIN stage_options so ON so.stage_id = s.id
+			WHERE s.id = $1
+			ORDER BY so.id DESC NULLS LAST
+			LIMIT 1%s
+		`, s.forUpdateOfClause("s")), o.StageID).Scan(
+			&status, &startedAt, &createdAt, &timeoutSeconds, &leaseExpiresAt,
+		)
 
-		if lockErr != nil || !isWatchedActiveStageStatus(status) {
+		if lockErr != nil ||
+			!isWatchedActiveStageStatus(status) ||
+			(leaseExpiresAt.Valid && leaseExpiresAt.Time.After(time.Now().UTC())) {
 			_ = tx.Rollback()
 			continue
 		}
@@ -1146,10 +1239,29 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		if startedAt.Valid {
 			lastActiveAt = startedAt.Time.UTC()
 		}
+		effectiveThreshold := stuckThreshold
+		if timeoutSeconds.Valid && timeoutSeconds.Int64 > 0 {
+			timeoutThreshold := time.Duration(timeoutSeconds.Int64) * time.Second / 2
+			if timeoutThreshold > effectiveThreshold {
+				effectiveThreshold = timeoutThreshold
+			}
+		}
 		stuckFor := time.Since(lastActiveAt).Round(time.Second)
+		if stuckFor < effectiveThreshold {
+			_ = tx.Rollback()
+			continue
+		}
 
 		_, execErr := tx.ExecContext(ctx, `
-			UPDATE stage SET status = $1, started_at = NULL, finished_at = NULL
+			UPDATE stage
+			SET
+				status = $1,
+				started_at = NULL,
+				finished_at = NULL,
+				execution_id = NULL,
+				dispatched_at = NULL,
+				lease_owner = NULL,
+				lease_expires_at = NULL
 			WHERE id = $2
 		`, types.StageStatusNotStarted, o.StageID)
 		if execErr != nil {
@@ -1162,7 +1274,7 @@ func (s *Store) RecoverOrphanedStages(ctx context.Context, stuckThreshold time.D
 		}
 
 		s.LogStageChange(ctx, o.PipelineID, o.StageID, status, types.StageStatusNotStarted, "orphan_recovery")
-		s.logStageMessage(ctx, o.StageID, "WARNING", buildOrphanRecoveryReason(status, stuckFor, stuckThreshold, lastActiveAt))
+		s.logStageMessage(ctx, o.StageID, "WARNING", buildOrphanRecoveryReason(status, stuckFor, effectiveThreshold, lastActiveAt))
 		count++
 	}
 
@@ -1214,14 +1326,21 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	}()
 
 	var stage struct {
-		ID            int            `db:"id"`
-		PipelineID    int            `db:"pipeline_id"`
-		Status        string         `db:"status"`
-		StagePayload  sql.NullString `db:"input"`
-		ExistingOut   sql.NullString `db:"output"`
-		RetryAttempt  int            `db:"retry_attempt"`
-		RetryInterval sql.NullInt64  `db:"retry_interval"`
-		MaxRetries    sql.NullInt64  `db:"max_retries"`
+		ID               int            `db:"id"`
+		PipelineID       int            `db:"pipeline_id"`
+		Status           string         `db:"status"`
+		StagePayload     sql.NullString `db:"input"`
+		ExistingOut      sql.NullString `db:"output"`
+		RetryAttempt     int            `db:"retry_attempt"`
+		RetryInterval    sql.NullInt64  `db:"retry_interval"`
+		MaxRetries       sql.NullInt64  `db:"max_retries"`
+		RetryOnCodes     sql.NullString `db:"retry_on_error_codes"`
+		RetryBackoff     sql.NullString `db:"retry_backoff"`
+		MaxRetryInterval sql.NullInt64  `db:"max_retry_interval"`
+		RetryJitter      sql.NullBool   `db:"retry_jitter"`
+		ExecutionID      sql.NullString `db:"execution_id"`
+		ExecutionAttempt int            `db:"execution_attempt"`
+		LeaseExpiresAt   sql.NullTime   `db:"lease_expires_at"`
 	}
 
 	err = tx.GetContext(ctx, &stage, fmt.Sprintf(`
@@ -1232,8 +1351,15 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			io.input,
 			io.output,
 			COALESCE(s.retry_attempt, 0) AS retry_attempt,
+			COALESCE(s.execution_attempt, 0) AS execution_attempt,
+			s.execution_id,
+			s.lease_expires_at,
 			so.retry_interval,
-			so.max_retries
+			so.max_retries,
+			so.retry_on_error_codes,
+			so.retry_backoff,
+			so.max_retry_interval,
+			so.retry_jitter
 		FROM stage s
 		LEFT JOIN stage_io io ON io.stage_id = s.id
 		LEFT JOIN stage_options so ON so.stage_id = s.id
@@ -1258,17 +1384,46 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	`, s.forUpdateClause()), stage.PipelineID); err != nil {
 		return nil, err
 	}
-	if isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
-		return nil, ErrPipelineAppendNotAllowed
-	}
-
-	// idempotency: process only active stage executions.
+	// Idempotency and fencing are checked before the pipeline terminal guard so
+	// duplicate result deliveries and late results after cancellation are safe
+	// no-ops rather than poison messages.
 	if stage.Status != types.StageStatusPending && stage.Status != types.StageStatusRunning {
 		err = tx.Commit()
 		if err != nil {
 			return nil, err
 		}
-		return s.GetPipeline(ctx, stage.PipelineID)
+		return s.GetPipelineWithStages(ctx, stage.PipelineID)
+	}
+	if strings.TrimSpace(msg.ExecutionID) != "" &&
+		(!stage.ExecutionID.Valid || stage.ExecutionID.String != strings.TrimSpace(msg.ExecutionID)) {
+		err = tx.Commit()
+		if err != nil {
+			return nil, err
+		}
+		return s.GetPipelineWithStages(ctx, stage.PipelineID)
+	}
+	if msg.Attempt > 0 && msg.Attempt != stage.ExecutionAttempt {
+		err = tx.Commit()
+		if err != nil {
+			return nil, err
+		}
+		return s.GetPipelineWithStages(ctx, stage.PipelineID)
+	}
+	if strings.TrimSpace(msg.ExecutionID) != "" &&
+		stage.LeaseExpiresAt.Valid &&
+		!stage.LeaseExpiresAt.Time.After(time.Now().UTC()) {
+		err = tx.Commit()
+		if err != nil {
+			return nil, err
+		}
+		return s.GetPipelineWithStages(ctx, stage.PipelineID)
+	}
+	if isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
+		err = tx.Commit()
+		if err != nil {
+			return nil, err
+		}
+		return s.GetPipelineWithStages(ctx, stage.PipelineID)
 	}
 
 	newStatus := types.StageStatusFailed
@@ -1279,7 +1434,8 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	} else if msg.IsSuccess {
 		newStatus = types.StageStatusCompleted
 	} else {
-		skipAutomaticRetry := shouldSkipAutomaticRetry(msg.ErrorCode)
+		skipAutomaticRetry := shouldSkipAutomaticRetry(msg.ErrorCode, msg.Retryable)
+		policyRetryConfigured := false
 
 		// Policy-based retry takes precedence over stage_options retry.
 		if s.policyRuntime != nil && !skipAutomaticRetry {
@@ -1289,6 +1445,7 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 				evaluation, evalErr := s.evaluateStagePoliciesTx(ctx, tx, scope)
 				if evalErr == nil {
 					if retryRule := effectiveRetryPolicy(evaluation, allPolicies); retryRule != nil {
+						policyRetryConfigured = true
 						maxAttempts := 0
 						if retryRule.MaxAttempts != nil {
 							maxAttempts = *retryRule.MaxAttempts
@@ -1303,8 +1460,9 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			}
 		}
 
-		// Fall back to stage_options retry when no policy triggered a retry.
-		if newStatus != types.StageStatusRetryScheduled && !skipAutomaticRetry {
+		// Fall back only when no retry policy was configured. A configured
+		// policy whose retryOn does not match is an intentional terminal result.
+		if newStatus != types.StageStatusRetryScheduled && !skipAutomaticRetry && !policyRetryConfigured {
 			maxRetries := 0
 			if stage.MaxRetries.Valid {
 				maxRetries = int(stage.MaxRetries.Int64)
@@ -1313,9 +1471,19 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			if stage.RetryInterval.Valid {
 				retryIntervalSeconds = int(stage.RetryInterval.Int64)
 			}
-			if maxRetries > 0 && retryIntervalSeconds > 0 && stage.RetryAttempt < maxRetries {
+			retryCodeMatches := retryCodeListMatches(stage.RetryOnCodes.String, msg.ErrorCode)
+			if maxRetries > 0 &&
+				retryIntervalSeconds > 0 &&
+				stage.RetryAttempt < maxRetries &&
+				retryCodeMatches {
 				newStatus = types.StageStatusRetryScheduled
-				nextRetryDelay = time.Duration(retryIntervalSeconds) * time.Second
+				nextRetryDelay = computeStageOptionsBackoff(
+					retryIntervalSeconds,
+					int(stage.MaxRetryInterval.Int64),
+					stage.RetryBackoff.String,
+					stage.RetryJitter.Valid && stage.RetryJitter.Bool,
+					stage.RetryAttempt+1,
+				)
 			}
 		}
 	}
@@ -1329,15 +1497,42 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		nextRetryAt := time.Now().UTC().Add(nextRetryDelay)
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE stage
-			SET status=$1, finished_at=CURRENT_TIMESTAMP, retry_attempt=retry_attempt + 1, next_retry_at=$2
-			WHERE id=$3
-		`, newStatus, nextRetryAt, msg.StageID); err != nil {
+			SET
+				status=$1,
+				finished_at=CURRENT_TIMESTAMP,
+				retry_attempt=retry_attempt + 1,
+				next_retry_at=$2,
+				last_error_code=$3,
+				failure_disposition=$4,
+				execution_id=NULL,
+				dispatched_at=NULL,
+				lease_owner=NULL,
+				lease_expires_at=NULL
+			WHERE id=$5
+		`, newStatus, nextRetryAt, nullableString(strings.TrimSpace(msg.ErrorCode)),
+			types.RetryDispositionRetryable, msg.StageID); err != nil {
 			return nil, err
 		}
 	} else {
+		failureDisposition := ""
+		if !msg.IsSuccess && !msg.IsWaitingForApproval {
+			failureDisposition = types.RetryDispositionTerminal
+		}
 		if _, err = tx.ExecContext(ctx, `
-			UPDATE stage SET status=$1, finished_at=CURRENT_TIMESTAMP, next_retry_at=NULL WHERE id=$2
-		`, newStatus, msg.StageID); err != nil {
+			UPDATE stage
+			SET
+				status=$1,
+				finished_at=CURRENT_TIMESTAMP,
+				next_retry_at=NULL,
+				last_error_code=$2,
+				failure_disposition=$3,
+				execution_id=NULL,
+				dispatched_at=NULL,
+				lease_owner=NULL,
+				lease_expires_at=NULL
+			WHERE id=$4
+		`, newStatus, nullableString(strings.TrimSpace(msg.ErrorCode)),
+			nullableString(failureDisposition), msg.StageID); err != nil {
 			return nil, err
 		}
 	}
@@ -1348,11 +1543,15 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		return nil, err
 	}
 
+	sensitiveValues, err := loadSensitiveValuesTx(ctx, tx, stage.PipelineID, msg.ContextItems)
+	if err != nil {
+		return nil, err
+	}
 	for _, log := range msg.Logs {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO stage_log (log, log_level, created_at, stage_id)
 			VALUES ($1,$2,$3,$4)
-		`, log.Message, log.LogLevel, log.Created, msg.StageID); err != nil {
+		`, redactKnownValues(log.Message, sensitiveValues), log.LogLevel, log.Created, msg.StageID); err != nil {
 			return nil, err
 		}
 	}
@@ -1360,18 +1559,25 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	for _, item := range msg.ContextItems {
 		valueType := valueTypeOrDefault(item.ValueType)
 		res, errExec := tx.ExecContext(ctx, `
-			UPDATE pipeline_context_item SET value=$1, value_type=$2
-			WHERE pipeline_id=$3 AND key=$4
-		`, item.Value, valueType, stage.PipelineID, item.Key)
+			UPDATE pipeline_context_item
+			SET
+				value=$1,
+				value_type=$2,
+				is_sensitive=CASE
+					WHEN COALESCE(is_sensitive, false) OR $3 THEN true
+					ELSE false
+				END
+			WHERE pipeline_id=$4 AND key=$5
+		`, item.Value, valueType, item.IsSensitive, stage.PipelineID, item.Key)
 		if errExec != nil {
 			return nil, errExec
 		}
 		affected, _ := res.RowsAffected()
 		if affected == 0 {
 			if _, errExec = tx.ExecContext(ctx, `
-				INSERT INTO pipeline_context_item (key, value, value_type, pipeline_id)
-				VALUES ($1,$2,$3,$4)
-			`, item.Key, item.Value, valueType, stage.PipelineID); errExec != nil {
+				INSERT INTO pipeline_context_item (key, value, value_type, is_sensitive, pipeline_id)
+				VALUES ($1,$2,$3,$4,$5)
+			`, item.Key, item.Value, valueType, item.IsSensitive, stage.PipelineID); errExec != nil {
 				return nil, errExec
 			}
 		}
@@ -1394,7 +1600,7 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	}
 
 	resultSummary := fmt.Sprintf(
-		"Stage result processed [success=%t, waitingForApproval=%t, newStatus=%s, errorCode=%s, logs=%d, contextItems=%d, appendedStages=%d, result=%s]",
+		"Stage result processed [success=%t, waitingForApproval=%t, newStatus=%s, errorCode=%s, logs=%d, contextItems=%d, appendedStages=%d]",
 		msg.IsSuccess,
 		msg.IsWaitingForApproval,
 		newStatus,
@@ -1402,7 +1608,6 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		len(msg.Logs),
 		len(msg.ContextItems),
 		len(addedStages),
-		stageLogPreview(msg.Result, 900),
 	)
 	if err = s.insertStageLogTx(ctx, tx, msg.StageID, pickStageResultLogLevel(msg.IsSuccess, msg.IsWaitingForApproval), resultSummary); err != nil {
 		return nil, err
@@ -1483,13 +1688,102 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 	return s.GetPipelineWithStages(ctx, stage.PipelineID)
 }
 
-func shouldSkipAutomaticRetry(errorCode string) bool {
+func shouldSkipAutomaticRetry(errorCode string, retryable *bool) bool {
 	switch strings.ToUpper(strings.TrimSpace(errorCode)) {
-	case "TOOL_LOOP", "BUDGET_EXCEEDED", "LLM_INVALID_REQUEST":
+	case "TOOL_LOOP",
+		"BUDGET_EXCEEDED",
+		"LLM_INVALID_REQUEST",
+		types.ErrorCodeBusinessRejected,
+		types.ErrorCodeValidationError,
+		types.ErrorCodeInvalidState,
+		types.ErrorCodeMissingRequiredData,
+		"REQUIRED_DATA_MISSING":
 		return true
-	default:
-		return false
 	}
+	return retryable != nil && !*retryable
+}
+
+func retryCodeListMatches(configured string, errorCode string) bool {
+	configured = strings.TrimSpace(configured)
+	if configured == "" {
+		return true
+	}
+	expected := strings.ToUpper(strings.TrimSpace(errorCode))
+	for _, candidate := range strings.Split(configured, ",") {
+		if strings.ToUpper(strings.TrimSpace(candidate)) == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func computeStageOptionsBackoff(
+	baseSeconds int,
+	maxSeconds int,
+	backoff string,
+	jitter bool,
+	attempt int,
+) time.Duration {
+	baseMS := baseSeconds * 1000
+	maxMS := maxSeconds * 1000
+	backoff = strings.ToLower(strings.TrimSpace(backoff))
+	if backoff == "" {
+		backoff = "fixed"
+	}
+	rule := types.PolicyRule{
+		BaseDelayMs: &baseMS,
+		Backoff:     &backoff,
+		Jitter:      &jitter,
+	}
+	if maxMS > 0 {
+		rule.MaxDelayMs = &maxMS
+	}
+	return computeBackoffDelay(rule, attempt)
+}
+
+func loadSensitiveValuesTx(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	pipelineID int,
+	incoming []types.ContextItem,
+) ([]string, error) {
+	values := []string{}
+	if err := tx.SelectContext(ctx, &values, `
+		SELECT value
+		FROM pipeline_context_item
+		WHERE pipeline_id = $1
+		  AND COALESCE(is_sensitive, false) = true
+		  AND value <> ''
+	`, pipelineID); err != nil {
+		return nil, err
+	}
+	for _, item := range incoming {
+		if item.IsSensitive && item.Value != "" {
+			values = append(values, item.Value)
+		}
+	}
+	return values, nil
+}
+
+func redactKnownValues(value string, secrets []string) string {
+	for _, secret := range secrets {
+		for _, candidate := range sensitiveValueCandidates(secret) {
+			value = strings.ReplaceAll(value, candidate, types.RedactedContextValue)
+		}
+	}
+	return value
+}
+
+func sensitiveValueCandidates(secret string) []string {
+	if secret == "" {
+		return nil
+	}
+	candidates := []string{secret}
+	var decoded string
+	if json.Unmarshal([]byte(secret), &decoded) == nil && decoded != "" && decoded != secret {
+		candidates = append(candidates, decoded)
+	}
+	return candidates
 }
 
 func (s *Store) hasFailureContinuationStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, failedStageID int) (bool, error) {

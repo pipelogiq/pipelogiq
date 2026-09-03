@@ -724,44 +724,60 @@ func computeBackoffDelay(rule types.PolicyRule, attempt int) time.Duration {
 		backoff = strings.ToLower(strings.TrimSpace(*rule.Backoff))
 	}
 
-	var delayMs int
+	if attempt < 1 {
+		attempt = 1
+	}
+
+	baseMs64 := int64(baseMs)
+	maxMs64 := int64(maxMs)
+	var delayMs64 int64
 	switch backoff {
 	case "exponential":
-		multiplier := 1
+		delayMs64 = baseMs64
 		for i := 1; i < attempt; i++ {
-			multiplier *= 2
+			if delayMs64 >= maxMs64 || delayMs64 > maxMs64/2 {
+				delayMs64 = maxMs64
+				break
+			}
+			delayMs64 *= 2
 		}
-		delayMs = baseMs * multiplier
 	case "linear":
-		delayMs = baseMs * attempt
+		if int64(attempt) > maxMs64/baseMs64 {
+			delayMs64 = maxMs64
+		} else {
+			delayMs64 = baseMs64 * int64(attempt)
+		}
 	default: // "fixed"
-		delayMs = baseMs
+		delayMs64 = baseMs64
 	}
 
-	if delayMs > maxMs {
-		delayMs = maxMs
+	if delayMs64 > maxMs64 {
+		delayMs64 = maxMs64
 	}
 
-	if rule.Jitter != nil && *rule.Jitter && delayMs > 0 {
+	if rule.Jitter != nil && *rule.Jitter && delayMs64 > 0 {
 		// ±10% jitter using time-based pseudo-randomness (no crypto needed here)
-		jitterRange := delayMs / 10
+		jitterRange := delayMs64 / 10
 		if jitterRange > 0 {
 			// Use nanosecond timestamp as simple deterministic offset
 			nanos := time.Now().UnixNano()
 			sign := nanos % 2
-			offset := int(nanos>>8) % jitterRange
+			offset := (nanos >> 8) % jitterRange
 			if sign == 0 {
-				delayMs += offset
+				delayMs64 += offset
 			} else {
-				delayMs -= offset
-				if delayMs < 0 {
-					delayMs = 0
+				delayMs64 -= offset
+				if delayMs64 < 0 {
+					delayMs64 = 0
 				}
 			}
 		}
 	}
+	if delayMs64 > maxMs64 {
+		delayMs64 = maxMs64
+	}
 
-	return time.Duration(delayMs) * time.Millisecond
+	return time.Duration(delayMs64) * time.Millisecond
 }
 
 // retryOnMatches reports whether an error code satisfies the RetryOn condition.

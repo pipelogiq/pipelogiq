@@ -7,6 +7,7 @@ import "time"
 type PipelineCreateRequest struct {
 	ApiKey           string            `json:"apiKey"`
 	Name             string            `json:"name"`
+	IdempotencyKey   string            `json:"idempotencyKey,omitempty"`
 	TraceID          string            `json:"traceId,omitempty"`
 	Policies         []InlinePolicy    `json:"policies,omitempty"`
 	Stages           []StageCreate     `json:"stages"`
@@ -40,6 +41,10 @@ type StageOptions struct {
 	RetryInterval     *int     `json:"retryInterval,omitempty"` // seconds
 	TimeOut           *int     `json:"timeOut,omitempty"`       // seconds
 	MaxRetries        *int     `json:"maxRetries,omitempty"`
+	RetryOnErrorCodes []string `json:"retryOnErrorCodes,omitempty"`
+	Backoff           string   `json:"backoff,omitempty"`
+	MaxRetryInterval  *int     `json:"maxRetryInterval,omitempty"` // seconds
+	Jitter            *bool    `json:"jitter,omitempty"`
 	DependsOn         []string `json:"dependsOn,omitempty"`
 	RunInParallelWith []string `json:"runInParallelWith,omitempty"`
 	FailIfOutputEmpty *bool    `json:"failIfOutputEmpty,omitempty"`
@@ -60,30 +65,38 @@ type PipelineResponse struct {
 	PipelineContext  []ContextItem     `json:"pipelineContextItems,omitempty"`
 	PipelineKeywords []PipelineKeyword `json:"pipelineKeywords,omitempty"`
 	IsEvent          *bool             `json:"isEvent,omitempty"`
+	IdempotencyKey   string            `json:"idempotencyKey,omitempty"`
+	IsTerminal       bool              `json:"isTerminal"`
+	WasExisting      bool              `json:"wasExisting,omitempty"`
 }
 
 type StageResponse struct {
-	ID                int           `json:"id" db:"id"`
-	PipelineID        int           `json:"pipelineId" db:"pipeline_id"`
-	SpanID            string        `json:"spanId,omitempty" db:"span_id"`
-	Name              string        `json:"name" db:"name"`
-	StageHandlerName  string        `json:"stageHandlerName,omitempty" db:"stage_handler_name"`
-	Description       string        `json:"description,omitempty" db:"description"`
-	Status            string        `json:"status,omitempty" db:"status"`
-	CreatedAt         time.Time     `json:"createdAt" db:"created_at"`
-	FinishedAt        *time.Time    `json:"finishedAt,omitempty" db:"finished_at"`
-	StartedAt         *time.Time    `json:"startedAt,omitempty" db:"started_at"`
-	NextRetryAt       *time.Time    `json:"nextRetryAt,omitempty" db:"next_retry_at"`
-	Output            *string       `json:"output,omitempty" db:"output"`
-	Input             *string       `json:"input,omitempty" db:"input"`
-	IsSkipped         *bool         `json:"isSkipped,omitempty" db:"is_skipped"`
-	IsEvent           *bool         `json:"isEvent,omitempty" db:"is_event"`
-	NextStageID       *int          `json:"nextStageId,omitempty"`
-	Logs              []StageLog    `json:"logs,omitempty"`
-	Options           *StageOptions `json:"options,omitempty"`
-	FailureCount      int           `json:"failureCount,omitempty" db:"failure_count"`
-	LastFailedAt      *time.Time    `json:"lastFailedAt,omitempty" db:"last_failed_at"`
-	HasFailureHistory bool          `json:"hasFailureHistory,omitempty" db:"has_failure_history"`
+	ID                 int           `json:"id" db:"id"`
+	PipelineID         int           `json:"pipelineId" db:"pipeline_id"`
+	SpanID             string        `json:"spanId,omitempty" db:"span_id"`
+	Name               string        `json:"name" db:"name"`
+	StageHandlerName   string        `json:"stageHandlerName,omitempty" db:"stage_handler_name"`
+	Description        string        `json:"description,omitempty" db:"description"`
+	Status             string        `json:"status,omitempty" db:"status"`
+	CreatedAt          time.Time     `json:"createdAt" db:"created_at"`
+	FinishedAt         *time.Time    `json:"finishedAt,omitempty" db:"finished_at"`
+	StartedAt          *time.Time    `json:"startedAt,omitempty" db:"started_at"`
+	NextRetryAt        *time.Time    `json:"nextRetryAt,omitempty" db:"next_retry_at"`
+	Output             *string       `json:"output,omitempty" db:"output"`
+	Input              *string       `json:"input,omitempty" db:"input"`
+	IsSkipped          *bool         `json:"isSkipped,omitempty" db:"is_skipped"`
+	IsEvent            *bool         `json:"isEvent,omitempty" db:"is_event"`
+	NextStageID        *int          `json:"nextStageId,omitempty"`
+	Logs               []StageLog    `json:"logs,omitempty"`
+	Options            *StageOptions `json:"options,omitempty"`
+	FailureCount       int           `json:"failureCount,omitempty" db:"failure_count"`
+	LastFailedAt       *time.Time    `json:"lastFailedAt,omitempty" db:"last_failed_at"`
+	HasFailureHistory  bool          `json:"hasFailureHistory,omitempty" db:"has_failure_history"`
+	Attempt            int           `json:"attempt,omitempty" db:"execution_attempt"`
+	RetryAttempt       int           `json:"retryAttempt,omitempty" db:"retry_attempt"`
+	LastErrorCode      string        `json:"lastErrorCode,omitempty" db:"last_error_code"`
+	FailureDisposition string        `json:"failureDisposition,omitempty" db:"failure_disposition"`
+	IsTerminal         bool          `json:"isTerminal"`
 }
 
 type AppendStagesRequest struct {

@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 This project follows [Semantic Versioning](https://semver.org/). v0.x releases may include breaking changes.
 
+## [Unreleased]
+
+## [0.3.2-preview.7] - 2026-09-03
+
+### Added
+
+- **Fail-safe pipeline creation** — opt-in application-scoped idempotency keys, concurrent duplicate suppression, conflict detection for key reuse with a different request, and lookup by idempotency key.
+- **Classified stage failures** — explicit retryable/terminal results, error-code retry allowlists, fixed/linear/exponential backoff, delay caps, jitter, and terminal protection for business and validation failures.
+- **Execution fencing and recovery** — per-dispatch execution IDs and attempts, worker leases with renewal, stale-result fencing, publisher confirms, and recovery for unconfirmed dispatches and expired leases on normal non-event stages.
+- **Richer application status** — execution/retry attempts, next retry time, last error code, failure disposition, and terminal flags are available through the external status contract and target SDK.
+- **Cooperative cancellation and sensitive context** — application-scoped pipeline cancellation, handler cancellation metadata, durable sensitive-context marking, and redacted status/UI/WebSocket projections.
+- **Reliability guidance** — added the [reliable execution guide](docs/reliable-execution.md) and [critical insurance workflow capability audit](docs/insurance-workflow-capability-audit.md).
+- **Administrator bootstrap** — the administrator account is provisioned on startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD_HASH`. When no hash is supplied, a one-time random password is generated and printed once in the API log.
+
+### Compatibility
+
+- Legacy `POST /pipelines`, existing builders/handlers/results, old pipeline rows, and wire payloads without new optional fields remain readable and executable.
+- The target upgrade pair is server `v0.3.2-preview.7` with `pipelogiq-sdk-net 0.3.2-preview.6`.
+- Strong lease/fencing behavior requires the target SDK and a normal non-event pipeline; `isEvent` retains its legacy direct-publish path.
+
+### Security
+
+- Sensitive context values are replaced with `[REDACTED]` in public/status, dashboard stage-log, and WebSocket pipeline projections. Consumers must still keep secrets, PII, and claim payloads out of pipeline context and logs.
+- **Removed the demo accounts seeded by migration.** `jegor@gmail.com`, `leo@gmail.com` and `ww@gmail.com` — whose bcrypt hashes are published in the repository history — are deleted on startup, and their application membership is transferred to the bootstrapped administrator.
+- **Prometheus metrics moved off the routed API surface** to a dedicated listener (`METRICS_ADDR`, default `:9091`). nginx proxies `/api/` wholesale, so `/metrics` was previously readable without authentication from the dashboard port.
+- **Published example values for `JWT_SECRET` are rejected at startup.** The Docker Compose files no longer carry a default secret; `JWT_SECRET` must be supplied.
+
+### Fixed
+
+- **Index migrations are re-runnable.** `add pipeline list lookup indexes` and `add stage log stage created index` now use `CREATE INDEX IF NOT EXISTS`, so an index that already exists no longer fails the changeset and leaves `pipelogiq-app` restarting indefinitely. Table-creating changesets carry `preConditions onFail="MARK_RAN"` guards.
+- The Grafana URL in the README now matches the port published by Docker Compose (`:3100`).
+- The documented dashboard credentials work: the quickstart previously advertised an `ADMIN_PASSWORD_HASH` that no code path ever read.
+
+### Removed
+
+- .NET example build output (`examples/dotnet/*/obj/`) is no longer tracked in git.
+- Release notes moved from the repository root to `docs/releases/`.
+- Development `console.log` statements in the dashboard bundle and the unused `pages/Index.tsx` / `public/vite.svg` scaffold leftovers.
+
+### Known limitations
+
+- Pipelogiq does not guarantee exactly-once external side effects. Idempotent handlers and unknown-outcome status reconciliation remain required.
+- PostgreSQL-to-RabbitMQ dispatch is not a single atomic transaction; publisher confirms plus recovery can still create duplicate deliveries in the confirm-persist race. A transactional outbox is the recommended future hardening.
+- A lease excludes competing workers only while valid. An expired or cancelled handler may continue if it ignores cooperative cancellation.
+- External keyword search and programmatic terminal repair remain internal/operator capabilities rather than SDK APIs.
+- Inline-policy import remains post-create and best-effort; critical retry behavior should use durable `StageOptions` until policy import can be made transactional.
+
 ## [0.3.2-preview.6] - 2026-06-05
 
 Sixth `0.3.2` preview focuses on live dashboard operations, clearer retry/failure visibility, and faster pipeline list/search performance.
@@ -404,6 +451,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[0.3.2-preview.7]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.7
 [0.3.2-preview.6]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.6
 [0.3.2-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.5
 [0.3.2-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.4

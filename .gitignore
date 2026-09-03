@@ -43,3 +43,8 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# .NET build output
+obj/
+[Bb]in/
+*.user

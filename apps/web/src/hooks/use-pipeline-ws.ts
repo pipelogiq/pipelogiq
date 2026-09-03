@@ -65,7 +65,6 @@ export function usePipelineWebSocket() {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('[WS] connected to', url);
         reconnectDelay.current = RECONNECT_BASE_MS;
       };
 
@@ -134,7 +133,6 @@ export function usePipelineWebSocket() {
 
       ws.onclose = () => {
         if (unmounted) return;
-        console.log('[WS] disconnected, reconnecting in', reconnectDelay.current, 'ms');
         reconnectTimeout.current = setTimeout(() => {
           reconnectDelay.current = Math.min(reconnectDelay.current * 2, RECONNECT_MAX_MS);
           connect();

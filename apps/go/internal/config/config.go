@@ -45,6 +45,10 @@ type APIConfig struct {
 	WorkerEventsMaxBatch    int
 	HealthLivenessEndpoint  string
 	HealthReadyEndpoint     string
+	AdminEmail              string
+	AdminPasswordHash       string
+	AdminFirstName          string
+	AdminLastName           string
 }
 
 type WorkerConfig struct {
@@ -81,6 +85,15 @@ func LoadAPI() (APIConfig, error) {
 		WorkerEventsMaxBatch:    getInt("WORKER_EVENTS_MAX_BATCH", 200),
 		HealthLivenessEndpoint:  getEnv("HEALTH_LIVENESS_PATH", "/healthz"),
 		HealthReadyEndpoint:     getEnv("HEALTH_READY_PATH", "/readyz"),
+		AdminEmail:              strings.TrimSpace(os.Getenv("ADMIN_EMAIL")),
+		AdminPasswordHash:       strings.TrimSpace(os.Getenv("ADMIN_PASSWORD_HASH")),
+		AdminFirstName:          getEnv("ADMIN_FIRST_NAME", "Admin"),
+		AdminLastName:           getEnv("ADMIN_LAST_NAME", "User"),
+	}
+
+	// Metrics live on their own listener because nginx proxies the whole API surface.
+	if cfg.MetricsAddr == "" {
+		cfg.MetricsAddr = ":9091"
 	}
 
 	if cfg.JWTSecret == "" {
@@ -88,6 +101,9 @@ func LoadAPI() (APIConfig, error) {
 	}
 	if len(cfg.JWTSecret) < 32 {
 		return APIConfig{}, errors.New("JWT_SECRET must be at least 32 characters")
+	}
+	if isWellKnownJWTSecret(cfg.JWTSecret) {
+		return APIConfig{}, errors.New("JWT_SECRET matches a published example value; generate a unique secret")
 	}
 
 	return cfg, nil
@@ -110,6 +126,22 @@ func LoadWorker() (WorkerConfig, error) {
 	}
 
 	return cfg, nil
+}
+
+// wellKnownJWTSecrets are example values published in the repository. Accepting one in a
+// deployment would let anyone forge an administrator token, so startup fails instead.
+var wellKnownJWTSecrets = []string{
+	"local-dev-jwt-secret-0123456789abcdef",
+	"change-me-to-a-long-random-secret-at-least-32-characters",
+}
+
+func isWellKnownJWTSecret(secret string) bool {
+	for _, known := range wellKnownJWTSecrets {
+		if secret == known {
+			return true
+		}
+	}
+	return false
 }
 
 func loadCommon() (Common, error) {

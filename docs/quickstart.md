@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.2-preview.6 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.3.2-preview.7 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:
@@ -121,7 +121,7 @@ Management UIs:
 
 | Service | URL                    | Credentials |
 |---|------------------------|---|
-| Dashboard | http://localhost:3300  | admin / admin123 (from `.env`) |
+| Dashboard | http://localhost:3300  | `ADMIN_EMAIL` from `.env` + the one-time password printed in the API log |
 | RabbitMQ Management | http://localhost:15672 | guest / guest |
 | Grafana | http://localhost:3100  | admin / admin |
 
@@ -182,8 +182,10 @@ If `DATABASE_URL` is not set, the API falls back to a local SQLite database at `
 There is no demo pipeline included yet. To create a pipeline, use the external API:
 
 ```bash
-# 1. Create an application and API key via the dashboard (http://localhost:3300)
-#    or use the default admin credentials from .env
+# 1. Sign in to the dashboard (http://localhost:3300) and create an application
+#    and API key. The administrator is provisioned from ADMIN_EMAIL on first start;
+#    its one-time password is printed once in the API log:
+#      docker logs pipelogiq-app 2>&1 | grep 'one-time administrator password'
 
 # 2. Create a pipeline via the external API
 curl -X POST http://localhost:8081/pipelines \

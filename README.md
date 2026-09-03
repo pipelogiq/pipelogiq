@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml/badge.svg)](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: Preview v0.3.2-preview.6](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.6-orange)](CHANGELOG.md)
+[![Status: Preview v0.3.2-preview.7](https://img.shields.io/badge/status-Preview%20v0.3.2--preview.7-orange)](CHANGELOG.md)
 
-> **Preview (v0.3.2-preview.6).** Breaking changes may occur before v1.0.
+> **Preview (v0.3.2-preview.7).** Breaking changes may occur before v1.0.
 
 Execution control plane for distributed, event-driven workflows.
 
@@ -40,7 +40,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.3.2-preview.6 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.3.2-preview.7 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source
@@ -58,7 +58,7 @@ Once running:
 | Dashboard | http://localhost:3300 |
 | External API | http://localhost:8081 |
 | RabbitMQ UI | http://localhost:15672 (guest/guest) |
-| Grafana | http://localhost:3000 (admin/admin) |
+| Grafana | http://localhost:3100 (admin/admin) |
 | Worker metrics | http://localhost:9090/metrics |
 
 Health checks: `GET /healthz` and `GET /readyz` on both API ports. When using Docker Compose, reach the internal API via nginx on `:3300` (e.g. `curl http://localhost:3300/api/healthz`) or use the external API directly on `:8081`. Port `:8080` is internal to the `pipelogiq-app` container.
@@ -143,9 +143,15 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 
 - [Quick Start](docs/quickstart.md) — Docker Compose setup, local dev, first pipeline
 - [Architecture](docs/architecture.md) — control plane, data plane, workers, execution flow
+- [Reliable Execution](docs/reliable-execution.md) — idempotent creation, retries, leases, fencing, cancellation, and upgrade guidance
+- [Insurance Workflow Capability Audit](docs/insurance-workflow-capability-audit.md) — critical-workflow guarantees, gaps, and consumer obligations
 - [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
 - [Observability](docs/observability.md) — trace context, metrics, integration config
 - [Policies](docs/policies.md) — rate limit, retry, timeout, circuit breaker (experimental)
+
+The additive reliability migration can be verified against an isolated
+temporary PostgreSQL instance with
+`./database/test-reliability-upgrade.sh` (Docker required).
 - [Contributing](CONTRIBUTING.md) — development setup, tests, PR process
 - [Security Policy](SECURITY.md) — vulnerability reporting
 

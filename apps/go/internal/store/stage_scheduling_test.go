@@ -25,7 +25,9 @@ CREATE TABLE pipeline (
 	finished_at TIMESTAMP NULL,
 	is_completed BOOLEAN NOT NULL DEFAULT 0,
 	application_id INTEGER NULL,
-	trace_id TEXT NULL
+	trace_id TEXT NULL,
+	idempotency_key TEXT NULL,
+	request_hash TEXT NULL
 );
 CREATE TABLE stage (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -41,7 +43,14 @@ CREATE TABLE stage (
 	is_event BOOLEAN NULL,
 	span_id TEXT NULL,
 	retry_attempt INTEGER NOT NULL DEFAULT 0,
-	next_retry_at TIMESTAMP NULL
+	next_retry_at TIMESTAMP NULL,
+	execution_id TEXT NULL,
+	execution_attempt INTEGER NOT NULL DEFAULT 0,
+	dispatched_at TIMESTAMP NULL,
+	lease_owner TEXT NULL,
+	lease_expires_at TIMESTAMP NULL,
+	last_error_code TEXT NULL,
+	failure_disposition TEXT NULL
 );
 CREATE TABLE stage_io (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,6 +65,10 @@ CREATE TABLE stage_options (
 	retry_interval INTEGER NULL,
 	time_out INTEGER NULL,
 	max_retries INTEGER NULL,
+	retry_on_error_codes TEXT NULL,
+	retry_backoff TEXT NULL,
+	max_retry_interval INTEGER NULL,
+	retry_jitter BOOLEAN NULL,
 	depends_on TEXT NULL,
 	run_in_parallel_with TEXT NULL,
 	fail_if_output_empty BOOLEAN NULL,
@@ -74,7 +87,8 @@ CREATE TABLE pipeline_context_item (
 	pipeline_id INTEGER NOT NULL,
 	key TEXT NOT NULL,
 	value TEXT NULL,
-	value_type TEXT NULL
+	value_type TEXT NULL,
+	is_sensitive BOOLEAN NOT NULL DEFAULT 0
 );
 `
 
@@ -325,6 +339,46 @@ func TestRecoverOrphanedStages_LogsReasonForRunningReset(t *testing.T) {
 	}
 	if !strings.Contains(reasonLog, "threshold 5m0s") {
 		t.Fatalf("reason log missing threshold: %q", reasonLog)
+	}
+}
+
+func TestRecoverOrphanedStages_RespectsStageTimeoutBeforeReset(t *testing.T) {
+	st, db := setupSchedulingStore(t)
+	ctx := context.Background()
+
+	pid := insertPipeline(t, db, "orphan-running-timeout-aware")
+	stageID := insertStage(t, db, pid, "evaluate-budget-strategy", "VesselOps.EvaluateBudgetStrategy")
+
+	if _, err := db.Exec(`
+		INSERT INTO stage_options (stage_id, time_out)
+		VALUES ($1, $2)
+	`, stageID, 900); err != nil {
+		t.Fatalf("insert stage timeout: %v", err)
+	}
+
+	startedAt := time.Now().UTC().Add(-6 * time.Minute)
+	if _, err := db.Exec(`
+		UPDATE stage
+		SET status = $1, started_at = $2
+		WHERE id = $3
+	`, types.StageStatusRunning, startedAt, stageID); err != nil {
+		t.Fatalf("mark stage running: %v", err)
+	}
+
+	recovered, err := st.RecoverOrphanedStages(ctx, 5*time.Minute)
+	if err != nil {
+		t.Fatalf("RecoverOrphanedStages: %v", err)
+	}
+	if recovered != 0 {
+		t.Fatalf("recovered = %d, want 0", recovered)
+	}
+
+	var stageStatus string
+	if err := db.Get(&stageStatus, `SELECT status FROM stage WHERE id = $1`, stageID); err != nil {
+		t.Fatalf("load stage status: %v", err)
+	}
+	if stageStatus != types.StageStatusRunning {
+		t.Fatalf("stage status = %q, want %q", stageStatus, types.StageStatusRunning)
 	}
 }
 

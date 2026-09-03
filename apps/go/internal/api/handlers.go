@@ -40,6 +40,10 @@ func (s *Server) handleGetPipelines(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to get pipelines", http.StatusInternalServerError)
 		return
 	}
+	for i := range result.Items {
+		redacted := types.RedactPipelineResponse(&result.Items[i])
+		result.Items[i] = *redacted
+	}
 
 	writeJSON(w, result, http.StatusOK)
 }
@@ -246,8 +250,13 @@ func (s *Server) handleGetPipelineLogs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
+	contextItems, err := s.store.GetPipelineContext(ctx, pipelineID)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
 
-	writeJSON(w, logs, http.StatusOK)
+	writeJSON(w, types.RedactStageLogs(logs, contextItems), http.StatusOK)
 }
 
 // Application handlers

@@ -554,7 +554,9 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		finished_at TIMESTAMP NULL,
 		is_completed BOOLEAN NOT NULL DEFAULT 0,
 		application_id INTEGER NULL,
-		trace_id TEXT NULL
+		trace_id TEXT NULL,
+		idempotency_key TEXT NULL,
+		request_hash TEXT NULL
 	);
 	CREATE TABLE stage (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -574,7 +576,14 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		approval_decision BOOLEAN NULL,
 		approval_rejection_reason TEXT NULL,
 		approval_resumed_at TIMESTAMP NULL,
-		approval_resumed_by TEXT NULL
+		approval_resumed_by TEXT NULL,
+		execution_id TEXT NULL,
+		execution_attempt INTEGER NOT NULL DEFAULT 0,
+		dispatched_at TIMESTAMP NULL,
+		lease_owner TEXT NULL,
+		lease_expires_at TIMESTAMP NULL,
+		last_error_code TEXT NULL,
+		failure_disposition TEXT NULL
 	);
 	CREATE TABLE stage_io (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -589,6 +598,10 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		retry_interval INTEGER NULL,
 		time_out INTEGER NULL,
 		max_retries INTEGER NULL,
+		retry_on_error_codes TEXT NULL,
+		retry_backoff TEXT NULL,
+		max_retry_interval INTEGER NULL,
+		retry_jitter BOOLEAN NULL,
 		depends_on TEXT NULL,
 		run_in_parallel_with TEXT NULL,
 		fail_if_output_empty BOOLEAN NULL,
@@ -607,6 +620,7 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		key TEXT NOT NULL,
 		value TEXT NOT NULL,
 		value_type TEXT NULL,
+		is_sensitive BOOLEAN NOT NULL DEFAULT 0,
 		pipeline_id INTEGER NOT NULL
 	);
 	CREATE TABLE api_key (

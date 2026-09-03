@@ -53,6 +53,18 @@ func main() {
 	defer mqClient.Close()
 
 	st := store.New(dbConn, logg)
+
+	// Provision the administrator from environment and drop the legacy seeded demo accounts.
+	if err := st.BootstrapAdmin(ctx, store.AdminBootstrap{
+		Email:        cfg.AdminEmail,
+		PasswordHash: cfg.AdminPasswordHash,
+		FirstName:    cfg.AdminFirstName,
+		LastName:     cfg.AdminLastName,
+	}); err != nil {
+		logg.Error("admin bootstrap failed", "err", err)
+		os.Exit(1)
+	}
+
 	// DB-backed runtime: policies read from PostgreSQL, trigger events persisted to policy_event.
 	st.SetStagePolicyRuntime(api.NewStagePolicyRuntimeWithDB(dbConn, logg))
 

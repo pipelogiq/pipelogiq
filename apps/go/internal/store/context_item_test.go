@@ -99,6 +99,7 @@ func setupContextItemTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		key TEXT NOT NULL,
 		value TEXT NOT NULL,
 		value_type TEXT NOT NULL,
+		is_sensitive BOOLEAN NOT NULL DEFAULT 0,
 		pipeline_id INTEGER NOT NULL
 	);
 	`

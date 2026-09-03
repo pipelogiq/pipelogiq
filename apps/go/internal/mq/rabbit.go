@@ -40,9 +40,24 @@ type Client struct {
 	url    string
 	logger *slog.Logger
 
-	mu             sync.Mutex
-	conn           *amqp.Connection
-	topologyBypass sync.Map
+	mu                         sync.Mutex
+	conn                       *amqp.Connection
+	topologyBypass             sync.Map
+	retryPublishChannelFactory func(context.Context) (confirmPublishingChannel, error)
+}
+
+type confirmPublishingChannel interface {
+	Confirm(noWait bool) error
+	NotifyPublish(confirm chan amqp.Confirmation) chan amqp.Confirmation
+	PublishWithContext(
+		ctx context.Context,
+		exchange string,
+		key string,
+		mandatory bool,
+		immediate bool,
+		msg amqp.Publishing,
+	) error
+	Close() error
 }
 
 func NewClient(url string, logger *slog.Logger) *Client {
@@ -89,7 +104,7 @@ func (c *Client) PublishWithRetry(ctx context.Context, queue string, body []byte
 		msgHeaders := telemetry.CloneAMQPTable(headers)
 		msgHeaders = telemetry.InjectAMQPContext(ctx, msgHeaders)
 
-		if err := publishMessage(ctx, ch, queue, amqp.Publishing{
+		if err := publishMessageConfirmed(ctx, ch, queue, amqp.Publishing{
 			Body:         body,
 			ContentType:  ct,
 			Headers:      msgHeaders,
@@ -177,7 +192,7 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 					span.SetStatus(codes.Error, err.Error())
 					c.logger.Error("rabbitmq: handler error", "queue", queue, "err", err)
 					if opts.DeadLetterOnFail {
-						if retryErr := c.publishDeliveryToRetryQueue(hctx, ch, queue, d, opts.QueueOptions); retryErr != nil {
+						if retryErr := c.publishDeliveryToRetryQueue(hctx, queue, d, opts.QueueOptions); retryErr != nil {
 							c.logger.Error("rabbitmq: retry publish failed", "queue", queue, "err", retryErr)
 							_ = d.Nack(false, true)
 						} else {
@@ -385,7 +400,6 @@ func (c *Client) channelForQueue(ctx context.Context, queue string, opts QueueOp
 
 func (c *Client) publishDeliveryToRetryQueue(
 	ctx context.Context,
-	ch *amqp.Channel,
 	queue string,
 	d amqp.Delivery,
 	opts QueueOptions,
@@ -397,7 +411,16 @@ func (c *Client) publishDeliveryToRetryQueue(
 	headers := telemetry.CloneAMQPTable(d.Headers)
 	headers = telemetry.InjectAMQPContext(ctx, headers)
 
-	return publishMessage(ctx, ch, retryQueueName(queue), amqp.Publishing{
+	// Never enable confirms or register listeners repeatedly on the long-lived
+	// consumer channel. amqp091-go retains every NotifyPublish listener for the
+	// life of a channel, so abandoned listeners eventually block its reader.
+	ch, err := c.openRetryPublishChannel(ctx)
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	return publishMessageConfirmed(ctx, ch, retryQueueName(queue), amqp.Publishing{
 		Body:         d.Body,
 		ContentType:  firstNonEmpty(d.ContentType, opts.ContentType, "application/json"),
 		Headers:      headers,
@@ -407,8 +430,37 @@ func (c *Client) publishDeliveryToRetryQueue(
 	})
 }
 
-func publishMessage(ctx context.Context, ch *amqp.Channel, queue string, msg amqp.Publishing) error {
+func (c *Client) openRetryPublishChannel(ctx context.Context) (confirmPublishingChannel, error) {
+	if c.retryPublishChannelFactory != nil {
+		return c.retryPublishChannelFactory(ctx)
+	}
+	return c.channel(ctx)
+}
+
+func publishMessage(ctx context.Context, ch confirmPublishingChannel, queue string, msg amqp.Publishing) error {
 	return ch.PublishWithContext(ctx, "", queue, false, false, msg)
+}
+
+func publishMessageConfirmed(ctx context.Context, ch confirmPublishingChannel, queue string, msg amqp.Publishing) error {
+	if err := ch.Confirm(false); err != nil {
+		return fmt.Errorf("enable publisher confirms: %w", err)
+	}
+	confirmations := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+	if err := publishMessage(ctx, ch, queue, msg); err != nil {
+		return err
+	}
+	select {
+	case confirmation, ok := <-confirmations:
+		if !ok {
+			return errors.New("publisher confirm channel closed before acknowledgement")
+		}
+		if !confirmation.Ack {
+			return fmt.Errorf("broker negatively acknowledged publish to %s", queue)
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // PublishToExchange publishes a message to a fanout exchange.

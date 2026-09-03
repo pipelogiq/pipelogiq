@@ -1,13 +1,217 @@
 openapi: 3.0.3
 info:
   title: Pipelogiq External API
-  version: "0.3.2-preview.6"
-  description: External API used by SDK clients and workers.
+  version: "0.3.2-preview.7"
+  description: |
+    External API used by SDK clients and workers.
+
+    Pipeline creation through `/pipelines/idempotent` is the opt-in reliable
+    creation contract. Its idempotency key is unique within an application and
+    is retained for the lifetime of the pipeline. Reusing a key with a different
+    creation request returns `409`. The legacy `/pipelines` route is preserved
+    and is not idempotent.
 servers:
   - url: http://localhost:8081
 security:
   - ApiKeyAuth: []
 paths:
+  /pipelines:
+    post:
+      summary: Create a pipeline using the legacy non-idempotent contract
+      description: |
+        Preserved for existing SDK clients. Each successful request creates a
+        new pipeline, even when the payload is identical. New integrations that
+        must safely retry an unknown HTTP outcome should use
+        `/pipelines/idempotent`.
+      operationId: createPipelineLegacy
+      tags:
+        - Pipelines
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LegacyPipelineCreateRequest"
+      responses:
+        "200":
+          description: Pipeline created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResponse"
+        "400":
+          description: Invalid request
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Invalid API key in the request body
+
+  /pipelines/idempotent:
+    post:
+      summary: Atomically create or resolve a pipeline by idempotency key
+      description: |
+        The key is scoped to the application authenticated by `X-API-Key` and
+        is retained for the lifetime of the pipeline. Sequential and concurrent
+        requests with the same key and the same creation intent return the same
+        pipeline ID. Tracing metadata may change between retries. Reusing the
+        key for a different creation intent returns `409`.
+      operationId: createPipelineIdempotent
+      tags:
+        - Pipelines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IdempotentPipelineCreateRequest"
+      responses:
+        "201":
+          description: A new pipeline was created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdempotentPipelineCreateResponse"
+        "200":
+          description: The existing pipeline for this application and key was returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IdempotentPipelineCreateResponse"
+        "400":
+          description: Validation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid X-API-Key header
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The key was already used for a different creation intent
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: Pipeline creation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /pipelines/by-idempotency-key:
+    post:
+      summary: Find a pipeline by its application-scoped idempotency key
+      description: |
+        Uses a request body so the idempotency key is not placed in the URL or
+        routine access logs.
+      operationId: getPipelineByIdempotencyKey
+      tags:
+        - Pipelines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PipelineIdempotencyLookupRequest"
+      responses:
+        "200":
+          description: Pipeline status and stage details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResponse"
+        "400":
+          description: Validation error
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid X-API-Key header
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: No pipeline exists for this application and key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /pipelines/{pipelineId}:
+    get:
+      summary: Get pipeline status and stage execution details
+      operationId: getPipeline
+      tags:
+        - Pipelines
+      parameters:
+        - $ref: "#/components/parameters/PipelineId"
+      responses:
+        "200":
+          description: Pipeline status and stage details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResponse"
+        "400":
+          description: Invalid pipeline ID
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Invalid API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Pipeline belongs to another application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Pipeline not found
+
+  /pipelines/{pipelineId}/cancel:
+    post:
+      summary: Cancel a non-terminal pipeline
+      description: |
+        Atomically marks the authenticated application's pipeline and its
+        unfinished stages as cancelled. Cancellation of an already-running
+        handler is cooperative; stale results are fenced by execution metadata.
+      operationId: cancelPipeline
+      tags:
+        - Pipelines
+      parameters:
+        - $ref: "#/components/parameters/PipelineId"
+      responses:
+        "200":
+          description: Pipeline cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PipelineResponse"
+        "400":
+          description: Invalid pipeline ID
+        "401":
+          description: Invalid API key
+        "404":
+          description: Pipeline not found for this application
+        "409":
+          description: Pipeline is already terminal and cannot be cancelled
+        "504":
+          description: Cancellation timed out
+
   /pipelines/{pipelineId}/stages:
     post:
       summary: Append stages to an existing pipeline
@@ -15,13 +219,7 @@ paths:
       tags:
         - Pipelines
       parameters:
-        - name: pipelineId
-          in: path
-          required: true
-          description: Pipeline ID (> 0)
-          schema:
-            type: integer
-            minimum: 1
+        - $ref: "#/components/parameters/PipelineId"
       requestBody:
         required: true
         content:
@@ -37,7 +235,15 @@ paths:
                       input: '{"toolName":"getOrder","args":{"id":"42"}}'
                       options:
                         runNextIfFailed: false
-                        maxRetries: 0
+                        maxRetries: 3
+                        retryInterval: 5
+                        retryOnErrorCodes:
+                          - TIMEOUT
+                          - UPSTREAM_ERROR
+                          - RATE_LIMIT_EXCEEDED
+                        backoff: exponential
+                        maxRetryInterval: 60
+                        jitter: true
                       isEvent: false
       responses:
         "200":
@@ -79,6 +285,7 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+
   /stages/{stageId}/resume:
     post:
       summary: Resume a stage waiting for external approval
@@ -86,13 +293,7 @@ paths:
       tags:
         - Stages
       parameters:
-        - name: stageId
-          in: path
-          required: true
-          description: Stage ID (> 0)
-          schema:
-            type: integer
-            minimum: 1
+        - $ref: "#/components/parameters/StageId"
       requestBody:
         required: true
         content:
@@ -128,13 +329,512 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
+
+  /stages/{stageId}/lease/acquire:
+    post:
+      summary: Acquire the lease for a dispatched stage execution
+      description: |
+        Worker protocol endpoint. The worker session token binds the lease to
+        the authenticated worker session. `acquired=false` is a successful
+        response indicating that the delivery must not execute the handler.
+      operationId: acquireStageLease
+      tags:
+        - Worker protocol
+      security:
+        - WorkerSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StageLeaseRequest"
+      responses:
+        "200":
+          description: Lease decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StageLeaseResponse"
+        "400":
+          description: Invalid stage ID or request body
+        "401":
+          description: Missing or invalid worker session token
+        "500":
+          description: Lease operation failed
+
+  /stages/{stageId}/lease/renew:
+    post:
+      summary: Renew the lease for a running stage execution
+      description: |
+        Worker protocol endpoint. Renewal succeeds only for the current
+        execution and lease owner. The worker must stop publishing a result if
+        it loses the lease.
+      operationId: renewStageLease
+      tags:
+        - Worker protocol
+      security:
+        - WorkerSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StageLeaseRequest"
+      responses:
+        "200":
+          description: Lease renewal decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StageLeaseResponse"
+        "400":
+          description: Invalid stage ID or request body
+        "401":
+          description: Missing or invalid worker session token
+        "500":
+          description: Lease operation failed
+
 components:
   securitySchemes:
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
+    WorkerSessionAuth:
+      type: apiKey
+      in: header
+      name: X-Worker-Session
+      description: Session token returned by worker bootstrap.
+
+  parameters:
+    PipelineId:
+      name: pipelineId
+      in: path
+      required: true
+      description: Pipeline ID (> 0)
+      schema:
+        type: integer
+        minimum: 1
+    StageId:
+      name: stageId
+      in: path
+      required: true
+      description: Stage ID (> 0)
+      schema:
+        type: integer
+        minimum: 1
+
   schemas:
+    PipelineDefinition:
+      type: object
+      required:
+        - name
+        - stages
+      properties:
+        apiKey:
+          type: string
+          writeOnly: true
+          deprecated: true
+          description: Required only by the legacy `/pipelines` endpoint; ignored by the idempotent endpoint.
+        name:
+          type: string
+          minLength: 1
+          maxLength: 255
+        traceId:
+          type: string
+          maxLength: 36
+          description: Optional tracing identifier; not part of idempotency intent comparison.
+        policies:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        stages:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/StageCreate"
+        pipelineKeywords:
+          type: array
+          maxItems: 64
+          items:
+            $ref: "#/components/schemas/PipelineKeyword"
+        pipelineContextItems:
+          type: array
+          maxItems: 64
+          description: Do not use pipeline context as the consumer's sole business system of record.
+          items:
+            $ref: "#/components/schemas/ContextItem"
+
+    LegacyPipelineCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/PipelineDefinition"
+        - type: object
+          required:
+            - apiKey
+
+    IdempotentPipelineCreateRequest:
+      allOf:
+        - $ref: "#/components/schemas/PipelineDefinition"
+        - type: object
+          required:
+            - idempotencyKey
+          properties:
+            idempotencyKey:
+              type: string
+              minLength: 1
+              maxLength: 200
+              description: Application-scoped key retained for the lifetime of the pipeline.
+
+    IdempotentPipelineCreateResponse:
+      type: object
+      required:
+        - pipeline
+        - created
+        - wasExisting
+      properties:
+        pipeline:
+          $ref: "#/components/schemas/PipelineResponse"
+        created:
+          type: boolean
+          description: True only when this request inserted the pipeline.
+        wasExisting:
+          type: boolean
+          description: True when an existing pipeline for the key was returned.
+
+    PipelineIdempotencyLookupRequest:
+      type: object
+      required:
+        - idempotencyKey
+      properties:
+        idempotencyKey:
+          type: string
+          minLength: 1
+          maxLength: 200
+
+    PipelineResponse:
+      type: object
+      required:
+        - id
+        - name
+        - status
+        - createdAt
+        - isTerminal
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        traceId:
+          type: string
+        status:
+          type: string
+          enum:
+            - NotStarted
+            - Pending
+            - Running
+            - Paused
+            - Completed
+            - Failed
+            - Cancelled
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        applicationId:
+          type: integer
+        stageStatuses:
+          type: array
+          items:
+            type: string
+        stages:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageResponse"
+        pipelineContextItems:
+          type: array
+          description: Sensitive values are returned as `[REDACTED]` while preserving `isSensitive=true`.
+          items:
+            $ref: "#/components/schemas/ContextItem"
+        pipelineKeywords:
+          type: array
+          items:
+            $ref: "#/components/schemas/PipelineKeyword"
+        isEvent:
+          type: boolean
+        idempotencyKey:
+          type: string
+          description: Present for pipelines created through the idempotent contract.
+        isTerminal:
+          type: boolean
+          description: True for Completed, Failed, or Cancelled pipeline status.
+        wasExisting:
+          type: boolean
+          description: Compatibility field; creation outcome is authoritative in the idempotent response wrapper.
+
+    StageCreate:
+      type: object
+      required:
+        - stageName
+        - stageHandlerName
+      properties:
+        stageName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        stageHandlerName:
+          type: string
+          minLength: 1
+          maxLength: 300
+        description:
+          type: string
+          maxLength: 255
+        input:
+          type: string
+          description: JSON-serialized input payload, at most 262144 bytes.
+        policies:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        options:
+          $ref: "#/components/schemas/StageOptions"
+        isEvent:
+          type: boolean
+        runNextIfFailed:
+          type: boolean
+
+    StageInfo:
+      allOf:
+        - $ref: "#/components/schemas/StageCreate"
+        - type: object
+          properties:
+            stageId:
+              type: integer
+              nullable: true
+              description: Compatibility field from SDK, ignored by server.
+            pipelineId:
+              type: integer
+              nullable: true
+              description: Compatibility field from SDK, ignored by server.
+            runNextIfCurrentFailed:
+              type: boolean
+              description: Compatibility alias for runNextIfFailed.
+
+    StageOptions:
+      type: object
+      properties:
+        runNextIfFailed:
+          type: boolean
+        retryInterval:
+          type: integer
+          minimum: 0
+          description: Base retry delay in seconds.
+        maxRetries:
+          type: integer
+          minimum: 0
+          description: Maximum number of automatic retries after the first execution.
+        timeOut:
+          type: integer
+          minimum: 1
+          description: Handler timeout in seconds.
+        retryOnErrorCodes:
+          type: array
+          description: |
+            When non-empty, StageOptions retries only matching error codes.
+            Terminal codes such as BUSINESS_REJECTED, VALIDATION_ERROR,
+            INVALID_STATE, and MISSING_REQUIRED_DATA are never retried
+            automatically.
+          items:
+            type: string
+            minLength: 1
+        backoff:
+          type: string
+          enum:
+            - fixed
+            - linear
+            - exponential
+          default: fixed
+        maxRetryInterval:
+          type: integer
+          minimum: 1
+          description: Maximum retry delay in seconds.
+        jitter:
+          type: boolean
+          default: false
+        dependsOn:
+          type: array
+          items:
+            type: string
+        runInParallelWith:
+          type: array
+          items:
+            type: string
+        failIfOutputEmpty:
+          type: boolean
+        notifyOnFailure:
+          type: boolean
+        runAsUser:
+          type: string
+
+    StageResponse:
+      type: object
+      required:
+        - id
+        - pipelineId
+        - name
+        - createdAt
+        - isTerminal
+      properties:
+        id:
+          type: integer
+        pipelineId:
+          type: integer
+        spanId:
+          type: string
+        name:
+          type: string
+        stageHandlerName:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum:
+            - NotStarted
+            - Running
+            - Pending
+            - RetryScheduled
+            - Throttled
+            - WaitingForApproval
+            - Completed
+            - Failed
+            - Skipped
+            - Cancelled
+        createdAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextRetryAt:
+          type: string
+          format: date-time
+          nullable: true
+        output:
+          type: string
+          nullable: true
+        input:
+          type: string
+          nullable: true
+        isSkipped:
+          type: boolean
+        isEvent:
+          type: boolean
+        nextStageId:
+          type: integer
+          nullable: true
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageLog"
+        options:
+          $ref: "#/components/schemas/StageOptions"
+        failureCount:
+          type: integer
+          minimum: 0
+        lastFailedAt:
+          type: string
+          format: date-time
+          nullable: true
+        hasFailureHistory:
+          type: boolean
+        attempt:
+          type: integer
+          minimum: 0
+          description: Stable 1-based execution attempt for the current dispatched execution; zero before first dispatch.
+        retryAttempt:
+          type: integer
+          minimum: 0
+          description: Number of retries scheduled so far.
+        lastErrorCode:
+          type: string
+          description: Last handler or timeout error code.
+        failureDisposition:
+          type: string
+          enum:
+            - retryable
+            - terminal
+        isTerminal:
+          type: boolean
+          description: True for Completed, Failed, Skipped, or Cancelled stage status.
+
+    ContextItem:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 300
+        value:
+          type: string
+          description: At most 65536 bytes. Returned as `[REDACTED]` when isSensitive is true.
+        valueType:
+          type: string
+        isSensitive:
+          type: boolean
+          default: false
+          description: Marks the value for redaction from status responses and persisted logs.
+
+    PipelineKeyword:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+          minLength: 1
+          maxLength: 300
+        value:
+          type: string
+          minLength: 1
+          maxLength: 300
+
+    StageLog:
+      type: object
+      required:
+        - message
+        - created
+      properties:
+        id:
+          type: integer
+        stageId:
+          type: integer
+        message:
+          type: string
+        logLevel:
+          type: string
+        created:
+          type: string
+          format: date-time
+
     AppendStagesRequest:
       type: object
       required:
@@ -145,6 +845,7 @@ components:
           minItems: 1
           items:
             $ref: "#/components/schemas/StageInfo"
+
     AppendStagesResponse:
       type: object
       required:
@@ -154,49 +855,7 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/StageDto"
-    StageInfo:
-      type: object
-      required:
-        - stageName
-        - stageHandlerName
-      properties:
-        stageId:
-          type: integer
-          nullable: true
-          description: Compatibility field from SDK, ignored by server.
-        pipelineId:
-          type: integer
-          nullable: true
-          description: Compatibility field from SDK, ignored by server.
-        stageName:
-          type: string
-        stageHandlerName:
-          type: string
-        description:
-          type: string
-        input:
-          type: string
-          description: JSON-serialized input payload
-        options:
-          $ref: "#/components/schemas/StageOptions"
-        isEvent:
-          type: boolean
-        runNextIfFailed:
-          type: boolean
-    StageOptions:
-      type: object
-      properties:
-        runNextIfFailed:
-          type: boolean
-        retryInterval:
-          type: integer
-          minimum: 0
-        maxRetries:
-          type: integer
-          minimum: 0
-        timeOut:
-          type: integer
-          minimum: 1
+
     StageDto:
       type: object
       required:
@@ -234,6 +893,15 @@ components:
           type: boolean
         runNextIfCurrentFailed:
           type: boolean
+        finishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+
     ResumeStageRequest:
       type: object
       required:
@@ -244,6 +912,41 @@ components:
         rejectionReason:
           type: string
           nullable: true
+
+    StageLeaseRequest:
+      type: object
+      required:
+        - executionId
+        - workerId
+      properties:
+        executionId:
+          type: string
+          minLength: 1
+          description: Opaque execution token received in the stage delivery.
+        workerId:
+          type: string
+          minLength: 1
+          description: Worker ID associated with the authenticated worker session.
+
+    StageLeaseResponse:
+      type: object
+      required:
+        - acquired
+      properties:
+        acquired:
+          type: boolean
+        attempt:
+          type: integer
+          minimum: 1
+          description: Execution attempt accepted by the server.
+        leaseExpiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        reason:
+          type: string
+          description: Machine-readable explanation when acquired is false.
+
     ProblemDetails:
       type: object
       required:

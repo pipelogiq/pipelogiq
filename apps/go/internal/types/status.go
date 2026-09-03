@@ -10,6 +10,7 @@ const (
 	StageStatusCompleted       = "Completed"
 	StageStatusFailed          = "Failed"
 	StageStatusSkipped         = "Skipped"
+	StageStatusCancelled       = "Cancelled"
 )
 
 const (

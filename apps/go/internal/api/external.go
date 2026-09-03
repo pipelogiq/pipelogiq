@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -155,9 +157,14 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 
 	// External routes — no JWT, API key validated in handler
 	router.Post("/pipelines", s.handleCreatePipeline)
+	router.Post("/pipelines/idempotent", s.handleCreatePipelineIdempotent)
+	router.Post("/pipelines/by-idempotency-key", s.handleGetPipelineByIdempotencyKey)
 	router.Get("/pipelines/{pipelineId}", s.handleGetPipeline)
+	router.Post("/pipelines/{pipelineId}/cancel", s.handleCancelPipelineExternal)
 	router.Post("/pipelines/{pipelineId}/stages", s.handleAppendPipelineStages)
 	router.Post("/stages/{stageId}/resume", s.handleResumeStage)
+	router.Post("/stages/{stageId}/lease/acquire", s.handleAcquireStageLease)
+	router.Post("/stages/{stageId}/lease/renew", s.handleRenewStageLease)
 	router.Post("/jobs/pull", s.handlePullJob)
 	router.Post("/jobs/ack", s.handleAckJob)
 	router.Post("/logs", s.handleSaveLog)
@@ -266,7 +273,222 @@ func (s *ExternalServer) handleCreatePipeline(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	writeJSON(w, pipeline, http.StatusOK)
+	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
+}
+
+func (s *ExternalServer) handleCreatePipelineIdempotent(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	appID, err := s.validateXAPIKeyHeader(ctx, r)
+	if err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusUnauthorized,
+			"https://api.pipelogiq.dev/errors/unauthorized",
+			"Unauthorized",
+			"A valid X-API-Key header is required",
+			nil,
+		)
+		return
+	}
+
+	var req types.IdempotentPipelineCreateRequest
+	if err = decodeJSONStrictWithLimit(w, r, &req, idempotentCreateBodyLimit); err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"Invalid request payload",
+			map[string][]string{"body": {err.Error()}},
+		)
+		return
+	}
+
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	req.PipelineCreateRequest.ApiKey = ""
+	validationErrors := validateIdempotentPipelineCreateRequest(req)
+	if len(validationErrors) > 0 {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"Pipeline request is invalid",
+			validationErrors,
+		)
+		return
+	}
+
+	pipeline, created, err := s.store.CreatePipelineIdempotent(
+		ctx,
+		req.PipelineCreateRequest,
+		appID,
+		req.IdempotencyKey,
+	)
+	if err != nil {
+		if errors.Is(err, store.ErrPipelineIdempotencyConflict) {
+			writeProblemJSON(
+				w,
+				r,
+				http.StatusConflict,
+				"https://api.pipelogiq.dev/errors/idempotency-conflict",
+				"Idempotency conflict",
+				"The idempotency key was already used for a different pipeline request",
+				nil,
+			)
+			return
+		}
+		s.logger.Error("idempotent pipeline create failed", "applicationId", appID, "err", err)
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"https://api.pipelogiq.dev/errors/internal",
+			"Pipeline creation failed",
+			"Failed to create or resolve pipeline",
+			nil,
+		)
+		return
+	}
+
+	if created {
+		if err := s.importInlinePoliciesForPipeline(
+			req.PipelineCreateRequest,
+			pipeline,
+			fmt.Sprintf("application:%d", appID),
+		); err != nil {
+			s.logger.Error("import inline policies failed", "pipelineId", pipeline.ID, "err", err)
+		}
+		s.metrics.pipelinesCreated.Inc()
+		s.publishCreatedEventPipeline(ctx, appID, pipeline)
+	}
+
+	status := http.StatusOK
+	if created {
+		status = http.StatusCreated
+	}
+	writeJSON(w, types.IdempotentPipelineCreateResponse{
+		Pipeline:    types.RedactPipelineResponse(pipeline),
+		Created:     created,
+		WasExisting: !created,
+	}, status)
+}
+
+func (s *ExternalServer) handleGetPipelineByIdempotencyKey(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	appID, err := s.validateXAPIKeyHeader(ctx, r)
+	if err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusUnauthorized,
+			"https://api.pipelogiq.dev/errors/unauthorized",
+			"Unauthorized",
+			"A valid X-API-Key header is required",
+			nil,
+		)
+		return
+	}
+
+	var req types.PipelineIdempotencyLookupRequest
+	if err = decodeJSONStrictWithLimit(w, r, &req, idempotencyLookupBodyLimit); err != nil {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"Invalid request payload",
+			map[string][]string{"body": {err.Error()}},
+		)
+		return
+	}
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+	if validationErrors := validateIdempotencyKey(req.IdempotencyKey); len(validationErrors) > 0 {
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusBadRequest,
+			"https://api.pipelogiq.dev/errors/validation",
+			"Validation failed",
+			"Idempotency lookup request is invalid",
+			validationErrors,
+		)
+		return
+	}
+
+	pipeline, err := s.store.GetPipelineByIdempotencyKey(ctx, appID, req.IdempotencyKey)
+	if err != nil {
+		if errors.Is(err, store.ErrPipelineNotFound) {
+			writeProblemJSON(
+				w,
+				r,
+				http.StatusNotFound,
+				"https://api.pipelogiq.dev/errors/not-found",
+				"Pipeline not found",
+				"No pipeline exists for this application and idempotency key",
+				nil,
+			)
+			return
+		}
+		s.logger.Error("pipeline idempotency lookup failed", "applicationId", appID, "err", err)
+		writeProblemJSON(
+			w,
+			r,
+			http.StatusInternalServerError,
+			"https://api.pipelogiq.dev/errors/internal",
+			"Pipeline lookup failed",
+			"Failed to resolve pipeline",
+			nil,
+		)
+		return
+	}
+
+	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
+}
+
+func (s *ExternalServer) publishCreatedEventPipeline(
+	ctx context.Context,
+	appID int,
+	pipeline *types.PipelineResponse,
+) {
+	if pipeline == nil || pipeline.IsEvent == nil || !*pipeline.IsEvent || len(pipeline.Stages) != 1 {
+		return
+	}
+	if s.mq == nil {
+		s.logger.Error("cannot publish event stage because message broker is unavailable", "pipelineId", pipeline.ID)
+		return
+	}
+
+	stage := pipeline.Stages[0]
+	msg := types.StageNextMessage{
+		AppID:            appID,
+		PipelineID:       &pipeline.ID,
+		StageID:          stage.ID,
+		TraceID:          pipeline.TraceID,
+		SpanID:           stage.SpanID,
+		StageHandlerName: stage.StageHandlerName,
+		Input:            deref(stage.Input),
+		ContextItems:     pipeline.PipelineContext,
+	}
+	body, _ := json.Marshal(msg)
+	opts := mq.QueueOptions{
+		Durable:     true,
+		DLQEnabled:  s.cfg.QueueDLQEnabled,
+		DLQTTL:      s.cfg.QueueDLQMessageTTL,
+		ContentType: "application/json",
+	}
+	queue := constants.StageNextQueueName(constants.ApplicationQueueID(appID), stage.StageHandlerName)
+	if err := s.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
+		s.logger.Error("failed to publish event stage", "pipelineId", pipeline.ID, "err", err, "queue", queue)
+	}
 }
 
 func (s *ExternalServer) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +542,7 @@ func (s *ExternalServer) handleGetPipeline(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	writeJSON(w, pipeline, http.StatusOK)
+	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
 }
 
 func (s *ExternalServer) handleAppendPipelineStages(w http.ResponseWriter, r *http.Request) {
@@ -1042,8 +1264,44 @@ type appendStageSDK struct {
 	RunNextIfCurrentFailed *bool                `json:"runNextIfCurrentFailed,omitempty"`
 }
 
+const (
+	idempotentCreateBodyLimit  = 1 << 20
+	idempotencyLookupBodyLimit = 4 << 10
+	maxIdempotencyKeyRunes     = 200
+	maxPipelineNameRunes       = 255
+	maxPipelineStages          = 100
+	maxStageNameRunes          = 255
+	maxStageHandlerRunes       = 300
+	maxStageDescriptionRunes   = 255
+	maxStageInputBytes         = 256 << 10
+	maxPipelineKeywords        = 64
+	maxKeywordRunes            = 300
+	maxPipelineContextItems    = 64
+	maxContextKeyRunes         = 300
+	maxContextValueBytes       = 64 << 10
+	maxTraceIDRunes            = 36
+)
+
 func decodeJSONStrict(r *http.Request, target any) error {
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
+}
+
+func decodeJSONStrictWithLimit(
+	w http.ResponseWriter,
+	r *http.Request,
+	target any,
+	maxBytes int64,
+) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
 		return err
@@ -1111,6 +1369,19 @@ func validateAppendStagesRequest(req types.AppendStagesRequest) map[string][]str
 		if stage.Options.TimeOut != nil && *stage.Options.TimeOut <= 0 {
 			result[prefix+".options.timeOut"] = []string{"timeOut must be > 0"}
 		}
+		if stage.Options.MaxRetryInterval != nil && *stage.Options.MaxRetryInterval <= 0 {
+			result[prefix+".options.maxRetryInterval"] = []string{"maxRetryInterval must be > 0"}
+		}
+		backoff := strings.ToLower(strings.TrimSpace(stage.Options.Backoff))
+		if backoff != "" && backoff != "fixed" && backoff != "linear" && backoff != "exponential" {
+			result[prefix+".options.backoff"] = []string{"backoff must be fixed, linear, or exponential"}
+		}
+		for codeIdx, code := range stage.Options.RetryOnErrorCodes {
+			if strings.TrimSpace(code) == "" {
+				result[fmt.Sprintf("%s.options.retryOnErrorCodes[%d]", prefix, codeIdx)] =
+					[]string{"error code must not be empty"}
+			}
+		}
 		for policyIdx, policy := range stage.Policies {
 			if err := validateUpsertPolicyRequest(buildPolicyImportRequest(policy, "", stage.Name, stage.StageHandler), true); err != nil {
 				result[fmt.Sprintf("%s.policies[%d]", prefix, policyIdx)] = []string{err.Error()}
@@ -1136,6 +1407,127 @@ func validatePipelineInlinePolicies(req types.PipelineCreateRequest) map[string]
 		}
 	}
 	return result
+}
+
+func validateIdempotentPipelineCreateRequest(
+	req types.IdempotentPipelineCreateRequest,
+) map[string][]string {
+	result := validateIdempotencyKey(req.IdempotencyKey)
+	pipeline := req.PipelineCreateRequest
+
+	if strings.TrimSpace(pipeline.Name) == "" {
+		addValidationError(result, "name", "name is required")
+	} else if utf8.RuneCountInString(pipeline.Name) > maxPipelineNameRunes {
+		addValidationError(result, "name", fmt.Sprintf("name must be at most %d characters", maxPipelineNameRunes))
+	}
+	if utf8.RuneCountInString(pipeline.TraceID) > maxTraceIDRunes {
+		addValidationError(result, "traceId", fmt.Sprintf("traceId must be at most %d characters", maxTraceIDRunes))
+	}
+
+	for field, messages := range validateAppendStagesRequest(types.AppendStagesRequest{Stages: pipeline.Stages}) {
+		result[field] = append(result[field], messages...)
+	}
+	if len(pipeline.Stages) > maxPipelineStages {
+		addValidationError(result, "stages", fmt.Sprintf("at most %d stages are allowed", maxPipelineStages))
+	}
+	for idx, stage := range pipeline.Stages {
+		prefix := fmt.Sprintf("stages[%d]", idx)
+		if utf8.RuneCountInString(stage.Name) > maxStageNameRunes {
+			addValidationError(result, prefix+".stageName", fmt.Sprintf("stageName must be at most %d characters", maxStageNameRunes))
+		}
+		if utf8.RuneCountInString(stage.StageHandler) > maxStageHandlerRunes {
+			addValidationError(result, prefix+".stageHandlerName", fmt.Sprintf("stageHandlerName must be at most %d characters", maxStageHandlerRunes))
+		}
+		if utf8.RuneCountInString(stage.Description) > maxStageDescriptionRunes {
+			addValidationError(result, prefix+".description", fmt.Sprintf("description must be at most %d characters", maxStageDescriptionRunes))
+		}
+		if len(stage.Input) > maxStageInputBytes {
+			addValidationError(result, prefix+".input", fmt.Sprintf("input must be at most %d bytes", maxStageInputBytes))
+		}
+	}
+
+	if len(pipeline.PipelineKeywords) > maxPipelineKeywords {
+		addValidationError(
+			result,
+			"pipelineKeywords",
+			fmt.Sprintf("at most %d pipeline keywords are allowed", maxPipelineKeywords),
+		)
+	}
+	for idx, keyword := range pipeline.PipelineKeywords {
+		prefix := fmt.Sprintf("pipelineKeywords[%d]", idx)
+		if strings.TrimSpace(keyword.Key) == "" {
+			addValidationError(result, prefix+".key", "key is required")
+		} else if utf8.RuneCountInString(keyword.Key) > maxKeywordRunes {
+			addValidationError(result, prefix+".key", fmt.Sprintf("key must be at most %d characters", maxKeywordRunes))
+		}
+		if strings.TrimSpace(keyword.Value) == "" {
+			addValidationError(result, prefix+".value", "value is required")
+		} else if utf8.RuneCountInString(keyword.Value) > maxKeywordRunes {
+			addValidationError(result, prefix+".value", fmt.Sprintf("value must be at most %d characters", maxKeywordRunes))
+		}
+	}
+
+	if len(pipeline.PipelineContext) > maxPipelineContextItems {
+		addValidationError(
+			result,
+			"pipelineContextItems",
+			fmt.Sprintf("at most %d pipeline context items are allowed", maxPipelineContextItems),
+		)
+	}
+	seenContextKeys := make(map[string]struct{}, len(pipeline.PipelineContext))
+	for idx, item := range pipeline.PipelineContext {
+		prefix := fmt.Sprintf("pipelineContextItems[%d]", idx)
+		key := strings.TrimSpace(item.Key)
+		if key == "" {
+			addValidationError(result, prefix+".key", "key is required")
+		} else {
+			if utf8.RuneCountInString(item.Key) > maxContextKeyRunes {
+				addValidationError(result, prefix+".key", fmt.Sprintf("key must be at most %d characters", maxContextKeyRunes))
+			}
+			normalisedKey := strings.ToLower(key)
+			if _, exists := seenContextKeys[normalisedKey]; exists {
+				addValidationError(result, prefix+".key", "context keys must be unique")
+			} else {
+				seenContextKeys[normalisedKey] = struct{}{}
+			}
+		}
+		if len(item.Value) > maxContextValueBytes {
+			addValidationError(result, prefix+".value", fmt.Sprintf("value must be at most %d bytes", maxContextValueBytes))
+		}
+	}
+
+	for idx, policy := range pipeline.Policies {
+		if err := validateUpsertPolicyRequest(buildPolicyImportRequest(policy, "", "", ""), true); err != nil {
+			addValidationError(result, fmt.Sprintf("policies[%d]", idx), err.Error())
+		}
+	}
+	return result
+}
+
+func validateIdempotencyKey(idempotencyKey string) map[string][]string {
+	result := make(map[string][]string)
+	if idempotencyKey == "" {
+		addValidationError(result, "idempotencyKey", "idempotencyKey is required")
+		return result
+	}
+	if utf8.RuneCountInString(idempotencyKey) > maxIdempotencyKeyRunes {
+		addValidationError(
+			result,
+			"idempotencyKey",
+			fmt.Sprintf("idempotencyKey must be at most %d characters", maxIdempotencyKeyRunes),
+		)
+	}
+	for _, value := range idempotencyKey {
+		if unicode.IsControl(value) {
+			addValidationError(result, "idempotencyKey", "idempotencyKey must not contain control characters")
+			break
+		}
+	}
+	return result
+}
+
+func addValidationError(target map[string][]string, field, message string) {
+	target[field] = append(target[field], message)
 }
 
 func mapAppendStagesSDKRequest(raw appendStagesSDKRequest) (types.AppendStagesRequest, error) {
@@ -1350,6 +1742,14 @@ func (s *ExternalServer) validateExternalAPIKey(ctx context.Context, r *http.Req
 	apiKey := extractAPIKey(r)
 	if strings.TrimSpace(apiKey) == "" {
 		return 0, errors.New("api key is required")
+	}
+	return s.store.ValidateAPIKey(ctx, apiKey)
+}
+
+func (s *ExternalServer) validateXAPIKeyHeader(ctx context.Context, r *http.Request) (int, error) {
+	apiKey := strings.TrimSpace(r.Header.Get("X-API-Key"))
+	if apiKey == "" {
+		return 0, errors.New("X-API-Key header is required")
 	}
 	return s.store.ValidateAPIKey(ctx, apiKey)
 }

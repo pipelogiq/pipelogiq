@@ -47,7 +47,6 @@ import type {
 } from '@/types/policies';
 
 const API_BASE = '/api';
-console.log('[API] Base URL:', API_BASE);
 
 class ApiError extends Error {
   constructor(
