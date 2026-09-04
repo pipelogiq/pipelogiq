@@ -39,6 +39,16 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 	argNum := 1
 	hasSearch := false
 
+	if len(req.ApplicationIDs) > 0 {
+		scopePlaceholders := make([]string, len(req.ApplicationIDs))
+		for i, appID := range req.ApplicationIDs {
+			scopePlaceholders[i] = fmt.Sprintf("$%d", argNum)
+			args = append(args, appID)
+			argNum++
+		}
+		conditions = append(conditions, fmt.Sprintf("p.application_id IN (%s)", strings.Join(scopePlaceholders, ",")))
+	}
+
 	if req.ApplicationID != nil {
 		conditions = append(conditions, fmt.Sprintf("p.application_id = $%d", argNum))
 		args = append(args, *req.ApplicationID)

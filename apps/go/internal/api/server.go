@@ -78,7 +78,9 @@ func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient 
 	}
 }
 
-func (s *Server) Run(ctx context.Context) error {
+// routes builds the internal API router. It is separate from Run so the full middleware
+// chain — authentication and application scoping included — can be exercised in tests.
+func (s *Server) routes() http.Handler {
 	router := chi.NewRouter()
 
 	// Global middleware
@@ -94,12 +96,6 @@ func (s *Server) Run(ctx context.Context) error {
 	router.Get(s.cfg.HealthReadyEndpoint, s.handleHealth)
 	router.Get("/version", version.HandleVersion)
 
-	// Metrics are served on a dedicated listener, never on the routed API surface:
-	// nginx proxies /api/ wholesale, so /metrics here would be publicly readable.
-	if addr := strings.TrimSpace(s.cfg.MetricsAddr); addr != "" {
-		go s.runMetricsServer(ctx, addr)
-	}
-
 	// Auth endpoints (public)
 	router.Post("/auth/login", s.handleLogin)
 	router.Post("/auth/logout", s.handleLogout)
@@ -107,6 +103,7 @@ func (s *Server) Run(ctx context.Context) error {
 	// All other endpoints require auth
 	router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
+		r.Use(s.applicationScopeMiddleware)
 
 		// Auth
 		r.Get("/auth/me", s.handleGetCurrentUser)
@@ -158,9 +155,19 @@ func (s *Server) Run(ctx context.Context) error {
 		})
 	})
 
+	return router
+}
+
+func (s *Server) Run(ctx context.Context) error {
+	// Metrics are served on a dedicated listener, never on the routed API surface:
+	// nginx proxies /api/ wholesale, so /metrics here would be publicly readable.
+	if addr := strings.TrimSpace(s.cfg.MetricsAddr); addr != "" {
+		go s.runMetricsServer(ctx, addr)
+	}
+
 	s.server = &http.Server{
 		Addr:    s.cfg.HTTPAddr,
-		Handler: router,
+		Handler: s.routes(),
 	}
 
 	// Subscribe to StageUpdated fanout exchange and broadcast to WebSocket clients
@@ -277,6 +284,10 @@ func (s *Server) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	if !s.requirePipelineAccess(w, r, ctx, id) {
+		return
+	}
+
 	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -296,6 +307,10 @@ func (s *Server) handleGetStages(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	if !s.requirePipelineAccess(w, r, ctx, id) {
+		return
+	}
+
 	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -313,6 +328,10 @@ func (s *Server) handleGetContext(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !s.requirePipelineAccess(w, r, ctx, id) {
+		return
+	}
+
 	ctxItems, err := s.store.GetPipelineContext(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -333,6 +352,10 @@ func (s *Server) handleGetPipelineStagesAlt(w http.ResponseWriter, r *http.Reque
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	if !s.requirePipelineAccess(w, r, ctx, id) {
+		return
+	}
+
 	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
@@ -351,6 +374,10 @@ func (s *Server) handleGetPipelineContextAlt(w http.ResponseWriter, r *http.Requ
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	if !s.requirePipelineAccess(w, r, ctx, id) {
+		return
+	}
 
 	ctxItems, err := s.store.GetPipelineContext(ctx, id)
 	if err != nil {

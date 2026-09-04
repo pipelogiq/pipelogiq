@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -17,11 +18,13 @@ type Hub struct {
 	upgrader websocket.Upgrader
 }
 
-// Client wraps a single WebSocket connection.
+// Client wraps a single WebSocket connection together with the application scope of the
+// user that opened it, so a connection only receives updates it is allowed to see.
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub   *Hub
+	conn  *websocket.Conn
+	send  chan []byte
+	scope applicationScope
 }
 
 func NewHub(logger *slog.Logger, allowedOrigins []string) *Hub {
@@ -64,11 +67,24 @@ func (h *Hub) clientCount() int {
 	return len(h.clients)
 }
 
-// Broadcast sends a message to all connected clients.
+// Broadcast sends a pipeline update to the clients whose application scope covers it.
+// An update whose owning application cannot be determined is dropped rather than fanned
+// out, so a malformed payload can never leak across applications.
 func (h *Hub) Broadcast(msg []byte) {
+	var envelope struct {
+		ApplicationID int `json:"applicationId"`
+	}
+	if err := json.Unmarshal(msg, &envelope); err != nil || envelope.ApplicationID <= 0 {
+		h.logger.Warn("ws: dropping broadcast without a resolvable application")
+		return
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for c := range h.clients {
+		if !c.scope.allows(envelope.ApplicationID) {
+			continue
+		}
 		select {
 		case c.send <- msg:
 		default:
@@ -133,6 +149,12 @@ func (c *Client) readPump() {
 
 // ServeWS handles a WebSocket upgrade request.
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
+	scope := scopeFromContext(r.Context())
+	if scope.isEmpty() {
+		writeJSONError(w, "no application access", http.StatusForbidden)
+		return
+	}
+
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		h.logger.Error("ws: upgrade failed", "err", err)
@@ -140,9 +162,10 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		hub:  h,
-		conn: conn,
-		send: make(chan []byte, 256),
+		hub:   h,
+		conn:  conn,
+		send:  make(chan []byte, 256),
+		scope: scope,
 	}
 	h.register(client)
 

@@ -1141,4 +1141,8 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="add user application membership index" author="Sergei">
+        <sql>CREATE INDEX IF NOT EXISTS idx_user_application_user_id ON user_application(user_id)</sql>
+    </changeSet>
+
 </databaseChangeLog>

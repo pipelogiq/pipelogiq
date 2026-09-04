@@ -21,7 +21,10 @@ func (s *Server) handleGetPipelines(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	scope := scopeFromContext(r.Context())
+
 	req := types.GetPipelinesRequest{
+		ApplicationIDs:    scope.applicationIDs(),
 		PageNumber:        parseQueryIntPtr(r.URL.Query().Get("pageNumber")),
 		PageSize:          parseQueryIntPtr(r.URL.Query().Get("pageSize")),
 		ApplicationID:     parseQueryIntPtr(r.URL.Query().Get("applicationId")),
@@ -32,6 +35,16 @@ func (s *Server) handleGetPipelines(w http.ResponseWriter, r *http.Request) {
 		PipelineStartTo:   parseQueryStringPtr(r.URL.Query().Get("pipelineStartTo")),
 		PipelineEndFrom:   parseQueryStringPtr(r.URL.Query().Get("pipelineEndFrom")),
 		PipelineEndTo:     parseQueryStringPtr(r.URL.Query().Get("pipelineEndTo")),
+	}
+
+	if req.ApplicationID != nil && !scope.allows(*req.ApplicationID) {
+		writeJSONError(w, "not found", http.StatusNotFound)
+		return
+	}
+
+	if scope.isEmpty() {
+		writeJSON(w, types.PagedResult[types.PipelineResponse]{Items: []types.PipelineResponse{}}, http.StatusOK)
+		return
 	}
 
 	result, err := s.store.GetPipelines(ctx, req)
@@ -58,6 +71,10 @@ func (s *Server) handleRerunStage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	if !s.requireStageAccess(w, r, ctx, req.StageID) {
+		return
+	}
+
 	if err := s.store.RerunStage(ctx, req.StageID, req.RerunAllNextStages); err != nil {
 		s.logger.Error("rerun stage failed", "err", err)
 		http.Error(w, "failed to rerun stage", http.StatusInternalServerError)
@@ -76,6 +93,10 @@ func (s *Server) handlePausePipeline(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	if !s.requirePipelineAccess(w, r, ctx, pipelineID) {
+		return
+	}
 
 	if err = s.store.PausePipeline(ctx, pipelineID); err != nil {
 		switch {
@@ -102,6 +123,10 @@ func (s *Server) handleResumePipeline(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	if !s.requirePipelineAccess(w, r, ctx, pipelineID) {
+		return
+	}
 
 	if err = s.store.ResumePipeline(ctx, pipelineID); err != nil {
 		switch {
@@ -130,6 +155,10 @@ func (s *Server) handleSkipStage(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	if !s.requireStageAccess(w, r, ctx, req.StageID) {
+		return
+	}
 
 	if err := s.store.SkipStage(ctx, req.StageID); err != nil {
 		s.logger.Error("skip stage failed", "err", err)
@@ -182,10 +211,28 @@ func (s *Server) handleBulkPipelineAction(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	requested := len(ids)
+	var denied []int
+	if scope == "stage" {
+		ids, denied = s.scopedStageIDs(ctx, ids)
+	} else {
+		ids, denied = s.scopedPipelineIDs(ctx, ids)
+	}
+
 	resp := types.BulkPipelineActionResponse{
 		Action:    req.Action,
-		Requested: len(ids),
-		Results:   make([]types.BulkPipelineActionItemResult, 0, len(ids)),
+		Requested: requested,
+		Results:   make([]types.BulkPipelineActionItemResult, 0, requested),
+	}
+
+	// Targets outside the caller's applications are reported as not found, never acted on.
+	for _, id := range denied {
+		resp.Failed++
+		resp.Results = append(resp.Results, types.BulkPipelineActionItemResult{
+			ID:    id,
+			Scope: scope,
+			Error: "not found",
+		})
 	}
 
 	for _, id := range ids {
@@ -244,6 +291,10 @@ func (s *Server) handleGetPipelineLogs(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	if !s.requirePipelineAccess(w, r, ctx, pipelineID) {
+		return
+	}
 
 	logs, err := s.store.GetStageLogs(ctx, pipelineID, stageID)
 	if err != nil {
@@ -380,6 +431,10 @@ func (s *Server) handleGetApiKeys(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	if !s.requireApplicationAccess(w, r, appID) {
+		return
+	}
+
 	keys, err := s.store.GetApiKeys(ctx, appID)
 	if err != nil {
 		s.logger.Error("get api keys failed", "err", err)
@@ -399,6 +454,18 @@ func (s *Server) handleDisableApiKey(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	appID, err := s.store.ApiKeyApplicationID(ctx, req.ApiKeyID)
+	if err != nil {
+		if !errors.Is(err, store.ErrApiKeyNotFound) {
+			s.logger.Error("resolve api key application failed", "apiKeyId", req.ApiKeyID, "err", err)
+		}
+		writeJSONError(w, "not found", http.StatusNotFound)
+		return
+	}
+	if !s.requireApplicationAccess(w, r, appID) {
+		return
+	}
 
 	if err := s.store.DisableApiKey(ctx, req.ApiKeyID); err != nil {
 		s.logger.Error("disable api key failed", "err", err)
@@ -439,6 +506,10 @@ func (s *Server) handleGetLogsByAppID(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	if !s.requireApplicationAccess(w, r, appID) {
+		return
+	}
 
 	logs, err := s.store.GetLogsByAppID(ctx, appID)
 	if err != nil {

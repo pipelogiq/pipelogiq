@@ -27,10 +27,21 @@ func (s *Server) handleGetWorkers(w http.ResponseWriter, r *http.Request) {
 	applicationID := parseQueryIntPtr(r.URL.Query().Get("applicationId"))
 	search := parseQueryStringPtr(r.URL.Query().Get("search"))
 
+	scope := scopeFromContext(r.Context())
+	if scope.isEmpty() {
+		writeJSON(w, types.WorkerStatusListResponse{Items: []types.WorkerStatusResponse{}}, http.StatusOK)
+		return
+	}
+	if applicationID != nil && !scope.allows(*applicationID) {
+		writeJSONError(w, "not found", http.StatusNotFound)
+		return
+	}
+
 	workers, err := s.store.ListWorkers(ctx, types.WorkerListRequest{
-		ApplicationID: applicationID,
-		Search:        search,
-		Limit:         limit,
+		ApplicationIDs: scope.applicationIDs(),
+		ApplicationID:  applicationID,
+		Search:         search,
+		Limit:          limit,
 	})
 	if err != nil {
 		s.logger.Error("list workers failed", "err", err)
@@ -94,10 +105,22 @@ func (s *Server) handleGetWorkerEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	applicationID := parseQueryIntPtr(r.URL.Query().Get("applicationId"))
+
+	scope := scopeFromContext(r.Context())
+	if scope.isEmpty() {
+		writeJSON(w, []types.WorkerEventResponse{}, http.StatusOK)
+		return
+	}
+	if applicationID != nil && !scope.allows(*applicationID) {
+		writeJSONError(w, "not found", http.StatusNotFound)
+		return
+	}
+
 	events, err := s.store.ListWorkerEvents(ctx, types.WorkerEventListRequest{
-		WorkerID:      workerID,
-		ApplicationID: applicationID,
-		Limit:         limit,
+		WorkerID:       workerID,
+		ApplicationIDs: scope.applicationIDs(),
+		ApplicationID:  applicationID,
+		Limit:          limit,
 	})
 	if err != nil {
 		s.logger.Error("list worker events failed", "err", err)

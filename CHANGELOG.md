@@ -27,6 +27,14 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ### Security
 
+- **Application-scoped authorization on the internal API.** Access is derived from
+  `user_application` membership and enforced on pipelines, stages, logs, workers, API keys
+  and WebSocket updates. Cross-application requests answer `404` so ids stay unenumerable,
+  bulk actions report out-of-scope targets individually instead of acting on them, and the
+  WebSocket hub only fans an update out to connections scoped to its application. An update
+  whose owning application cannot be resolved is dropped rather than broadcast.
+- On startup the administrator adopts any application left without members, so purging the
+  legacy demo accounts cannot orphan an application and hide its running pipelines.
 - Sensitive context values are replaced with `[REDACTED]` in public/status, dashboard stage-log, and WebSocket pipeline projections. Consumers must still keep secrets, PII, and claim payloads out of pipeline context and logs.
 - **Removed the demo accounts seeded by migration.** `jegor@gmail.com`, `leo@gmail.com` and `ww@gmail.com` — whose bcrypt hashes are published in the repository history — are deleted on startup, and their application membership is transferred to the bootstrapped administrator.
 - **Prometheus metrics moved off the routed API surface** to a dedicated listener (`METRICS_ADDR`, default `:9091`). nginx proxies `/api/` wholesale, so `/metrics` was previously readable without authentication from the dashboard port.

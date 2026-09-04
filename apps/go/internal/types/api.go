@@ -134,8 +134,11 @@ type StageLog struct {
 // Pagination
 
 type GetPipelinesRequest struct {
-	PageNumber        *int     `json:"pageNumber"`
-	PageSize          *int     `json:"pageSize"`
+	PageNumber *int `json:"pageNumber"`
+	PageSize   *int `json:"pageSize"`
+	// ApplicationIDs restricts the result to applications the caller belongs to. It is set
+	// by the API from the request scope and is never accepted from client input.
+	ApplicationIDs    []int    `json:"-"`
 	ApplicationID     *int     `json:"applicationId"`
 	Search            *string  `json:"search"`
 	Keywords          []string `json:"keywords"`
@@ -411,16 +414,22 @@ type WorkerEventResponse struct {
 }
 
 type WorkerListRequest struct {
-	ApplicationID *int
-	State         *string
-	Search        *string
-	Limit         int
+	// ApplicationIDs restricts the result to the caller's applications. It is set by the
+	// API from the request scope and is never accepted from client input.
+	ApplicationIDs []int
+	ApplicationID  *int
+	State          *string
+	Search         *string
+	Limit          int
 }
 
 type WorkerEventListRequest struct {
-	WorkerID      *string
-	ApplicationID *int
-	Limit         int
+	WorkerID *string
+	// ApplicationIDs restricts the result to the caller's applications. It is set by the
+	// API from the request scope and is never accepted from client input.
+	ApplicationIDs []int
+	ApplicationID  *int
+	Limit          int
 }
 
 // Log types

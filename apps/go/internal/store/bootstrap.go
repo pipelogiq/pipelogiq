@@ -36,29 +36,6 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 		return s.warnIfNoAdmin(ctx)
 	}
 
-	// Without an explicit hash, provision a one-time random password rather than shipping a
-	// known credential. It is printed once and never stored in plain text.
-	generatedPassword := ""
-	if hash == "" {
-		exists, err := s.userExists(ctx, email)
-		if err != nil {
-			return err
-		}
-		if exists {
-			return s.warnIfNoAdmin(ctx)
-		}
-
-		generatedPassword, err = generatePassword()
-		if err != nil {
-			return fmt.Errorf("generate admin password: %w", err)
-		}
-		encoded, err := bcrypt.GenerateFromPassword([]byte(generatedPassword), bcrypt.DefaultCost)
-		if err != nil {
-			return fmt.Errorf("hash admin password: %w", err)
-		}
-		hash = string(encoded)
-	}
-
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -74,9 +51,28 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 	err = tx.QueryRowContext(ctx, `
 		SELECT id FROM "user" WHERE lower(email) = $1 LIMIT 1
 	`, email).Scan(&adminID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("lookup admin user: %w", err)
+	}
+	exists := !errors.Is(err, sql.ErrNoRows)
+
+	// Without an explicit hash, provision a one-time random password rather than shipping a
+	// known credential. It is printed once and never stored in plain text.
+	generatedPassword := ""
+	if hash == "" && !exists {
+		generatedPassword, err = generatePassword()
+		if err != nil {
+			return fmt.Errorf("generate admin password: %w", err)
+		}
+		encoded, err := bcrypt.GenerateFromPassword([]byte(generatedPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return fmt.Errorf("hash admin password: %w", err)
+		}
+		hash = string(encoded)
+	}
 
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case !exists:
 		if err = tx.QueryRowContext(ctx, `
 			INSERT INTO "user" (first_name, last_name, email, password, role)
 			VALUES ($1, $2, $3, $4, 'Admin')
@@ -89,13 +85,19 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 			s.logger.Warn("bootstrap: generated a one-time administrator password; sign in and change it",
 				"email", email, "password", generatedPassword)
 		}
-	case err != nil:
-		return fmt.Errorf("lookup admin user: %w", err)
-	default:
+	case hash != "":
+		// An explicit hash is authoritative and re-applied on every start.
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE "user" SET password = $2, role = 'Admin' WHERE id = $1
 		`, adminID, hash); err != nil {
 			return fmt.Errorf("update admin user: %w", err)
+		}
+	default:
+		// Existing account, no hash supplied: leave the current password alone.
+		if _, err = tx.ExecContext(ctx, `
+			UPDATE "user" SET role = 'Admin' WHERE id = $1
+		`, adminID); err != nil {
+			return fmt.Errorf("promote admin user: %w", err)
 		}
 	}
 
@@ -105,6 +107,15 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 	}
 	if removed > 0 {
 		s.logger.Warn("bootstrap: removed legacy demo accounts seeded by migration", "count", removed)
+	}
+
+	adopted, err := adoptOrphanedApplications(ctx, tx, adminID)
+	if err != nil {
+		return err
+	}
+	if adopted > 0 {
+		s.logger.Warn("bootstrap: assigned applications that had no members to the administrator",
+			"count", adopted, "email", email)
 	}
 
 	return tx.Commit()
@@ -178,15 +189,26 @@ func placeholders(count, start int) string {
 	return strings.Join(parts, ", ")
 }
 
-// userExists reports whether an account with the given email is already present.
-func (s *Store) userExists(ctx context.Context, email string) (bool, error) {
-	var exists bool
-	if err := s.db.QueryRowxContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM "user" WHERE lower(email) = $1)
-	`, email).Scan(&exists); err != nil {
-		return false, fmt.Errorf("lookup user by email: %w", err)
+// adoptOrphanedApplications gives the administrator membership of every application that
+// nobody belongs to. Access is derived from membership, so on an upgrade — where the only
+// member may have been a purged demo account — an unowned application would otherwise
+// become invisible to everyone while its pipelines keep running.
+func adoptOrphanedApplications(ctx context.Context, tx execQuerier, adminID int) (int64, error) {
+	res, err := tx.ExecContext(ctx, `
+		INSERT INTO user_application (user_id, application_id)
+		SELECT $1, a.id
+		FROM application a
+		WHERE NOT EXISTS (SELECT 1 FROM user_application ua WHERE ua.application_id = a.id)
+	`, adminID)
+	if err != nil {
+		return 0, fmt.Errorf("adopt orphaned applications: %w", err)
 	}
-	return exists, nil
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return affected, nil
 }
 
 // generatePassword returns a URL-safe random password with 144 bits of entropy.

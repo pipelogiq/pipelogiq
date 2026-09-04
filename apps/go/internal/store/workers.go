@@ -742,6 +742,7 @@ func (s *Store) ListWorkers(ctx context.Context, req types.WorkerListRequest) ([
 	`)
 
 	args := make([]any, 0, 4)
+	queryBuilder.WriteString(applicationScopeClause("wc.application_id", req.ApplicationIDs, &args))
 	if req.ApplicationID != nil && *req.ApplicationID > 0 {
 		args = append(args, *req.ApplicationID)
 		queryBuilder.WriteString(fmt.Sprintf(" AND wc.application_id = $%d", len(args)))
@@ -812,6 +813,7 @@ func (s *Store) ListWorkerEvents(ctx context.Context, req types.WorkerEventListR
 		args = append(args, strings.TrimSpace(*req.WorkerID))
 		queryBuilder.WriteString(fmt.Sprintf(" AND we.worker_id = $%d", len(args)))
 	}
+	queryBuilder.WriteString(applicationScopeClause("wc.application_id", req.ApplicationIDs, &args))
 	if req.ApplicationID != nil && *req.ApplicationID > 0 {
 		args = append(args, *req.ApplicationID)
 		queryBuilder.WriteString(fmt.Sprintf(" AND wc.application_id = $%d", len(args)))
@@ -1100,4 +1102,18 @@ func maxInt64(value int64, minValue int64) int64 {
 		return minValue
 	}
 	return value
+}
+
+// applicationScopeClause renders an IN clause restricting rows to the caller's
+// applications, appending the ids to args.
+func applicationScopeClause(column string, ids []int, args *[]any) string {
+	if len(ids) == 0 {
+		return ""
+	}
+	placeholders := make([]string, len(ids))
+	for i, id := range ids {
+		*args = append(*args, id)
+		placeholders[i] = fmt.Sprintf("$%d", len(*args))
+	}
+	return fmt.Sprintf(" AND %s IN (%s)", column, strings.Join(placeholders, ","))
 }
