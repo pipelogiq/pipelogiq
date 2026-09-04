@@ -7,7 +7,27 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
-## [0.3.2-preview.7] - 2026-09-03
+## [0.4.0-preview.1] - 2026-09-04
+
+The minor version moves because this release changes the authorization model and
+can refuse to start on a configuration that worked before. See
+[the upgrade notes](docs/releases/RELEASE_NOTES_v0.4.0-preview.1.md) before deploying.
+
+### Breaking changes
+
+- **Data access now requires application membership.** An account that is not in
+  `user_application` sees an empty pipeline list and receives `404` on pipeline, stage,
+  log and worker routes. Verify membership after upgrading; on startup the administrator
+  adopts only applications that have no members at all.
+- **The API refuses to start with a published example `JWT_SECRET`.** A deployment still
+  carrying `change-me-to-a-long-random-secret-at-least-32-characters` or the former
+  Compose default must generate a secret first (`openssl rand -base64 48`).
+- **`/metrics` is no longer served on the routed API surface.** Prometheus targets pointed
+  at the dashboard port must move to the dedicated listener (`METRICS_ADDR`, default
+  `:9091`). Worker metrics on `:9090` are unchanged.
+- **The demo accounts seeded by migration are deleted on first start.** `jegor@gmail.com`,
+  `leo@gmail.com` and `ww@gmail.com` are removed and their applications transferred to the
+  bootstrapped administrator. To keep one of those addresses, set it as `ADMIN_EMAIL`.
 
 ### Added
 
@@ -22,7 +42,7 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 ### Compatibility
 
 - Legacy `POST /pipelines`, existing builders/handlers/results, old pipeline rows, and wire payloads without new optional fields remain readable and executable.
-- The target upgrade pair is server `v0.3.2-preview.7` with `pipelogiq-sdk-net 0.3.2-preview.6`.
+- The target upgrade pair is server `v0.4.0-preview.1` with `pipelogiq-sdk-net 0.4.0-preview.1`.
 - Strong lease/fencing behavior requires the target SDK and a normal non-event pipeline; `isEvent` retains its legacy direct-publish path.
 
 ### Security
@@ -459,7 +479,7 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
-[0.3.2-preview.7]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.7
+[0.4.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.4.0-preview.1
 [0.3.2-preview.6]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.6
 [0.3.2-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.5
 [0.3.2-preview.4]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.4

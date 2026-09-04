@@ -20,8 +20,7 @@ Booking cancelled or payer changed
 
 The audit baseline was server `v0.3.2-preview.6` with
 `pipelogiq-sdk-net 0.3.2-preview.5`. The reliability additions described in
-this document target server `v0.3.2-preview.7` and SDK
-`0.3.2-preview.6`. Neither target version is published by this change.
+this document ship in server `v0.4.0-preview.1` and SDK `0.4.0-preview.1`.
 
 ## Verdict
 

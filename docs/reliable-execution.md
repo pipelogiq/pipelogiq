@@ -1,13 +1,9 @@
 # Reliable execution and upgrade guide
 
 This document describes the additive reliability contract targeted by
-Pipelogiq server `v0.3.2-preview.7` and `pipelogiq-sdk-net
-0.3.2-preview.6`.
+Pipelogiq server `v0.4.0-preview.1` and `pipelogiq-sdk-net
+0.4.0-preview.1`.
 
-These versions are source targets for this change. They are **not published or
-released** by this work. Until the SDK package is built and distributed through
-the consuming organisation's normal package process, existing consumers remain
-on the legacy contract.
 
 ## Guarantee model
 
@@ -38,12 +34,11 @@ workflow. Loss of either durable store is outside this guarantee.
 1. Back up PostgreSQL and confirm RabbitMQ uses persistent storage.
 2. Apply the additive Liquibase changes in
    [`database/changelog.xml`](../database/changelog.xml#L1077-L1158).
-3. Deploy server/API and worker target `v0.3.2-preview.7`.
+3. Deploy server/API and worker target `v0.4.0-preview.1`.
 4. Verify `/version`, health endpoints, migrations, and RabbitMQ connectivity.
-5. Build and distribute `pipelogiq-sdk-net 0.3.2-preview.6` through the normal
-   internal package process. This repository change does not publish it.
+5. Install `pipelogiq-sdk-net 0.4.0-preview.1` from NuGet.
 6. Upgrade critical workers and the pipeline-creating consumer to SDK
-   `0.3.2-preview.6`.
+   `0.4.0-preview.1`.
 7. Opt critical workflows into idempotent creation and classified retries.
 8. Keep legacy workers only for non-critical pipelines during the transition.
 
@@ -490,7 +485,7 @@ external reservation status before sending another cancellation request.
 
 ## Backward compatibility
 
-Server `v0.3.2-preview.7` continues to accept:
+Server `v0.4.0-preview.1` continues to accept:
 
 - legacy `POST /pipelines`;
 - pipeline rows without idempotency metadata;
@@ -502,7 +497,7 @@ Server `v0.3.2-preview.7` continues to accept:
 Old SDK `0.3.2-preview.5` can continue to run against the target server, but
 its messages do not participate fully in lease acquisition and result fencing,
 and it cannot opt into idempotent creation, retry filtering, or sensitive
-context. Use target SDK `0.3.2-preview.6` for the critical insurance workflow.
+context. Use target SDK `0.4.0-preview.1` for the critical insurance workflow.
 
 The normal non-event path is the reliability path. `AsEvent`/`isEvent` retains
 its legacy direct-publish behavior for compatibility and must not host the

@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: Pipelogiq External API
-  version: "0.3.2-preview.7"
+  version: "0.4.0-preview.1"
   description: |
     External API used by SDK clients and workers.
 
