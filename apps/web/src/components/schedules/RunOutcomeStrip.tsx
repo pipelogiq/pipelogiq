@@ -3,7 +3,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import type { ScheduleRunOutcome } from '@/types/schedules';
 
 const outcomeClass: Record<ScheduleRunOutcome, string> = {
-  Created: 'bg-emerald-500',
+  Created: 'bg-status-success',
   Failed: 'bg-destructive',
   Skipped: 'bg-muted-foreground/40',
 };

@@ -294,8 +294,8 @@ export default function Pipelines() {
           ) : (
             <>
               {selectedBulkPipelineIds.size > 0 && (
-                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-slate-50 px-3 py-2">
-                  <span className="mr-1 text-xs font-semibold text-slate-600">
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2">
+                  <span className="mr-1 text-xs font-semibold text-muted-foreground">
                     {selectedBulkPipelineIds.size} selected
                   </span>
                   <Button

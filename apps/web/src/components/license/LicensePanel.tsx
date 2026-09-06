@@ -60,7 +60,7 @@ export function LicensePanel() {
         </div>
 
         {data.inGrace && (
-          <p className="mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+          <p className="mt-3 rounded-lg border border-status-warning/40 bg-status-warning-bg p-3 text-sm">
             This licence expired and its features stay unlocked until{' '}
             <strong>{formatDate(data.graceEndsAt)}</strong>. After that the
             deployment becomes Community.{' '}
@@ -109,7 +109,7 @@ export function LicensePanel() {
             <li key={feature.name} className="flex items-start gap-3 px-6 py-4">
               <span className="mt-0.5">
                 {feature.unlocked ? (
-                  <Check className="h-4 w-4 text-emerald-500" />
+                  <Check className="h-4 w-4 text-status-success" />
                 ) : (
                   <Lock className="h-4 w-4 text-muted-foreground" />
                 )}

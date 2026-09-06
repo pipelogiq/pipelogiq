@@ -868,7 +868,7 @@ export default function Policies() {
           </div>
         </div>
 
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           {insightsQuery.isLoading ? (
             Array.from({ length: 4 }).map((_, index) => (
               <Skeleton key={index} className="h-[120px] w-full rounded-xl" />
@@ -876,7 +876,13 @@ export default function Policies() {
           ) : (
             <>
               <KpiCard title="Active policies" value={summary.activePoliciesCount} icon={CheckCircle2} />
-              <KpiCard title="System / inline / orphaned" value={`${summary.systemPoliciesCount} / ${summary.inlinePoliciesCount} / ${summary.orphanedPoliciesCount}`} subtitle="Governance sources" icon={Shield} />
+              <KpiCard
+                title="System / inline / orphaned"
+                value={`${summary.systemPoliciesCount} / ${summary.inlinePoliciesCount} / ${summary.orphanedPoliciesCount}`}
+                subtitle="Governance sources"
+                icon={Shield}
+                className="md:col-span-2"
+              />
               <KpiCard title="Policies triggered" value={summary.policiesTriggered} subtitle={`Range: ${rangeOptions.find(o => o.value === range)?.label}`} icon={Zap} />
               <KpiCard title="Actions blocked/throttled" value={summary.actionsBlocked} icon={AlertTriangle} />
               <KpiCard title="Top policy by triggers" value={summary.topPolicy} icon={Timer} />

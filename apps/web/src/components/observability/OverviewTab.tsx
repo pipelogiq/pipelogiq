@@ -2,7 +2,7 @@ import { useState } from "react";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { Copy, Check, Zap, Loader2, Activity, AlertTriangle, Clock, TrendingUp, ArrowRight, ExternalLink } from "lucide-react";
+import { Copy, Check, Zap, Loader2, Activity, AlertTriangle, Clock, TrendingUp, ArrowRight, ExternalLink, Radar, BellRing, ScrollText, LineChart } from "lucide-react";
 import {
   useObservabilityStatus,
   useObservabilityInsights,
@@ -94,12 +94,12 @@ OTEL_SERVICE_NAME=pipelogiq`;
           <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
             Observability Health
           </h3>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2">
             {/* OTel Card */}
             <div className="rounded-xl border border-border bg-card p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">🔭</span>
+                  <Radar className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
                   <span className="font-semibold text-sm">OpenTelemetry</span>
                 </div>
                 <StatusBadge status={statusToVariant(otelIntegration?.status)} size="sm">
@@ -121,7 +121,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
                   Last export: {formatDistanceToNow(new Date(status.otel.lastSuccessExportAt), { addSuffix: true })}
                 </p>
               )}
-              <div className="flex gap-2 pt-1">
+              <div className="flex flex-wrap gap-2 pt-1">
                 <Button
                   variant="outline"
                   size="sm"
@@ -146,7 +146,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             <div className="rounded-xl border border-border bg-card p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">🚨</span>
+                  <BellRing className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
                   <span className="font-semibold text-sm">Alerts</span>
                 </div>
                 <StatusBadge status={statusToVariant(alertingIntegration?.status)} size="sm">
@@ -177,7 +177,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             <div className="rounded-xl border border-border bg-card p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">📋</span>
+                  <ScrollText className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
                   <span className="font-semibold text-sm">Logs</span>
                 </div>
                 <StatusBadge
@@ -202,7 +202,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             <div className="rounded-xl border border-border bg-card p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">📈</span>
+                  <LineChart className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
                   <span className="font-semibold text-sm">Grafana</span>
                 </div>
                 <StatusBadge status={statusToVariant(grafanaIntegration?.status)} size="sm">

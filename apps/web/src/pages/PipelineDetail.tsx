@@ -4,6 +4,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { PipelineGraph, PipelineStep } from "@/components/pipeline-detail/PipelineGraph";
 import { StepDetailsPanel } from "@/components/pipeline-detail/StepDetailsPanel";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { pipelineStatusLabel } from "@/lib/status-label";
 import { Button } from "@/components/ui/button";
 import { usePipeline } from "@/hooks/use-pipelines";
 import {
@@ -105,7 +106,7 @@ export default function PipelineDetail() {
                   </div>
                 </div>
                 <StatusBadge status={pipeline.status} pulse={pipeline.status === "running"}>
-                  {pipeline.status}
+                  {pipelineStatusLabel(pipeline.status)}
                 </StatusBadge>
               </div>
 
@@ -170,7 +171,7 @@ export default function PipelineDetail() {
                       <span className="font-medium text-foreground">{step.name}</span>
                     </div>
                     <StatusBadge status={step.status} size="sm">
-                      {step.status}
+                      {pipelineStatusLabel(step.status)}
                     </StatusBadge>
                     {step.duration && (
                       <span className="w-16 text-right text-sm font-mono text-muted-foreground">

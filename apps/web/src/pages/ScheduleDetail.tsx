@@ -42,15 +42,18 @@ import {
 import { cn } from '@/lib/utils';
 import type { ScheduleRunOutcome } from '@/types/schedules';
 
-const outcomeVariant: Record<ScheduleRunOutcome, 'default' | 'destructive' | 'outline'> = {
-  Created: 'default',
+// Created is the expected outcome of a tick, so it stays neutral — a run
+// history where every good row is filled with the brand colour buries the one
+// that failed. Only Failed keeps a loud variant.
+const outcomeVariant: Record<ScheduleRunOutcome, 'secondary' | 'destructive' | 'outline'> = {
+  Created: 'secondary',
   Failed: 'destructive',
   Skipped: 'outline',
 };
 
 const healthToneClass = {
   ok: 'text-muted-foreground',
-  warn: 'text-amber-600 dark:text-amber-400',
+  warn: 'text-status-warning',
   bad: 'text-destructive',
 } as const;
 

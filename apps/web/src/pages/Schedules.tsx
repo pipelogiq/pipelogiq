@@ -51,7 +51,7 @@ const statusFilters: { label: string; value: ScheduleStatus | 'all' }[] = [
 
 const healthToneClass = {
   ok: 'text-muted-foreground',
-  warn: 'text-amber-600 dark:text-amber-400',
+  warn: 'text-status-warning',
   bad: 'text-destructive',
 } as const;
 
@@ -121,6 +121,7 @@ export default function Schedules() {
             title="With recent failures"
             value={counts.failing}
             icon={counts.failing > 0 ? AlertTriangle : CheckCircle2}
+            tone="critical"
           />
           <KpiCard
             title="Next run"

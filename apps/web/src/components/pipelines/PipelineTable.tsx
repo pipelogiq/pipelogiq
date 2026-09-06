@@ -1,3 +1,4 @@
+import { pipelineStatusLabel } from "@/lib/status-label";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
 import { PipelineExecution } from "./PipelineDetailPanel";
@@ -40,8 +41,8 @@ const stageStatusColors: Record<UIStatus, string> = {
   rescheduled: "text-status-warning",
   throttled: "text-status-throttled",
   paused: "text-status-paused",
-  queued: "text-slate-400",
-  skipped: "text-violet-500",
+  queued: "text-muted-foreground/50",
+  skipped: "text-muted-foreground/50",
 };
 
 interface PipelineTableProps {
@@ -54,23 +55,6 @@ interface PipelineTableProps {
   onToggleAllBulkSelection?: (selected: boolean) => void;
   allBulkSelected?: boolean;
   someBulkSelected?: boolean;
-}
-
-function pipelineStatusLabel(status: UIStatus): string {
-  switch (status) {
-    case "success":
-      return "Completed";
-    case "error":
-      return "Failed";
-    case "queued":
-      return "Not Started";
-    case "waiting":
-      return "Pending";
-    case "rescheduled":
-      return "Rescheduled";
-    default:
-      return status.charAt(0).toUpperCase() + status.slice(1);
-  }
 }
 
 export function PipelineTable({
@@ -162,7 +146,7 @@ export function PipelineTable({
                   </span>
                   {hasFailureHistory && (
                     <span
-                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-700"
+                      className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-error-bg text-status-error"
                       title="Had a previous failure"
                       aria-label="Had a previous failure"
                     >
