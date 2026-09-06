@@ -83,7 +83,8 @@ QUEUE="${APP_ID}_${HANDLER}_StageNext"
 echo "worker=$WORKER_ID app=$APP_ID queue=$QUEUE"
 
 step "Creating a two-stage pipeline"
-# The first stage retries once with no delay, so the smoke run stays short.
+# The first stage retries after one second. RetryInterval must be positive for
+# the StageOptions fallback to schedule a retry at all.
 PIPELINE="$(call POST /pipelines/idempotent "$(cat <<JSON
 {
   "idempotencyKey": "http-smoke-$RUN_ID",
@@ -93,7 +94,7 @@ PIPELINE="$(call POST /pipelines/idempotent "$(cat <<JSON
       "stageName": "first",
       "stageHandlerName": "$HANDLER",
       "input": "{\"step\":1}",
-      "options": { "maxRetries": 2, "retryInterval": 0 }
+      "options": { "maxRetries": 2, "retryInterval": 1 }
     },
     {
       "stageName": "second",

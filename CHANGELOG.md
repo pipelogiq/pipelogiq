@@ -7,6 +7,64 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+## [0.4.1-preview.1] - 2026-09-06
+
+Workers can now run stages over HTTP alone, with no broker connection, and the
+Compose deployment is shaped for a host that already runs something else. The
+release is additive: no schema changes, no new required configuration, and every
+existing AMQP worker and SDK client is unaffected. See
+[the release notes](docs/releases/RELEASE_NOTES_v0.4.1-preview.1.md).
+
+### Added
+
+- **`POST /stages/{stageId}/result`** on the external API. An HTTP worker reports a
+  stage result through the same path AMQP workers use: the body is the
+  `stage_result` message verbatim, and the API publishes it onto the `StageResult`
+  queue with persistent delivery and publisher confirms. The API never writes stage
+  state, so fencing, retry policies, WebSocket updates, and metrics are unchanged.
+  `202` means queued, not applied; stale, duplicate, and terminal-stage results are
+  accepted and dropped by the consumer, which makes retrying a `503` safe.
+- **Long polling on `POST /jobs/pull`** through `waitSeconds` (`0..20`, default `0`),
+  so an HTTP worker no longer hot-polls an empty queue.
+- **`docs/http-workers.md`** — the complete HTTP worker protocol, with a sequence
+  diagram, every lease refusal reason, a failure matrix, and a curl walkthrough.
+- **Application bootstrap from the environment** — `BOOTSTRAP_APPLICATION_NAME`,
+  `BOOTSTRAP_API_KEY`, and the optional `BOOTSTRAP_APPLICATION_APP_ID` assertion
+  provision an application and its API key on first start, so a fresh host needs no
+  dashboard clicks. It is a no-op once the application exists, and the startup line
+  never contains the key.
+- **`scripts/http-worker-smoke.sh`** — plays the whole protocol with `curl` against
+  `make compose-up`, including a retryable failure, and asserts the pipeline reaches
+  `Completed` with one retry recorded.
+- Prometheus `api_stage_results_posted_total{status_code}` and
+  `api_stage_result_duration_ms`.
+- OpenAPI entries for `/stages/{stageId}/result`, `/jobs/pull`, and `/jobs/ack`.
+
+### Security
+
+- **`POST /jobs/pull` is authenticated and application-scoped.** It previously accepted
+  any queue name without validating the API key, so a caller could drain another
+  application's stage jobs. It now requires a valid key and accepts only
+  `app_{applicationId}_{handler}_StageNext` for that application; handler segments
+  containing a path separator, whitespace, or a control character are rejected.
+- **The production Compose example publishes only `3300` and `8081`.** Postgres,
+  RabbitMQ and its management UI, the internal API, and the metrics listeners stay on
+  the `pipelogiq` network instead of being bound to the host.
+
+### Changed
+
+- The gateway in-flight sweeper runs at half `GATEWAY_VISIBILITY_TIMEOUT` rather than a
+  fixed 10 s, and logs each message it requeues.
+- Tempo and Grafana moved behind the `observability` Compose profile and no longer start
+  by default; `OTEL_EXPORTER_OTLP_ENDPOINT` defaults to empty so an existing collector
+  can be used instead.
+- Every registry Compose service now restarts `unless-stopped`.
+
+### Fixed
+
+- Parallel tests derived their in-memory SQLite name from `time.Now().UnixNano()`; two
+  starting in the same clock tick shared a database and failed on an existing table.
+
 ## [0.4.0-preview.1] - 2026-09-04
 
 The minor version moves because this release changes the authorization model and
