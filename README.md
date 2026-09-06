@@ -146,6 +146,7 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 - [Reliable Execution](docs/reliable-execution.md) — idempotent creation, retries, leases, fencing, cancellation, and upgrade guidance
 - [HTTP Workers](docs/http-workers.md) — pull, lease, and report stage results over HTTP without a broker connection
 - [Schedules](docs/schedules.md) — cron, interval, and one-shot triggers, overlap and catch-up policies, DST behaviour
+- [Licensing](docs/licensing.md) — what is free, what is Pro, and the three guarantees a licence carries
 - [Insurance Workflow Capability Audit](docs/insurance-workflow-capability-audit.md) — critical-workflow guarantees, gaps, and consumer obligations
 - [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
 - [Observability](docs/observability.md) — trace context, metrics, integration config
@@ -165,4 +166,20 @@ See [CHANGELOG.md](CHANGELOG.md) for version history and [RELEASE.md](RELEASE.md
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+**The core stays Apache-2.0. Everything a single developer needs to run and
+debug a pipeline is free, and will remain free.**
+
+That is a commitment, not a current state of affairs. Pipelines, stages,
+retries, leases, fencing, cancellation, schedules, the HTTP worker protocol, the
+dashboard, and every API in [the external contract](docs/openapi.external.yaml)
+are Apache-2.0 and stay that way. A commercial tier is added *next to* the core;
+it never relicenses existing code.
+
+A Pro licence adds what an organization needs to govern, comply, and scale — SSO,
+signed audit export, and retention today. It is verified offline against a public
+key compiled into the binary: Pipelogiq never phones home, and **no pipeline ever
+stops because of a licence**.
+
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the core, [LICENSE-PRO.md](LICENSE-PRO.md)
+for the commercial terms, and [docs/licensing.md](docs/licensing.md) for how the
+boundary works in the code.

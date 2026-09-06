@@ -14,6 +14,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"pipelogiq/internal/config"
+	"pipelogiq/internal/pro"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 )
@@ -311,6 +312,7 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 		logger:         logger,
 		jwtSecret:      fx.jwtSecret,
 		allowedOrigins: allowedOriginsMap(cfg.AllowedOrigins),
+		pro:            pro.Load(db, logger),
 	}
 	fx.router = srv.routes()
 

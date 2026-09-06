@@ -22,6 +22,7 @@ import (
 	observabilityhttp "pipelogiq/internal/observability/http"
 	observabilityrepo "pipelogiq/internal/observability/repo"
 	observabilityservice "pipelogiq/internal/observability/service"
+	"pipelogiq/internal/pro"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 	"pipelogiq/internal/version"
@@ -39,6 +40,10 @@ type Server struct {
 	server               *http.Server
 	jwtSecret            []byte
 	allowedOrigins       map[string]struct{}
+	// pro holds the commercial implementations, or the not-licensed stubs when
+	// the binary was built without the `pro` tag. Handlers gate on the licence
+	// before touching it either way.
+	pro pro.Providers
 }
 
 func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Server {
@@ -75,6 +80,7 @@ func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient 
 		logger:               logger,
 		jwtSecret:            []byte(cfg.JWTSecret),
 		allowedOrigins:       allowedOriginsMap(cfg.AllowedOrigins),
+		pro:                  pro.Load(st.DB(), logger),
 	}
 }
 
@@ -155,6 +161,9 @@ func (s *Server) routes() http.Handler {
 
 			// Policy endpoints
 			admin.Route("/policies", s.registerPolicyRoutes)
+
+			// Licence and the commercial surface
+			s.registerLicenseRoutes(admin)
 		})
 	})
 

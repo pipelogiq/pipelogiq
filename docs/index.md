@@ -20,6 +20,7 @@ The dashboard supports live pipeline operations from the list view, including bu
 - [External OpenAPI](openapi.external.yaml) — SDK-facing endpoint contracts
 - [HTTP Workers](http-workers.md) — the pull/lease/result protocol for workers without a broker connection
 - [Schedules](schedules.md) — recurring, interval, and one-shot triggers that create ordinary pipelines
+- [Licensing](licensing.md) — the Apache-2.0 core, the Pro tier, offline verification, and feature gates
 - [Observability](observability.md) — tracing, metrics, and integration setup
 - [Policies](policies.md) — action policies for rate limiting, retry, timeout, and circuit breaking
 

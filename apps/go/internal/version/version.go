@@ -24,6 +24,10 @@ type Info struct {
 	Commit    string `json:"commit"`
 	BuildDate string `json:"buildDate"`
 	GoVersion string `json:"goVersion"`
+	// Tier is the resolved licence tier: "community", "pro", or "enterprise".
+	// It is here so an operator can read it from the same place they read the
+	// version, without an authenticated call.
+	Tier string `json:"tier"`
 }
 
 func Get() Info {
@@ -41,8 +45,14 @@ func Get() Info {
 		Commit:    commit,
 		BuildDate: buildDate,
 		GoVersion: goVersion,
+		Tier:      TierProvider(),
 	}
 }
+
+// TierProvider returns the licence tier. It is a variable so the version package
+// stays free of a dependency on the licence package, which keeps the import
+// graph one-directional.
+var TierProvider = func() string { return "community" }
 
 func HandleVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")

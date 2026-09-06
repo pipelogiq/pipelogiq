@@ -12,10 +12,12 @@ import (
 	"pipelogiq/internal/api"
 	"pipelogiq/internal/config"
 	"pipelogiq/internal/db"
+	"pipelogiq/internal/license"
 	"pipelogiq/internal/logger"
 	"pipelogiq/internal/mq"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/telemetry"
+	"pipelogiq/internal/version"
 )
 
 func main() {
@@ -51,6 +53,12 @@ func main() {
 
 	mqClient := mq.NewClient(cfg.RabbitURL, logg)
 	defer mqClient.Close()
+
+	// Resolve the licence once, before anything can gate on it. This never fails:
+	// a missing, expired, or malformed token means Community, and Community runs
+	// every pipeline.
+	license.Resolve(os.Getenv("PIPELOGIQ_LICENSE"), logg)
+	version.TierProvider = func() string { return license.Current().Tier }
 
 	st := store.New(dbConn, logg)
 

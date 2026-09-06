@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppHeader } from '@/components/layout/AppHeader';
+import { LicensePanel } from '@/components/license/LicensePanel';
 import { Button } from '@/components/ui/button';
 import { useApplications } from '@/hooks/use-applications';
 import { apiKeysApi } from '@/api/client';
@@ -39,10 +40,18 @@ export default function Settings() {
     <div className="flex flex-col">
       <AppHeader
         title="Settings"
-        subtitle="Manage applications and API keys"
+        subtitle="Manage applications, API keys, and your licence"
       />
 
       <div className="flex-1 p-6 space-y-6">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">Licence</h2>
+          <p className="mb-4 text-sm text-muted-foreground">
+            Verified offline. Locked features are shown, not hidden.
+          </p>
+          <LicensePanel />
+        </div>
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>

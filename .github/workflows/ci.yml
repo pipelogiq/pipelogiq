@@ -32,6 +32,21 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The open repository must build and pass its tests with no private code
+      # present. This is the build anyone cloning the repository gets, and the
+      # one that proves the Pro seam has not leaked into the core.
+      - name: Build without the pro tag
+        run: go build ./...
+
+      # The release image is built with -tags pro. Compiling it here catches a
+      # drift between the stub interfaces and the real implementations before it
+      # reaches a release, without unlocking anything: the licence still decides.
+      - name: Vet with the pro tag
+        run: go vet -tags pro ./...
+
+      - name: Test with the pro tag
+        run: go test -tags pro ./...
+
   web:
     name: Web
     runs-on: ubuntu-latest

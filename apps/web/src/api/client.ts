@@ -46,6 +46,7 @@ import type {
   PolicyEffectiveResolutionResponse,
 } from '@/types/policies';
 
+import type { LicenseStatus } from '@/types/license';
 import type {
   Schedule,
   ScheduleListResponse,
@@ -441,5 +442,13 @@ export const schedulesApi = {
       method: 'POST',
       body: input === undefined ? undefined : JSON.stringify({ input }),
     });
+  },
+};
+
+// Licence API. Read once on load; the dashboard renders locked features with an
+// explanation and a link rather than hiding them.
+export const licenseApi = {
+  get: async (): Promise<LicenseStatus> => {
+    return request<LicenseStatus>('/license');
   },
 };
