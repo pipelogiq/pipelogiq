@@ -398,6 +398,83 @@ paths:
         "500":
           description: Lease operation failed
 
+  /jobs/pull:
+    post:
+      summary: Pull the next stage job for a handler queue
+      description: |
+        HTTP gateway over one of the application's `StageNext` queues. The queue
+        must belong to the authenticated application; any other queue is `403`.
+
+        `waitSeconds` turns the request into a long poll. Zero, the default,
+        returns `204` immediately when the queue is empty; a positive value waits
+        up to that many seconds for a message before answering `204`.
+
+        The response carries an in-flight `token`. Until the job is acked the
+        message stays unacknowledged on the broker; if the token is not acked
+        within `GATEWAY_VISIBILITY_TIMEOUT` the server requeues the message.
+      operationId: pullJob
+      tags:
+        - Worker protocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PullJobRequest"
+      responses:
+        "200":
+          description: A stage job was dequeued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PullJobResponse"
+        "204":
+          description: No message available before the deadline
+        "400":
+          description: Missing queue, or waitSeconds outside 0..20
+        "401":
+          description: Missing or invalid API key
+        "403":
+          description: Queue does not belong to this application
+        "429":
+          description: Too many in-flight messages; back off and retry
+        "500":
+          description: Pull failed
+
+  /jobs/ack:
+    post:
+      summary: Acknowledge or requeue a pulled stage job
+      description: |
+        `requeue:false` acknowledges the message and removes it from the queue.
+        Send it only after `POST /stages/{stageId}/result` returned `202`:
+        acking earlier drops the job while its result is still unqueued.
+
+        `requeue:true` returns the message to the queue for another delivery.
+        Use it when the lease could not be acquired, or when the process is
+        shutting down before handler execution started. Do not requeue after the
+        handler ran and its result was accepted; that would execute it twice.
+
+        A token that already expired is `404`. The sweeper has requeued the
+        message, so a redelivery is already on its way and no action is needed.
+      operationId: ackJob
+      tags:
+        - Worker protocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AckJobRequest"
+      responses:
+        "200":
+          description: Acknowledgement applied
+        "400":
+          description: Missing token
+        "404":
+          description: Token unknown or already expired
+        "500":
+          description: Acknowledgement failed
+
   /stages/{stageId}/result:
     post:
       summary: Report a stage result over HTTP
@@ -1011,6 +1088,56 @@ components:
         reason:
           type: string
           description: Machine-readable explanation when acquired is false.
+
+    PullJobRequest:
+      type: object
+      required:
+        - queue
+      properties:
+        queue:
+          type: string
+          description: "StageNext queue of this application: app_{applicationId}_{handler}_StageNext."
+        waitSeconds:
+          type: integer
+          minimum: 0
+          maximum: 20
+          default: 0
+          description: Seconds to wait for a message before answering 204.
+
+    PullJobResponse:
+      type: object
+      required:
+        - token
+        - queue
+        - payload
+      properties:
+        token:
+          type: string
+          description: In-flight token to pass to /jobs/ack.
+        queue:
+          type: string
+        messageId:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+          description: The StageNext message for this delivery.
+        headers:
+          type: object
+          additionalProperties: true
+
+    AckJobRequest:
+      type: object
+      required:
+        - token
+      properties:
+        token:
+          type: string
+          minLength: 1
+        requeue:
+          type: boolean
+          default: false
+          description: True returns the message to the queue instead of acknowledging it.
 
     StageResultSubmit:
       type: object

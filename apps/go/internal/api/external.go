@@ -51,6 +51,10 @@ type ExternalServer struct {
 	// without a broker; production always uses publishStageResultToQueue.
 	publishStageResult func(ctx context.Context, body []byte) error
 
+	// getStageJob takes one message off a stage queue. It is a field for the
+	// same reason: the gateway can be exercised without a broker.
+	getStageJob func(ctx context.Context, queue string) (*mq.GetResult, error)
+
 	metrics externalMetrics
 }
 
@@ -151,6 +155,7 @@ func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClie
 		metrics:  metrics,
 	}
 	srv.publishStageResult = srv.publishStageResultToQueue
+	srv.getStageJob = srv.getStageJobFromQueue
 	return srv
 }
 
@@ -831,6 +836,9 @@ func (s *ExternalServer) handleResumeStage(w http.ResponseWriter, r *http.Reques
 
 type pullRequest struct {
 	Queue string `json:"queue"`
+	// WaitSeconds turns the pull into a long poll. Zero keeps the historical
+	// behaviour of returning 204 straight away.
+	WaitSeconds int `json:"waitSeconds,omitempty"`
 }
 
 type pullResponse struct {
@@ -841,24 +849,47 @@ type pullResponse struct {
 	Headers   amqp.Table      `json:"headers,omitempty"`
 }
 
+const (
+	// maxPullWaitSeconds stays well under the router's 60 s timeout.
+	maxPullWaitSeconds = 20
+	// pullPollInterval is how often a long poll re-checks the queue.
+	pullPollInterval = 250 * time.Millisecond
+)
+
 func (s *ExternalServer) handlePullJob(w http.ResponseWriter, r *http.Request) {
 	var req pullRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Queue) == "" {
 		http.Error(w, "queue is required", http.StatusBadRequest)
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	opts := mq.QueueOptions{
-		Durable:    true,
-		DLQEnabled: s.cfg.QueueDLQEnabled,
-		DLQTTL:     s.cfg.QueueDLQMessageTTL,
-		Prefetch:   1,
+	if req.WaitSeconds < 0 || req.WaitSeconds > maxPullWaitSeconds {
+		http.Error(w, fmt.Sprintf("waitSeconds must be between 0 and %d", maxPullWaitSeconds), http.StatusBadRequest)
+		return
 	}
 
-	msg, err := s.mq.Get(ctx, req.Queue, opts)
+	authCtx, authCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	appID, err := s.validateExternalAPIKey(authCtx, r)
+	authCancel()
+	if err != nil {
+		http.Error(w, "invalid api key", http.StatusUnauthorized)
+		return
+	}
+
+	// A pull hands the caller a raw broker message, so the queue must belong to
+	// the authenticated application. Without this check any valid API key could
+	// drain another tenant's stage jobs.
+	if !isStageNextQueueForApplication(req.Queue, appID) {
+		s.logger.Warn("rejected pull for a queue outside the application",
+			"queue", req.Queue, "applicationId", appID)
+		http.Error(w, "queue does not belong to this application", http.StatusForbidden)
+		return
+	}
+
+	deadline := time.Duration(req.WaitSeconds) * time.Second
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second+deadline)
+	defer cancel()
+
+	msg, err := s.pollStageJob(ctx, req.Queue, deadline)
 	if err != nil {
 		s.logger.Error("pull job failed", "err", err, "queue", req.Queue)
 		http.Error(w, "failed to pull", http.StatusInternalServerError)
@@ -893,6 +924,78 @@ func (s *ExternalServer) handlePullJob(w http.ResponseWriter, r *http.Request) {
 		Payload:   json.RawMessage(msg.Body),
 		Headers:   msg.Headers,
 	}, http.StatusOK)
+}
+
+// pollStageJob returns the first message on the queue, waiting up to maxWait for
+// one to arrive. maxWait of zero preserves the original single-shot behaviour.
+func (s *ExternalServer) pollStageJob(
+	ctx context.Context,
+	queue string,
+	maxWait time.Duration,
+) (*mq.GetResult, error) {
+	deadline := time.Now().Add(maxWait)
+	for {
+		msg, err := s.getStageJob(ctx, queue)
+		if err != nil {
+			return nil, err
+		}
+		if msg != nil {
+			return msg, nil
+		}
+		if !time.Now().Before(deadline) {
+			return nil, nil
+		}
+
+		wait := pullPollInterval
+		if remaining := time.Until(deadline); remaining < wait {
+			wait = remaining
+		}
+		select {
+		case <-ctx.Done():
+			return nil, nil
+		case <-time.After(wait):
+		}
+	}
+}
+
+func (s *ExternalServer) getStageJobFromQueue(ctx context.Context, queue string) (*mq.GetResult, error) {
+	if s.mq == nil {
+		return nil, errBrokerUnavailable
+	}
+	return s.mq.Get(ctx, queue, mq.QueueOptions{
+		Durable:    true,
+		DLQEnabled: s.cfg.QueueDLQEnabled,
+		DLQTTL:     s.cfg.QueueDLQMessageTTL,
+		Prefetch:   1,
+	})
+}
+
+// isStageNextQueueForApplication reports whether queue is the StageNext queue of
+// some handler of this application. The handler segment must be a plain name:
+// anything with a path separator or whitespace is rejected rather than routed.
+func isStageNextQueueForApplication(queue string, appID int) bool {
+	prefix := constants.StageNextQueueName(constants.ApplicationQueueID(appID), "")
+	// StageNextQueueName renders "{app}_{handler}_StageNext"; with an empty
+	// handler that is "{app}__StageNext", so split it back into its two ends.
+	const separator = "_" + constants.StageNext
+	head := strings.TrimSuffix(prefix, separator)
+
+	if !strings.HasPrefix(queue, head) || !strings.HasSuffix(queue, separator) {
+		return false
+	}
+	handler := queue[len(head) : len(queue)-len(separator)]
+	if handler == "" {
+		return false
+	}
+	if strings.ContainsAny(handler, "/\\") {
+		return false
+	}
+	for _, r := range handler {
+		if unicode.IsSpace(r) || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 type ackRequest struct {
@@ -1199,25 +1302,62 @@ func (s *ExternalServer) handleWorkerShutdown(w http.ResponseWriter, r *http.Req
 	}, http.StatusOK)
 }
 
+// minPendingSweepInterval keeps a very short visibility timeout from turning the
+// sweeper into a busy loop.
+const minPendingSweepInterval = time.Second
+
+// pendingSweepInterval runs the sweep twice per visibility window so a message
+// whose holder disappeared is requeued within roughly its own timeout.
+func pendingSweepInterval(visibilityTTL time.Duration) time.Duration {
+	interval := visibilityTTL / 2
+	if interval < minPendingSweepInterval {
+		return minPendingSweepInterval
+	}
+	return interval
+}
+
+// cleanupExpired requeues messages whose in-flight token was never acked. A
+// worker that crashed between pull and ack must not strand a stage job.
 func (s *ExternalServer) cleanupExpired(ctx context.Context) {
-	ticker := time.NewTicker(10 * time.Second)
+	interval := pendingSweepInterval(s.cfg.GatewayVisibilityTTL)
+	s.logger.Info("gateway in-flight sweeper started",
+		"interval", interval,
+		"visibilityTimeout", s.cfg.GatewayVisibilityTTL)
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			now := time.Now()
-			s.pendingMu.Lock()
-			for token, msg := range s.pending {
-				if now.After(msg.expires) {
-					_ = msg.nack(true)
-					delete(s.pending, token)
-				}
-			}
-			s.pendingMu.Unlock()
+			s.sweepExpiredPending(time.Now())
 		}
 	}
+}
+
+// sweepExpiredPending nacks every expired in-flight message with requeue and
+// returns how many it released.
+func (s *ExternalServer) sweepExpiredPending(now time.Time) int {
+	s.pendingMu.Lock()
+	expired := make([]pendingAck, 0)
+	for token, msg := range s.pending {
+		if now.After(msg.expires) {
+			expired = append(expired, msg)
+			delete(s.pending, token)
+		}
+	}
+	s.pendingMu.Unlock()
+
+	for _, msg := range expired {
+		if err := msg.nack(true); err != nil {
+			s.logger.Error("requeue expired in-flight message failed", "queue", msg.queue, "err", err)
+			continue
+		}
+		s.metrics.stageJobsNacked.Inc()
+		s.logger.Warn("requeued expired in-flight message", "queue", msg.queue)
+	}
+	return len(expired)
 }
 
 func deref(v *string) string {

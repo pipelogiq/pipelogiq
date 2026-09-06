@@ -465,13 +465,18 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	st := store.New(db, logger)
-	server := NewExternalServer(config.APIConfig{}, st, nil, logger)
+	server := NewExternalServer(config.APIConfig{
+		GatewayMaxInFlight:   16,
+		GatewayVisibilityTTL: time.Minute,
+	}, st, nil, logger)
 
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Post("/pipelines/{pipelineId}/stages", server.handleAppendPipelineStages)
 	router.Post("/stages/{stageId}/resume", server.handleResumeStage)
 	router.Post("/stages/{stageId}/result", server.handlePostStageResult)
+	router.Post("/jobs/pull", server.handlePullJob)
+	router.Post("/jobs/ack", server.handleAckJob)
 
 	return server, db, router
 }
