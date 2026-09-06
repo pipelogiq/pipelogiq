@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -123,10 +122,7 @@ func TestMarkActiveTooLongLeavesRecentStageUntouched(t *testing.T) {
 func setupStageTimeoutTestStore(t *testing.T) (*Store, *sqlx.DB) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:stage_timeout_test_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("stage_timeout_test")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

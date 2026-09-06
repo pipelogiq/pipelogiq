@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -342,10 +341,7 @@ func TestLegacyPipelineCreate_ContractStillCreatesDistinctPipelines(t *testing.T
 func setupIdempotencyEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Handler) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:external_idempotency_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("external_idempotency")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

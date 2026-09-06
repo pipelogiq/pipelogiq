@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -319,10 +318,7 @@ func TestGetStageToExecuteBlocksByCircuitBreakerPolicy(t *testing.T) {
 func setupPolicyRuntimeTestStore(t *testing.T) (*Store, *sqlx.DB) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:policy_runtime_test_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("policy_runtime_test")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

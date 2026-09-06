@@ -439,10 +439,7 @@ func TestConcurrencyEndpoints(t *testing.T) {
 func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Handler) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:external_endpoint_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("external_endpoint")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

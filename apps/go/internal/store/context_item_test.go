@@ -74,10 +74,7 @@ func TestPipelineContextItem_AllowsLargeValueAndLongValueType(t *testing.T) {
 func setupContextItemTestStore(t *testing.T) (*Store, *sqlx.DB) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:context_item_test_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("context_item_test")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

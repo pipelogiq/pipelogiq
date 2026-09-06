@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"log/slog"
 	"sync"
@@ -536,10 +535,7 @@ func TestResumeStageApproval_ConcurrentRequests(t *testing.T) {
 func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:stage_ops_test_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("stage_ops_test")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)

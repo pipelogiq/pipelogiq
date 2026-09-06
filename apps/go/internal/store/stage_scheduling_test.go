@@ -95,10 +95,7 @@ CREATE TABLE pipeline_context_item (
 func setupSchedulingStore(t *testing.T) (*Store, *sqlx.DB) {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:scheduling_test_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("scheduling_test")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -620,10 +617,7 @@ func BenchmarkGetStageToExecute(b *testing.B) {
 func benchmarkScheduling(b *testing.B, numPipelines, stagesPerPipeline int) {
 	b.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:bench_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("bench")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		b.Fatalf("open sqlite: %v", err)
@@ -689,10 +683,7 @@ func benchmarkScheduling(b *testing.B, numPipelines, stagesPerPipeline int) {
 // BenchmarkParallelDependsOn measures dispatch throughput when stages use depends_on
 // for parallel execution within a single pipeline.
 func BenchmarkParallelDependsOn(b *testing.B) {
-	dsn := fmt.Sprintf(
-		"file:bench_parallel_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("bench_parallel")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		b.Fatalf("open sqlite: %v", err)

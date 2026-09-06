@@ -264,10 +264,7 @@ func (fx *scopeFixture) do(t *testing.T, userID int, method, path string, body a
 func setupScopeTest(t *testing.T) *scopeFixture {
 	t.Helper()
 
-	dsn := fmt.Sprintf(
-		"file:scope_%d?mode=memory&cache=shared&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)",
-		time.Now().UnixNano(),
-	)
+	dsn := testDSN("scope")
 	db, err := sqlx.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
