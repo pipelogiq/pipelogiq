@@ -70,7 +70,23 @@ export function usePipelineWebSocket() {
 
       ws.onmessage = (event) => {
         try {
-          const raw = JSON.parse(event.data) as PipelineResponse;
+          const parsed = JSON.parse(event.data) as unknown;
+
+          // The fanout carries pipeline snapshots and, since v0.5.0, schedule run
+          // events. Only the latter carry an `event` discriminator; a snapshot
+          // has none, which is what keeps older payloads working unchanged.
+          const envelope = parsed as { event?: string; scheduleId?: number };
+          if (envelope.event === 'ScheduleRunCreated') {
+            void queryClient.invalidateQueries({ queryKey: ['schedules'] });
+            if (typeof envelope.scheduleId === 'number') {
+              void queryClient.invalidateQueries({ queryKey: ['schedule', envelope.scheduleId] });
+              void queryClient.invalidateQueries({ queryKey: ['schedule-runs', envelope.scheduleId] });
+            }
+            void queryClient.invalidateQueries({ queryKey: ['pipelines'], refetchType: 'active' });
+            return;
+          }
+
+          const raw = parsed as PipelineResponse;
           const pipelineId = Number(raw.id);
           if (!Number.isFinite(pipelineId) || pipelineId <= 0) return;
 

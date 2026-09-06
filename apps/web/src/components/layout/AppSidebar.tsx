@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Workflow,
+  CalendarClock,
   Shield,
   Activity,
   Settings,
@@ -20,6 +21,7 @@ import { systemApi } from "@/api/client";
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Pipelines", href: "/pipelines", icon: Workflow },
+  { name: "Schedules", href: "/schedules", icon: CalendarClock },
   /*{ name: "Executions", href: "/executions", icon: History },*/
   { name: "Action Policies", href: "/action-policies", icon: Shield },
   { name: "Observability", href: "/observability", icon: Activity },

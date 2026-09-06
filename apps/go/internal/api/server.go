@@ -129,6 +129,9 @@ func (s *Server) routes() http.Handler {
 		// Keywords
 		r.Get("/keywords", s.handleGetKeywords)
 
+		// Schedules
+		r.Route("/schedules", s.registerScheduleRoutes)
+
 		r.Group(func(admin chi.Router) {
 			admin.Use(s.requireAdminMiddleware)
 

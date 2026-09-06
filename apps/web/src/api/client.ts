@@ -46,6 +46,14 @@ import type {
   PolicyEffectiveResolutionResponse,
 } from '@/types/policies';
 
+import type {
+  Schedule,
+  ScheduleListResponse,
+  ScheduleRunListResponse,
+  ScheduleStatus,
+  TriggerScheduleResponse,
+} from '@/types/schedules';
+
 const API_BASE = '/api';
 
 class ApiError extends Error {
@@ -399,3 +407,39 @@ export const policiesApi = {
 };
 
 export { ApiError };
+
+// Schedules API. Every route is membership-scoped server side; a schedule outside
+// the caller's applications answers 404 like any other resource.
+export const schedulesApi = {
+  getAll: async (status?: ScheduleStatus): Promise<ScheduleListResponse> => {
+    const query = status ? `?status=${encodeURIComponent(status)}` : '';
+    return request<ScheduleListResponse>(`/schedules${query}`);
+  },
+
+  getById: async (id: number): Promise<Schedule> => {
+    return request<Schedule>(`/schedules/${id}`);
+  },
+
+  getRuns: async (id: number, limit = 50): Promise<ScheduleRunListResponse> => {
+    return request<ScheduleRunListResponse>(`/schedules/${id}/runs?limit=${limit}`);
+  },
+
+  pause: async (id: number): Promise<Schedule> => {
+    return request<Schedule>(`/schedules/${id}/pause`, { method: 'POST' });
+  },
+
+  resume: async (id: number): Promise<Schedule> => {
+    return request<Schedule>(`/schedules/${id}/resume`, { method: 'POST' });
+  },
+
+  archive: async (id: number): Promise<Schedule> => {
+    return request<Schedule>(`/schedules/${id}/archive`, { method: 'POST' });
+  },
+
+  trigger: async (id: number, input?: unknown): Promise<TriggerScheduleResponse> => {
+    return request<TriggerScheduleResponse>(`/schedules/${id}/trigger`, {
+      method: 'POST',
+      body: input === undefined ? undefined : JSON.stringify({ input }),
+    });
+  },
+};

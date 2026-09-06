@@ -272,19 +272,12 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 	t.Cleanup(func() { _ = db.Close() })
 	db.SetMaxOpenConns(1)
 
-	// The scoping tests reuse the shared schema plus the membership tables they need.
+	// The scoping tests reuse the shared schema plus the membership table they need.
 	schema := externalTestSchema + `
-	CREATE TABLE application (
-		id INTEGER PRIMARY KEY,
-		name TEXT NOT NULL,
-		description TEXT NULL
-	);
 	CREATE TABLE user_application (
 		user_id INTEGER NOT NULL,
 		application_id INTEGER NOT NULL
 	);
-	CREATE TABLE pipeline_keyword (id INTEGER PRIMARY KEY AUTOINCREMENT, pipeline_id INTEGER NOT NULL, keyword_id INTEGER NOT NULL);
-	CREATE TABLE keyword (id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, value TEXT NULL);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)

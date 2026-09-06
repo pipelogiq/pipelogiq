@@ -1,0 +1,129 @@
+apiVersion: 1
+
+# Alerting for schedules (see docs/schedules.md).
+#
+# These rules read the Prometheus datasource provisioned as `prometheus`. The
+# Compose stack does NOT ship a Prometheus: point PROMETHEUS_URL at your own
+# instance, scraping the API on METRICS_ADDR (default :9091) and the worker on
+# :9090. Without that datasource Grafana loads the rules and reports them as
+# erroring, which is visible rather than silent.
+groups:
+  - orgId: 1
+    name: pipelogiq-schedules
+    folder: Pipelogiq
+    interval: 1m
+    rules:
+      - uid: pipelogiq-schedule-silent
+        title: Schedule has not run for twice its interval
+        condition: silent
+        # schedule_next_run_timestamp_seconds is the schedule's own planned next
+        # run. If now has passed it by more than the gap between planned runs,
+        # the scheduler is not keeping up — or is not running at all.
+        data:
+          - refId: overdue
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: overdue
+              expr: |
+                (time() - schedule_next_run_timestamp_seconds)
+                >
+                (2 * clamp_min(delta(schedule_next_run_timestamp_seconds[30m]), 60))
+              instant: true
+          - refId: silent
+            datasourceUid: __expr__
+            model:
+              refId: silent
+              type: threshold
+              expression: overdue
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          component: scheduler
+        annotations:
+          summary: "Schedule {{ $labels.schedule }} is overdue"
+          description: >-
+            {{ $labels.schedule }} has passed its planned next run by more than
+            twice its own interval. Check that pipelogiq-worker is running and
+            look at the schedule's run history for Failed or Skipped rows.
+
+      - uid: pipelogiq-schedule-failing
+        title: Schedule runs are failing
+        condition: failing
+        data:
+          - refId: rate
+            relativeTimeRange:
+              from: 3600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: rate
+              expr: |
+                sum by (schedule) (increase(schedule_runs_total{outcome="Failed"}[1h])) > 0
+              instant: true
+          - refId: failing
+            datasourceUid: __expr__
+            model:
+              refId: failing
+              type: threshold
+              expression: rate
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        labels:
+          severity: warning
+          component: scheduler
+        annotations:
+          summary: "Schedule {{ $labels.schedule }} failed to create a pipeline"
+          description: >-
+            A run recorded outcome=Failed, so the tick did not produce a
+            pipeline. The schedule keeps ticking; the error is on the run row.
+
+      - uid: pipelogiq-scheduler-lagging
+        title: Scheduler is lagging behind its ticks
+        condition: lagging
+        data:
+          - refId: p95
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            datasourceUid: prometheus
+            model:
+              refId: p95
+              expr: |
+                histogram_quantile(0.95, sum by (le, schedule) (rate(schedule_lag_seconds_bucket[30m]))) > 60
+              instant: true
+          - refId: lagging
+            datasourceUid: __expr__
+            model:
+              refId: lagging
+              type: threshold
+              expression: p95
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+        noDataState: OK
+        execErrState: Error
+        for: 10m
+        labels:
+          severity: info
+          component: scheduler
+        annotations:
+          summary: "Schedule {{ $labels.schedule }} fires more than a minute late"
+          description: >-
+            The gap between the planned tick and the moment it fired exceeded 60s
+            at p95. Raise SCHEDULER_POLL_INTERVAL sensitivity or check database
+            contention.

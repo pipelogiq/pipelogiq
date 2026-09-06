@@ -11,3 +11,15 @@ datasources:
     editable: false
     jsonData:
       httpMethod: GET
+
+  # The Compose stack ships no Prometheus. Point PROMETHEUS_URL at your own
+  # instance (scraping the API on METRICS_ADDR, default :9091, and the worker on
+  # :9090) to make the schedule alert rules in ../alerting/schedules.yaml work.
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    orgId: 1
+    url: ${PROMETHEUS_URL:-http://prometheus:9090}
+    isDefault: false
+    editable: false

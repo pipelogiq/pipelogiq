@@ -57,6 +57,7 @@ type APIConfig struct {
 type WorkerConfig struct {
 	Common
 	PollInterval           time.Duration
+	SchedulerPollInterval  time.Duration
 	StageActiveTimeout     time.Duration
 	Prefetch               int
 	QueueTopologyOwnership string
@@ -124,6 +125,7 @@ func LoadWorker() (WorkerConfig, error) {
 	cfg := WorkerConfig{
 		Common:                 common,
 		PollInterval:           getDuration("WORKER_POLL_INTERVAL", time.Second),
+		SchedulerPollInterval:  getDuration("SCHEDULER_POLL_INTERVAL", time.Second),
 		StageActiveTimeout:     getDurationCompat(5*time.Minute, "STAGE_ACTIVE_TIMEOUT", "STAGE_PENDING_TIMEOUT"),
 		Prefetch:               getInt("RABBIT_PREFETCH", 5),
 		QueueTopologyOwnership: getTopologyOwnership("RABBIT_TOPOLOGY_OWNERSHIP", TopologyOwnershipServer),

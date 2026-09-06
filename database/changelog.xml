@@ -1145,4 +1145,169 @@
         <sql>CREATE INDEX IF NOT EXISTS idx_user_application_user_id ON user_application(user_id)</sql>
     </changeSet>
 
+    <changeSet id="add schedules" author="Codex">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="schedule"/></not>
+        </preConditions>
+
+        <createTable tableName="schedule">
+            <column name="id" type="bigserial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="application_id" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <column name="name" type="varchar(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="varchar(20)" defaultValue="Active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="kind" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="cron_expression" type="varchar(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="time_zone" type="varchar(64)" defaultValue="UTC">
+                <constraints nullable="false"/>
+            </column>
+            <column name="interval_seconds" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="run_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="definition_json" type="jsonb" defaultValueComputed="'{}'::jsonb">
+                <constraints nullable="false"/>
+            </column>
+            <column name="definition_version" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="overlap_policy" type="varchar(20)" defaultValue="Skip">
+                <constraints nullable="false"/>
+            </column>
+            <column name="catchup_policy" type="varchar(20)" defaultValue="None">
+                <constraints nullable="false"/>
+            </column>
+            <column name="catchup_max" type="int" defaultValueNumeric="10">
+                <constraints nullable="false"/>
+            </column>
+            <column name="jitter_seconds" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+            <column name="next_run_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_run_at" type="timestamptz">
+                <constraints nullable="true"/>
+            </column>
+            <column name="last_run_status" type="varchar(20)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_by" type="varchar(128)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="timestamptz" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="timestamptz" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="schedule"
+                baseColumnNames="application_id"
+                constraintName="fk_schedule_application"
+                referencedTableName="application"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+
+        <sql>
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_schedule_application_name
+            ON schedule(application_id, lower(name))
+        </sql>
+
+        <!-- The scheduler claims due rows with FOR UPDATE SKIP LOCKED on this order. -->
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_schedule_due
+            ON schedule(status, next_run_at)
+        </sql>
+
+        <createTable tableName="schedule_run">
+            <column name="id" type="bigserial" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="schedule_id" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="scheduled_for" type="timestamptz">
+                <constraints nullable="false"/>
+            </column>
+            <column name="fired_at" type="timestamptz" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="trigger" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="outcome" type="varchar(20)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="skip_reason" type="varchar(20)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="pipeline_id" type="int">
+                <constraints nullable="true"/>
+            </column>
+            <column name="definition_version" type="int" defaultValueNumeric="1">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error" type="text">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+                baseTableName="schedule_run"
+                baseColumnNames="schedule_id"
+                constraintName="fk_schedule_run_schedule"
+                referencedTableName="schedule"
+                referencedColumnNames="id"
+                onDelete="CASCADE"/>
+
+        <!-- The idempotency guard: two scheduler instances, or a restart, cannot
+             fire the same (schedule, scheduled_for) tick twice. -->
+        <sql>
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_schedule_run_tick
+            ON schedule_run(schedule_id, scheduled_for)
+        </sql>
+
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_schedule_run_listing
+            ON schedule_run(schedule_id, id DESC)
+        </sql>
+    </changeSet>
+
+    <changeSet id="link pipelines to schedules" author="Codex">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="pipeline" columnName="schedule_id"/></not>
+        </preConditions>
+
+        <addColumn tableName="pipeline">
+            <column name="schedule_id" type="bigint">
+                <constraints nullable="true"/>
+            </column>
+            <column name="schedule_run_id" type="bigint">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <!-- Overlap detection reads unfinished pipelines of one schedule. -->
+        <sql>
+            CREATE INDEX IF NOT EXISTS idx_pipeline_schedule
+            ON pipeline(schedule_id, is_completed)
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

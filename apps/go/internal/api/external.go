@@ -199,6 +199,7 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	router.Post("/workers/events", s.handleWorkerEvents)
 	router.Post("/workers/shutdown", s.handleWorkerShutdown)
 	router.Get("/rabbitmq/connection", s.handleGetRabbitConnection)
+	s.registerScheduleRoutes(router)
 
 	s.server = &http.Server{
 		Addr:    s.cfg.ExternalHTTPAddr,

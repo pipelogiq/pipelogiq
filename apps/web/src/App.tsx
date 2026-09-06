@@ -11,6 +11,8 @@ import Dashboard from "./pages/Dashboard";
 import Pipelines from "./pages/Pipelines";
 import PipelineDetail from "./pages/PipelineDetail";
 import Executions from "./pages/Executions";
+import Schedules from "./pages/Schedules";
+import ScheduleDetail from "./pages/ScheduleDetail";
 import Policies from "./pages/Policies";
 import Observability from "./pages/Observability";
 import Settings from "./pages/Settings";
@@ -54,6 +56,8 @@ const App = () => (
               <Route path="/pipelines" element={<Pipelines />} />
               <Route path="/pipelines/:id" element={<PipelineDetail />} />
               <Route path="/executions" element={<Executions />} />
+              <Route path="/schedules" element={<Schedules />} />
+              <Route path="/schedules/:id" element={<ScheduleDetail />} />
               <Route path="/action-policies" element={<Policies />} />
               <Route path="/policies" element={<Navigate to="/action-policies" replace />} />
               <Route path="/observability" element={<Observability />} />

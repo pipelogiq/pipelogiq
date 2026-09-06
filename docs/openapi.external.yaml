@@ -540,6 +540,314 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
 
+  /schedules:
+    get:
+      summary: List the application's schedules
+      operationId: listSchedules
+      tags:
+        - Schedules
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [Active, Paused, Archived]
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: A page of schedules, each with a recent-run health summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleListResponse"
+        "400":
+          description: Invalid status filter or limit
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}:
+    put:
+      summary: Create or update a schedule
+      description: |
+        Idempotent upsert keyed on the application-scoped, case-insensitive name.
+
+        An unchanged body returns `200` without bumping `definitionVersion` or
+        moving `nextRunAt`, so re-applying the same schedule on every deploy is a
+        no-op. A changed body returns `200` with a new version and a re-planned
+        next run. A new name returns `201`. Re-applying an archived schedule
+        brings it back Active.
+
+        `definition` is validated by the same rules as `POST /pipelines`.
+      operationId: upsertSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleUpsertRequest"
+      responses:
+        "201":
+          description: A new schedule was created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "200":
+          description: The existing schedule was updated or left unchanged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: Validation failed, with per-field messages
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "500":
+          description: The schedule could not be stored
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+    get:
+      summary: Get one schedule
+      operationId: getSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      responses:
+        "200":
+          description: Definition, policies, next and last run, health summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: Invalid schedule name
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}/runs:
+    get:
+      summary: List a schedule's run history
+      operationId: listScheduleRuns
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: A page of runs, newest first
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleRunListResponse"
+        "400":
+          description: Invalid schedule name or limit
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}/pause:
+    post:
+      summary: Pause a schedule
+      description: Stops creating pipelines. The definition and history are kept.
+      operationId: pauseSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      responses:
+        "200":
+          description: The paused schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}/resume:
+    post:
+      summary: Resume a schedule
+      description: |
+        Recomputes `nextRunAt` from now, so a schedule paused for a week does not
+        wake up owing a week of ticks whatever its catch-up policy says.
+      operationId: resumeSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      responses:
+        "200":
+          description: The resumed schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: The stored schedule can no longer be planned
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The schedule has no future run (a Once schedule already past)
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}/archive:
+    post:
+      summary: Archive a schedule
+      description: Terminal. Re-applying the definition with PUT brings it back Active.
+      operationId: archiveSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      responses:
+        "200":
+          description: The archived schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
+  /schedules/{name}/trigger:
+    post:
+      summary: Run a schedule immediately
+      description: |
+        Creates a run with `trigger: Manual` right away. It does not move the
+        schedule's cursor, and overlap and catch-up policies do not apply — a
+        manual run was explicitly asked for. The optional `input` replaces the
+        first stage's input.
+      operationId: triggerSchedule
+      tags:
+        - Schedules
+      parameters:
+        - $ref: "#/components/parameters/ScheduleName"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleTriggerRequest"
+      responses:
+        "201":
+          description: The manual run and its pipeline
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ScheduleTriggerResponse"
+        "400":
+          description: Invalid payload
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No such schedule in this application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "409":
+          description: The schedule is archived
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -561,6 +869,15 @@ components:
       schema:
         type: integer
         minimum: 1
+    ScheduleName:
+      name: name
+      in: path
+      required: true
+      description: Application-scoped schedule name, matched case-insensitively.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 200
     StageId:
       name: stageId
       in: path
@@ -1221,6 +1538,256 @@ components:
           type: integer
         executionId:
           type: string
+
+    ScheduleUpsertRequest:
+      type: object
+      required:
+        - kind
+        - definition
+      properties:
+        kind:
+          type: string
+          enum: [Cron, Interval, Once]
+        cronExpression:
+          type: string
+          description: |
+            Standard 5-field cron, or @every <duration>, @hourly, @daily,
+            @midnight. Six-field (seconds) expressions are not accepted.
+        timeZone:
+          type: string
+          default: UTC
+          description: IANA zone. Ticks are computed here and stored in UTC.
+        intervalSeconds:
+          type: integer
+          minimum: 10
+          nullable: true
+        runAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Required for Once, and must be in the future.
+        overlapPolicy:
+          type: string
+          enum: [Skip, Queue, Replace]
+          default: Skip
+        catchupPolicy:
+          type: string
+          enum: [None, One, All]
+          default: None
+        catchupMax:
+          type: integer
+          minimum: 1
+          maximum: 1000
+          default: 10
+        jitterSeconds:
+          type: integer
+          minimum: 0
+          maximum: 3600
+          default: 0
+        definition:
+          $ref: "#/components/schemas/PipelineDefinition"
+
+    Schedule:
+      type: object
+      required:
+        - id
+        - applicationId
+        - name
+        - status
+        - kind
+        - timeZone
+        - definition
+        - definitionVersion
+        - overlapPolicy
+        - catchupPolicy
+        - catchupMax
+        - jitterSeconds
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: integer
+          format: int64
+        applicationId:
+          type: integer
+        name:
+          type: string
+        status:
+          type: string
+          enum: [Active, Paused, Archived]
+        kind:
+          type: string
+          enum: [Cron, Interval, Once]
+        cronExpression:
+          type: string
+        timeZone:
+          type: string
+        intervalSeconds:
+          type: integer
+          nullable: true
+        runAt:
+          type: string
+          format: date-time
+          nullable: true
+        definition:
+          $ref: "#/components/schemas/PipelineDefinition"
+        definitionVersion:
+          type: integer
+          description: Incremented only when something that changes behaviour changed.
+        overlapPolicy:
+          type: string
+          enum: [Skip, Queue, Replace]
+        catchupPolicy:
+          type: string
+          enum: [None, One, All]
+        catchupMax:
+          type: integer
+        jitterSeconds:
+          type: integer
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastRunStatus:
+          type: string
+          enum: [Created, Skipped, Failed]
+        createdBy:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        health:
+          $ref: "#/components/schemas/ScheduleHealth"
+
+    ScheduleHealth:
+      type: object
+      description: Summary of the last 20 runs, for the dashboard list.
+      properties:
+        recentRuns:
+          type: integer
+        recentFailed:
+          type: integer
+        recentSkipped:
+          type: integer
+        outcomes:
+          type: array
+          maxItems: 20
+          description: Newest first.
+          items:
+            type: string
+            enum: [Created, Skipped, Failed]
+        lagSeconds:
+          type: number
+          nullable: true
+
+    ScheduleRun:
+      type: object
+      required:
+        - id
+        - scheduleId
+        - scheduledFor
+        - firedAt
+        - trigger
+        - outcome
+        - definitionVersion
+        - lagSeconds
+      properties:
+        id:
+          type: integer
+          format: int64
+        scheduleId:
+          type: integer
+          format: int64
+        scheduledFor:
+          type: string
+          format: date-time
+          description: The planned tick.
+        firedAt:
+          type: string
+          format: date-time
+        trigger:
+          type: string
+          enum: [Cron, Interval, Once, Manual, Catchup]
+        outcome:
+          type: string
+          enum: [Created, Skipped, Failed]
+        skipReason:
+          type: string
+          enum: [Overlap, Paused, Catchup]
+        pipelineId:
+          type: integer
+          nullable: true
+        definitionVersion:
+          type: integer
+        error:
+          type: string
+          description: Present when outcome is Failed. The schedule keeps ticking.
+        lagSeconds:
+          type: number
+          description: firedAt minus scheduledFor.
+        pipelineStatus:
+          type: string
+        pipelineFinishedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ScheduleListResponse:
+      type: object
+      required:
+        - schedules
+      properties:
+        schedules:
+          type: array
+          items:
+            $ref: "#/components/schemas/Schedule"
+        nextCursor:
+          type: string
+
+    ScheduleRunListResponse:
+      type: object
+      required:
+        - runs
+      properties:
+        runs:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleRun"
+        nextCursor:
+          type: string
+
+    ScheduleTriggerRequest:
+      type: object
+      properties:
+        input:
+          description: Optional replacement for the first stage's input.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: string
+
+    ScheduleTriggerResponse:
+      type: object
+      required:
+        - runId
+        - pipelineId
+        - trigger
+      properties:
+        runId:
+          type: integer
+          format: int64
+        pipelineId:
+          type: integer
+        trigger:
+          type: string
+          enum: [Manual]
 
     ProblemDetails:
       type: object

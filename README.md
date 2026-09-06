@@ -145,6 +145,7 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 - [Architecture](docs/architecture.md) — control plane, data plane, workers, execution flow
 - [Reliable Execution](docs/reliable-execution.md) — idempotent creation, retries, leases, fencing, cancellation, and upgrade guidance
 - [HTTP Workers](docs/http-workers.md) — pull, lease, and report stage results over HTTP without a broker connection
+- [Schedules](docs/schedules.md) — cron, interval, and one-shot triggers, overlap and catch-up policies, DST behaviour
 - [Insurance Workflow Capability Audit](docs/insurance-workflow-capability-audit.md) — critical-workflow guarantees, gaps, and consumer obligations
 - [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
 - [Observability](docs/observability.md) — trace context, metrics, integration config

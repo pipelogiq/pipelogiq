@@ -452,9 +452,17 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 	}
 
 	if _, err := db.Exec(`
+		INSERT INTO application (id, name) VALUES ($1, $2), ($3, $4)
+	`, externalTestApplicationID, "primary", externalTestApplicationID+1, "other"); err != nil {
+		_ = db.Close()
+		t.Fatalf("insert applications: %v", err)
+	}
+
+	if _, err := db.Exec(`
 		INSERT INTO api_key (application_id, key, created_at, disabled_at, expires_at)
-		VALUES ($1, $2, $3, NULL, NULL)
-	`, externalTestApplicationID, "test-api-key", time.Now().UTC()); err != nil {
+		VALUES ($1, $2, $3, NULL, NULL), ($4, $5, $3, NULL, NULL)
+	`, externalTestApplicationID, "test-api-key", time.Now().UTC(),
+		externalTestApplicationID+1, "other-api-key"); err != nil {
 		_ = db.Close()
 		t.Fatalf("insert api key: %v", err)
 	}
@@ -477,6 +485,7 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 	router.Post("/stages/{stageId}/result", server.handlePostStageResult)
 	router.Post("/jobs/pull", server.handlePullJob)
 	router.Post("/jobs/ack", server.handleAckJob)
+	server.registerScheduleRoutes(router)
 
 	return server, db, router
 }

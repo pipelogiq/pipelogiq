@@ -34,6 +34,11 @@ type Worker struct {
 
 	wake    chan struct{}
 	metrics workerMetrics
+
+	// exportedSchedules tracks which schedule names currently have a next-run
+	// gauge, so stale series can be dropped when a schedule stops being Active.
+	exportedMu        sync.Mutex
+	exportedSchedules map[string]struct{}
 }
 
 type workerMetrics struct {
@@ -44,6 +49,7 @@ type workerMetrics struct {
 	activeStageTimedOut           prometheus.Counter
 	pendingMarkedFailedDeprecated prometheus.Counter
 	stageDuration                 *prometheus.HistogramVec
+	scheduler                     schedulerMetrics
 }
 
 const (
@@ -87,6 +93,7 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 			Help:    "Stage execution duration in seconds",
 			Buckets: []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60, 120, 300},
 		}, []string{"handler", "status"}),
+		scheduler: newSchedulerMetrics(),
 	}
 	prometheus.MustRegister(
 		metrics.stagePublished,
@@ -96,15 +103,20 @@ func New(cfg config.WorkerConfig, st *store.Store, mqClient *mq.Client, logger *
 		metrics.activeStageTimedOut,
 		metrics.pendingMarkedFailedDeprecated,
 		metrics.stageDuration,
+		metrics.scheduler.runs,
+		metrics.scheduler.lagSeconds,
+		metrics.scheduler.nextRunTime,
+		metrics.scheduler.tickDurationSec,
 	)
 
 	return &Worker{
-		cfg:     cfg,
-		store:   st,
-		mq:      mqClient,
-		logger:  logger,
-		wake:    make(chan struct{}, 1),
-		metrics: metrics,
+		cfg:               cfg,
+		store:             st,
+		mq:                mqClient,
+		logger:            logger,
+		wake:              make(chan struct{}, 1),
+		metrics:           metrics,
+		exportedSchedules: make(map[string]struct{}),
 	}
 }
 
@@ -124,6 +136,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	startWorker("stage-status-consumer", w.runStageStatusConsumer)
 	startWorker("stage-timeout-watcher", w.runStageTimeoutWatcher)
 	startWorker("orphan-recovery", w.runOrphanRecovery)
+	startWorker("scheduler", w.runScheduler)
 
 	if w.cfg.MetricsAddr != "" {
 		go w.runMetricsServer(ctx)
@@ -497,6 +510,20 @@ func normalizeWorkerConfig(cfg config.WorkerConfig, logger *slog.Logger) config.
 			logger.Warn("worker poll interval is too low, clamping", "configured", cfg.PollInterval, "effective", minWorkerPollInterval)
 		}
 		cfg.PollInterval = minWorkerPollInterval
+	}
+
+	if cfg.SchedulerPollInterval <= 0 {
+		if logger != nil {
+			logger.Warn("scheduler poll interval is invalid, using default",
+				"configured", cfg.SchedulerPollInterval, "effective", defaultSchedulerPollInterval)
+		}
+		cfg.SchedulerPollInterval = defaultSchedulerPollInterval
+	} else if cfg.SchedulerPollInterval < minSchedulerPollInterval {
+		if logger != nil {
+			logger.Warn("scheduler poll interval is too low, clamping",
+				"configured", cfg.SchedulerPollInterval, "effective", minSchedulerPollInterval)
+		}
+		cfg.SchedulerPollInterval = minSchedulerPollInterval
 	}
 
 	if cfg.StageActiveTimeout <= 0 {
