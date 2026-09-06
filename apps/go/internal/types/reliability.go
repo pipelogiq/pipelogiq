@@ -33,6 +33,15 @@ type StageLeaseResponse struct {
 	Reason         string     `json:"reason,omitempty"`
 }
 
+// StageResultAcceptedResponse acknowledges that a stage result was queued.
+// Acceptance says nothing about the outcome: fencing and retry evaluation happen
+// in the worker process that consumes the StageResult queue.
+type StageResultAcceptedResponse struct {
+	Accepted    bool   `json:"accepted"`
+	StageID     int    `json:"stageId"`
+	ExecutionID string `json:"executionId,omitempty"`
+}
+
 type PipelineLookupByIdempotencyKeyRequest struct {
 	IdempotencyKey string `json:"idempotencyKey"`
 }

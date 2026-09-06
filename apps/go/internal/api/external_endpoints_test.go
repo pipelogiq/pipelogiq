@@ -471,6 +471,7 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 	router.Use(middleware.RequestID)
 	router.Post("/pipelines/{pipelineId}/stages", server.handleAppendPipelineStages)
 	router.Post("/stages/{stageId}/resume", server.handleResumeStage)
+	router.Post("/stages/{stageId}/result", server.handlePostStageResult)
 
 	return server, db, router
 }

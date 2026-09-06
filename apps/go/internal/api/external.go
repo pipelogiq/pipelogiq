@@ -46,6 +46,11 @@ type ExternalServer struct {
 	pendingMu sync.Mutex
 	pending   map[string]pendingAck
 
+	// publishStageResult delivers a StageResultMessage to the StageResult queue
+	// with publisher confirms. It is a field so tests can observe the payload
+	// without a broker; production always uses publishStageResultToQueue.
+	publishStageResult func(ctx context.Context, body []byte) error
+
 	metrics externalMetrics
 }
 
@@ -63,8 +68,10 @@ type externalMetrics struct {
 	stageJobsNacked  prometheus.Counter
 	appendStages     *prometheus.CounterVec
 	resumeStage      *prometheus.CounterVec
+	stageResults     *prometheus.CounterVec
 	appendDurationMs prometheus.Histogram
 	resumeDurationMs prometheus.Histogram
+	stageResultMs    prometheus.Histogram
 }
 
 func NewExternalServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *ExternalServer {
@@ -103,6 +110,10 @@ func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClie
 			Name: "api_stage_resume_total",
 			Help: "Number of stage resume endpoint requests",
 		}, []string{"approved", "status_code"}),
+		stageResults: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "api_stage_results_posted_total",
+			Help: "Number of stage results posted over HTTP",
+		}, []string{"status_code"}),
 		appendDurationMs: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Name:    "api_append_stages_duration_ms",
 			Help:    "Append stages endpoint latency in milliseconds",
@@ -113,6 +124,11 @@ func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClie
 			Help:    "Stage resume endpoint latency in milliseconds",
 			Buckets: []float64{5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
 		}),
+		stageResultMs: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "api_stage_result_duration_ms",
+			Help:    "Stage result submission endpoint latency in milliseconds",
+			Buckets: []float64{5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000},
+		}),
 	}
 	registerCounter(&metrics.pipelinesCreated)
 	registerCounter(&metrics.stageJobsPulled)
@@ -120,10 +136,12 @@ func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClie
 	registerCounter(&metrics.stageJobsNacked)
 	registerCounterVec(&metrics.appendStages)
 	registerCounterVec(&metrics.resumeStage)
+	registerCounterVec(&metrics.stageResults)
 	registerHistogram(&metrics.appendDurationMs)
 	registerHistogram(&metrics.resumeDurationMs)
+	registerHistogram(&metrics.stageResultMs)
 
-	return &ExternalServer{
+	srv := &ExternalServer{
 		cfg:      cfg,
 		store:    st,
 		mq:       mqClient,
@@ -132,6 +150,8 @@ func NewExternalServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClie
 		pending:  make(map[string]pendingAck),
 		metrics:  metrics,
 	}
+	srv.publishStageResult = srv.publishStageResultToQueue
+	return srv
 }
 
 func (s *ExternalServer) Run(ctx context.Context) error {
@@ -165,6 +185,7 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	router.Post("/stages/{stageId}/resume", s.handleResumeStage)
 	router.Post("/stages/{stageId}/lease/acquire", s.handleAcquireStageLease)
 	router.Post("/stages/{stageId}/lease/renew", s.handleRenewStageLease)
+	router.Post("/stages/{stageId}/result", s.handlePostStageResult)
 	router.Post("/jobs/pull", s.handlePullJob)
 	router.Post("/jobs/ack", s.handleAckJob)
 	router.Post("/logs", s.handleSaveLog)

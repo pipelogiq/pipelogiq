@@ -398,6 +398,71 @@ paths:
         "500":
           description: Lease operation failed
 
+  /stages/{stageId}/result:
+    post:
+      summary: Report a stage result over HTTP
+      description: |
+        Worker protocol endpoint for HTTP workers. The body is the same
+        `stage_result` message an AMQP worker publishes, so retry policies,
+        execution-ID fencing, WebSocket updates, and metrics behave identically.
+
+        The API queues the message and returns `202` without inspecting stage
+        state. A stale, duplicate, or terminal-stage result is accepted here and
+        discarded by the result consumer, which is the existing AMQP contract.
+
+        Acknowledge the pulled job (`POST /jobs/ack` with `requeue:false`) only
+        after this endpoint returned `202`.
+      operationId: postStageResult
+      tags:
+        - Worker protocol
+      security:
+        - WorkerSessionAuth: []
+      parameters:
+        - $ref: "#/components/parameters/StageId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StageResultSubmit"
+      responses:
+        "202":
+          description: Result queued for the stage result consumer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StageResultAccepted"
+        "400":
+          description: Validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "401":
+          description: Missing worker session token or invalid API key
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "403":
+          description: Stage belongs to another application
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "404":
+          description: Stage not found
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+        "503":
+          description: Message broker unavailable; retry the request
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetails"
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -946,6 +1011,89 @@ components:
         reason:
           type: string
           description: Machine-readable explanation when acquired is false.
+
+    StageResultSubmit:
+      type: object
+      required:
+        - stageId
+        - executionId
+        - attempt
+        - isSuccess
+      properties:
+        pipelineId:
+          type: integer
+          nullable: true
+          description: Pipeline the stage belongs to, as delivered in the stage job.
+        stageId:
+          type: integer
+          minimum: 1
+          description: Must equal the stageId in the route.
+        executionId:
+          type: string
+          minLength: 1
+          description: Execution token from the stage delivery; the consumer fences on it.
+        attempt:
+          type: integer
+          minimum: 1
+          description: Execution attempt accepted by the lease.
+        isSuccess:
+          type: boolean
+        result:
+          type: string
+          description: Handler output, at most 262144 bytes.
+        isWaitingForApproval:
+          type: boolean
+          description: Parks the stage in WaitingForApproval instead of completing it.
+        errorCode:
+          type: string
+          description: Failure classification; must not contain control characters.
+        retryable:
+          type: boolean
+          nullable: true
+          description: Overrides the classification derived from errorCode.
+        nextStageId:
+          type: integer
+          nullable: true
+        runNextIfCurrentFailed:
+          type: boolean
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageResultLog"
+        contextItems:
+          type: array
+          items:
+            $ref: "#/components/schemas/ContextItem"
+        appendedStages:
+          type: array
+          items:
+            $ref: "#/components/schemas/StageInfo"
+
+    StageResultLog:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+        logLevel:
+          type: string
+        created:
+          type: string
+          format: date-time
+
+    StageResultAccepted:
+      type: object
+      required:
+        - accepted
+        - stageId
+      properties:
+        accepted:
+          type: boolean
+        stageId:
+          type: integer
+        executionId:
+          type: string
 
     ProblemDetails:
       type: object

@@ -345,6 +345,58 @@ lease renewal, or lease loss. A handler must pass that token to HTTP, database,
 and other asynchronous calls. Code that ignores it may continue after the
 pipeline is terminal.
 
+### HTTP workers
+
+An AMQP worker publishes its `stage_result` message onto the `StageResult`
+queue. A worker that cannot take a broker dependency posts the same message
+over HTTP instead:
+
+```http
+POST /stages/81/result
+X-API-Key: <application API key>
+X-Worker-Session-Token: <token from /workers/bootstrap>
+Content-Type: application/json
+
+{
+  "pipelineId": 273,
+  "stageId": 81,
+  "executionId": "…",
+  "attempt": 2,
+  "isSuccess": false,
+  "result": "Stripe reports the checkout is still open.",
+  "errorCode": "PAYMENT_PENDING",
+  "retryable": true,
+  "logs": [ { "level": "Info", "message": "…" } ],
+  "contextItems": [ { "key": "paymentOutcome", "value": "\"Pending\"", "valueType": "System.String" } ],
+  "appendedStages": []
+}
+```
+
+The body is the `stage_result` message verbatim, so nothing downstream can tell
+the two transports apart. The API validates the caller and the shape, then
+publishes the message onto `StageResult` with persistent delivery and publisher
+confirms. It never writes stage state itself: the worker process owns the state
+machine, so fencing, retry-policy evaluation, WebSocket updates, and metrics
+stay in one place.
+
+| Status | Meaning |
+|---|---|
+| `202` | The message was confirmed onto `StageResult`. |
+| `400` | `stageId` disagrees with the route, `executionId` is missing, `attempt` is not positive, `result` exceeds the `stage_io` limit of 262144 bytes, or `errorCode` contains control characters. |
+| `401` | The worker session token header is missing, or the API key is invalid. |
+| `403` | The stage belongs to another application. |
+| `404` | The stage does not exist. |
+| `503` | The broker did not confirm the publish. Retry; the request is safe to repeat. |
+
+`202` means queued, not applied. A stale result, a duplicate, or a result for a
+stage that is already terminal is still `202`: the consumer fences on
+`executionId` and `attempt` and drops what no longer applies. That is the same
+contract AMQP workers have always had, and it is why retrying a `503` cannot
+corrupt state.
+
+Acknowledge the pulled job only after `202`. See
+[HTTP worker protocol](http-workers.md) for the full loop.
+
 ## Sensitive context
 
 The target SDK adds:
