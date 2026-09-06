@@ -7,6 +7,83 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+## [0.5.0-preview.1] - 2026-09-06
+
+Schedules, and a commercial tier beside the Apache-2.0 core. The minor version
+moves because the schema grows and a licence concept exists that did not before;
+nothing breaks. See
+[the release notes](docs/releases/RELEASE_NOTES_v0.5.0-preview.1.md).
+
+### Added
+
+- **Schedules.** A schedule is a stored pipeline definition plus a trigger, and
+  every firing creates an ordinary pipeline. The scheduler creates pipelines and
+  nothing else: execution, leases, retries, fencing, cancellation, WebSocket
+  updates and metrics are the existing machinery.
+  - Cron (5-field plus `@every`/`@hourly`/`@daily`), Interval (from 10s), and
+    Once kinds, in any IANA time zone.
+  - Overlap policies `Skip`, `Queue`, `Replace`; catch-up policies `None`,
+    `One`, `All` with a budget. Missed ticks are recorded as `Skipped`, never
+    silently dropped.
+  - `PUT /schedules/{name}` is an idempotent upsert: an unchanged body does not
+    bump the version or move the next run, so re-applying on every deploy is a
+    no-op.
+  - `{{scheduledFor}}`, `{{runId}}`, and `{{previousPipelineId}}` are substituted
+    in stage inputs and context values. Nothing else is templated.
+  - Exactly-once firing rests on `FOR UPDATE SKIP LOCKED` with the cursor advance
+    in the same transaction, plus a unique index on
+    `schedule_run(schedule_id, scheduled_for)`. Two schedulers against one
+    database are tested to fire each tick once.
+  - A Schedules page in the dashboard with run history, health, "Run now", and a
+    live `ScheduleRunCreated` event.
+  - `schedule_runs_total`, `schedule_lag_seconds`,
+    `schedule_next_run_timestamp_seconds`, `scheduler_tick_duration_seconds`, and
+    provisioned Grafana alert rules.
+  - `SCHEDULER_POLL_INTERVAL`, default `1s`.
+- **Offline licensing and a Pro tier.** An Ed25519 JWT in `PIPELOGIQ_LICENSE`,
+  verified against a key compiled into the binary. No network call exists in the
+  licensing path. A licence never stops a pipeline: gating happens at the API
+  surface, before work is created. Missing, malformed, or expired resolves to
+  Community and logs why; an expired token keeps its features for a 14-day grace
+  period behind a dashboard banner.
+  - `GET /license` and a `tier` field on `/version`.
+  - A closed gate answers `402` problem+json naming the gate.
+  - The dashboard renders locked features with an explanation and a pricing link.
+  - Feature gates:
+
+    | Gate | What it adds | Community | Pro | Status |
+    |---|---|---|---|---|
+    | `sso` | OIDC single sign-on with group-to-role mapping | — | yes | **this release** |
+    | `audit.export` | Signed NDJSON export of the audit trail, with retention | — | yes | **this release** |
+    | `retention` | Scheduled purge of finished pipelines, stage IO and logs | — | yes | **this release** |
+    | `schedules.advanced` | Catch-up and overlap policies beyond Skip and None | — | yes | next release |
+    | `alerting.oncall` | PagerDuty and Opsgenie routing | — | yes | next release |
+    | `approvals.slack` | Approve and reject stages from Slack | — | yes | next release |
+    | `ha.multi-instance` | Priority queues and control-plane replicas | — | yes | next release |
+    | `agent.cost-caps` | Per-application spend caps for agent stages | — | yes | next release |
+
+- **`internal/pro` build seam.** Without `-tags pro` every Pro entry point
+  returns "not licensed", so the open repository builds and tests with no private
+  code. The released image is built with the tag and the licence decides. CI now
+  builds and tests both ways.
+- **`scripts/schedules-smoke.sh`** — registers an `@every 10s` schedule, serves
+  its stages over the HTTP worker protocol, and asserts three runs each with
+  their own Completed pipeline.
+
+### Changed
+
+- `apps/go` gains `github.com/robfig/cron/v3` for expression parsing only; its
+  runner is not used.
+- The README states the core-stays-Apache-2.0 promise; `LICENSE-PRO.md` and
+  `docs/licensing.md` describe the commercial boundary.
+
+### Database
+
+Additive, and safe to roll back by ignoring the new columns: new tables
+`schedule`, `schedule_run`, and `retention_policy`; new nullable
+`pipeline.schedule_id` and `pipeline.schedule_run_id`. No column is dropped,
+narrowed, or made non-nullable.
+
 ## [0.4.1-preview.1] - 2026-09-06
 
 Workers can now run stages over HTTP alone, with no broker connection, and the
