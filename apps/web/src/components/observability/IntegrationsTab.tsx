@@ -138,8 +138,8 @@ OTEL_SERVICE_NAME=pipelogiq`;
                 key={integration.type}
                 className={cn(
                   "rounded-xl border bg-card p-5 transition-all hover:shadow-soft",
-                  integration.status === "connected" ? "border-green-200" :
-                  integration.status === "error" || integration.status === "disconnected" ? "border-red-200" :
+                  integration.status === "connected" ? "border-status-success/30" :
+                  integration.status === "error" || integration.status === "disconnected" ? "border-status-error/30" :
                   "border-border",
                 )}
               >
@@ -168,8 +168,8 @@ OTEL_SERVICE_NAME=pipelogiq`;
 
                 {/* Error */}
                 {integration.lastError && (
-                  <div className="mb-3 rounded-md border border-red-200 bg-red-50 p-2">
-                    <p className="text-xs text-red-700">{integration.lastError}</p>
+                  <div className="mb-3 rounded-md border border-status-error/30 bg-status-error-bg p-2">
+                    <p className="text-xs text-status-error">{integration.lastError}</p>
                   </div>
                 )}
 

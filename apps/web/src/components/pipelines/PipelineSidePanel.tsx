@@ -67,7 +67,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   if (isLoading) {
     return (
       <div className="h-full flex flex-col bg-card">
-        <div className="flex items-center justify-end px-6 py-5 border-b-2 border-slate-200">
+        <div className="flex items-center justify-end px-6 py-5 border-b-2 border-border">
           <button
             onClick={onClose}
             className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -85,7 +85,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   if (error || !pipeline) {
     return (
       <div className="h-full flex flex-col bg-card">
-        <div className="flex items-center justify-end px-6 py-5 border-b-2 border-slate-200">
+        <div className="flex items-center justify-end px-6 py-5 border-b-2 border-border">
           <button
             onClick={onClose}
             className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -178,11 +178,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   return (
     <div className="h-full flex flex-col bg-card">
       {/* Header */}
-      <div className="px-4 py-4 bg-slate-50 border-b-2 border-slate-200">
+      <div className="px-4 py-4 bg-muted/50 border-b-2 border-border">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-slate-900 truncate">
+              <h2 className="text-lg font-bold text-foreground truncate">
                 {pipeline.pipelineName}
               </h2>
               <span className={cn(
@@ -196,7 +196,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
           </div>
           <button
               onClick={onClose}
-              className="p-1 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -205,20 +205,20 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         <div className="mt-2.5 flex items-center gap-3 text-xs">
           <div className="flex min-w-0 flex-wrap items-center gap-4">
             <div>
-              <span className="font-semibold text-slate-500 uppercase tracking-wider">Started </span>
-              <span className="font-mono font-bold text-slate-900">{pipeline.startedAt}</span>
+              <span className="font-semibold text-muted-foreground uppercase tracking-wider">Started </span>
+              <span className="font-mono font-bold text-foreground">{pipeline.startedAt}</span>
             </div>
-            <span className="text-slate-300">|</span>
+            <span className="text-muted-foreground/50">|</span>
             <div>
-              <span className="font-semibold text-slate-500 uppercase tracking-wider">Duration </span>
-              <span className="font-mono font-bold text-slate-900">{pipeline.duration || "—"}</span>
+              <span className="font-semibold text-muted-foreground uppercase tracking-wider">Duration </span>
+              <span className="font-mono font-bold text-foreground">{pipeline.duration || "—"}</span>
             </div>
             {nextScheduledAction && (
               <>
-                <span className="text-slate-300">|</span>
+                <span className="text-muted-foreground/50">|</span>
                 <div>
-                  <span className="font-semibold text-slate-500 uppercase tracking-wider">Next </span>
-                  <span className="font-mono font-bold text-slate-900">{nextScheduledAction.nextRetryAtExact}</span>
+                  <span className="font-semibold text-muted-foreground uppercase tracking-wider">Next </span>
+                  <span className="font-mono font-bold text-foreground">{nextScheduledAction.nextRetryAtExact}</span>
                 </div>
               </>
             )}
@@ -229,7 +229,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1.5 px-3 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200"
+                className="h-8 gap-1.5 px-3 text-status-success bg-status-success-bg hover:bg-status-success-bg border-status-success/30"
                 disabled={resumePipeline.isPending}
                 onClick={() => resumePipeline.mutate(pipelineId)}
               >
@@ -244,7 +244,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
               <Button
                 variant="outline"
                 size="sm"
-                className="h-8 gap-1.5 px-3 text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200"
+                className="h-8 gap-1.5 px-3 text-status-warning bg-status-warning-bg hover:bg-status-warning-bg border-status-warning/30"
                 disabled={pausePipeline.isPending}
                 onClick={() => pausePipeline.mutate(pipelineId)}
               >
@@ -260,10 +260,10 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         </div>
 
         {pipeline.traceId && (
-            <div className="mt-2.5 flex items-center justify-between gap-2 p-2 bg-white rounded-md border border-slate-200 text-xs">
+            <div className="mt-2.5 flex items-center justify-between gap-2 p-2 bg-card rounded-md border border-border text-xs">
               <div className="flex items-center gap-2 min-w-0">
-                <span className="font-semibold text-slate-500 uppercase tracking-wider shrink-0">Trace</span>
-                <span className="font-mono text-slate-600 truncate">{pipeline.traceId}</span>
+                <span className="font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Trace</span>
+                <span className="font-mono text-muted-foreground truncate">{pipeline.traceId}</span>
               </div>
               <div className="shrink-0 flex items-center gap-1">
                 {pipeline.traceUrl ? (
@@ -271,7 +271,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     href={pipeline.traceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded transition-colors border border-blue-200"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-status-running bg-status-running-bg hover:bg-status-running-bg rounded transition-colors border border-status-running/30"
                   >
                     <ExternalLink className="h-3 w-3" />
                     Trace
@@ -281,7 +281,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     <button
                       type="button"
                       disabled
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-slate-400 bg-slate-100 rounded border border-slate-200 cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground/70 bg-muted rounded border border-border cursor-not-allowed"
                     >
                       <ExternalLink className="h-3 w-3" />
                       Trace
@@ -293,7 +293,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     href={pipeline.logTraceUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 rounded transition-colors border border-teal-200"
+                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground bg-muted/50 hover:bg-muted rounded transition-colors border border-border"
                   >
                     <ExternalLink className="h-3 w-3" />
                     Logs
@@ -303,7 +303,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     <button
                       type="button"
                       disabled
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-slate-400 bg-slate-100 rounded border border-slate-200 cursor-not-allowed"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground/70 bg-muted rounded border border-border cursor-not-allowed"
                     >
                       <ExternalLink className="h-3 w-3" />
                       Logs
@@ -316,7 +316,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
       </div>
 
       {/* Tabs */}
-      <div className="px-6 border-b border-border bg-white">
+      <div className="px-6 border-b border-border bg-card">
         <div className="flex">
           {([
             { key: "stages" as const, label: `Stages (${stageCount})` },
@@ -340,7 +340,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         </div>
       </div>
       {/* Tab Content */}
-      <div className="flex-1 min-h-0 overflow-hidden bg-slate-50">
+      <div className="flex-1 min-h-0 overflow-hidden bg-muted/50">
         {resolvedActiveTab === "stages" && (
           <ScrollArea className="h-full">
             <div className="p-4 space-y-3">
@@ -372,20 +372,20 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                 }
 
                 return (
-                  <div key={action.id} className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white">
-                    <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                  <div key={action.id} className="min-w-0 overflow-hidden rounded-lg border border-border bg-card">
+                    <div className="px-4 py-3 border-b border-border bg-muted/50">
                       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="font-mono text-xs font-bold text-slate-500">
+                        <span className="font-mono text-xs font-bold text-muted-foreground">
                           #{(index + 1).toString().padStart(2, "0")}
                         </span>
-                        <span className="min-w-0 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+                        <span className="min-w-0 break-words text-sm font-bold text-foreground [overflow-wrap:anywhere]">
                           {action.name}
                         </span>
-                        <span className="min-w-0 break-all text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        <span className="min-w-0 break-all text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                           {action.handlerName || "handler unknown"}
                         </span>
                       </div>
-                      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-slate-500">
+                      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
                         {action.createdAt && <span>CREATED {action.createdAt}</span>}
                         {action.startedAt && <span>STARTED {action.startedAt}</span>}
                         {action.completedAt && <span>FINISHED {action.completedAt}</span>}
@@ -396,8 +396,8 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     <div className="p-4 space-y-4">
                       {hasInput && (
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Input</p>
-                          <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Input</p>
+                          <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border bg-muted/50 p-3 font-mono text-xs text-foreground [overflow-wrap:anywhere]">
                             {formatPayloadPreview(action.input)}
                           </pre>
                         </div>
@@ -405,13 +405,13 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
                       {(hasOutput || !hasEntries) && (
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Output</p>
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Output</p>
                           {hasOutput ? (
-                            <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
+                            <pre className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border bg-muted/50 p-3 font-mono text-xs text-foreground [overflow-wrap:anywhere]">
                               {formatPayloadPreview(stageOutput)}
                             </pre>
                           ) : (
-                            <p className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-slate-200 bg-slate-50 p-3 font-mono text-xs text-slate-600 [overflow-wrap:anywhere]">
+                            <p className="w-full overflow-hidden whitespace-pre-wrap break-words rounded-md border border-border bg-muted/50 p-3 font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
                               {formatLogOutputFallback(action)}
                             </p>
                           )}
@@ -420,12 +420,12 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
                       {hasEntries && (
                         <div>
-                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Stage Logs</p>
-                          <div className="space-y-2 overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Stage Logs</p>
+                          <div className="space-y-2 overflow-hidden rounded-md border border-border bg-muted/50 p-3">
                             {action.logEntries!.map((entry, logIndex) => (
                               <p
                                 key={`${action.id}-${logIndex}`}
-                                className="w-full max-w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-slate-800 [overflow-wrap:anywhere]"
+                                className="w-full max-w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-foreground [overflow-wrap:anywhere]"
                               >
                                 [{entry.created}] {(entry.logLevel || "INFO").toUpperCase()} {entry.message}
                               </p>
@@ -442,8 +442,8 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                 !hasPayloadContent(getDisplayStageOutput(action.output)) &&
                 (!action.logEntries || action.logEntries.length === 0)
               ) && (
-                <div className="bg-white m-0 rounded-lg border border-slate-200 p-6">
-                  <p className="text-slate-500">No logs available</p>
+                <div className="bg-card m-0 rounded-lg border border-border p-6">
+                  <p className="text-muted-foreground">No logs available</p>
                 </div>
               )}
             </div>
@@ -453,7 +453,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         {resolvedActiveTab === "context" && (
           <ScrollArea className="h-full">
             <div className="p-4">
-              <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+              <div className="bg-card rounded-lg border border-border overflow-hidden">
                 {visibleContextItems.length > 0 ? (
                   <table className="w-full table-fixed text-sm">
                     <colgroup>
@@ -461,15 +461,15 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                       <col className="w-[70%]" />
                     </colgroup>
                     <thead>
-                      <tr className="border-b border-slate-200 bg-slate-50">
-                        <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Key</th>
-                        <th className="px-4 py-3 text-left font-bold text-slate-700 uppercase text-xs tracking-wider">Value</th>
+                      <tr className="border-b border-border bg-muted/50">
+                        <th className="px-4 py-3 text-left font-bold text-foreground uppercase text-xs tracking-wider">Key</th>
+                        <th className="px-4 py-3 text-left font-bold text-foreground uppercase text-xs tracking-wider">Value</th>
                       </tr>
                     </thead>
                     <tbody>
                       {visibleContextItems.map((ctx, index) => (
-                        <tr key={index} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                          <td className="max-w-0 break-all px-4 py-3 align-top font-mono font-bold text-slate-900 [overflow-wrap:anywhere]">
+                        <tr key={index} className="border-b border-border last:border-0 hover:bg-muted/50">
+                          <td className="max-w-0 break-all px-4 py-3 align-top font-mono font-bold text-foreground [overflow-wrap:anywhere]">
                             {ctx.key}
                           </td>
                           <td className="min-w-0 px-4 py-3 align-top">
@@ -480,16 +480,16 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                     </tbody>
                   </table>
                 ) : (
-                  <div className="px-4 py-6 text-sm text-slate-500">
+                  <div className="px-4 py-6 text-sm text-muted-foreground">
                     No context items to display.
                   </div>
                 )}
               </div>
               {/*<div className="mt-5">
-                <p className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-2">Tags</p>
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-2">Tags</p>
                 <div className="flex flex-wrap gap-2">
                   {pipeline.tags.map(tag => (
-                    <span key={tag} className="px-3 py-1 text-sm font-semibold bg-slate-200 text-slate-800 rounded-full">
+                    <span key={tag} className="px-3 py-1 text-sm font-semibold bg-secondary text-foreground rounded-full">
                       {tag}
                     </span>
                   ))}
@@ -519,7 +519,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
                   ))}
                 </div>
               ) : (
-                <div className="rounded-lg border border-slate-200 bg-white px-4 py-6 text-sm text-slate-500">
+                <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
                   No stage-level AI usage available.
                 </div>
               )}
@@ -616,43 +616,47 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
     const baseClass = "h-5 w-5";
     switch (action.status) {
       case "success":
-        return <CheckCircle2 className={cn(baseClass, "text-emerald-600")} />;
+        return <CheckCircle2 className={cn(baseClass, "text-status-success")} />;
       case "error":
-        return <XCircle className={cn(baseClass, "text-red-600")} />;
+        return <XCircle className={cn(baseClass, "text-status-error")} />;
       case "running":
         return (
           <div className="h-5 w-5 flex items-center justify-center gap-0.5">
-            <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse" />
-            <span className="h-2 w-2 rounded-full bg-blue-600 animate-pulse [animation-delay:150ms]" />
+            <span className="h-2 w-2 rounded-full bg-status-running animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-status-running animate-pulse [animation-delay:150ms]" />
           </div>
         );
       case "throttled":
-        return <AlertCircle className={cn(baseClass, "text-orange-600")} />;
+        return <AlertCircle className={cn(baseClass, "text-status-throttled")} />;
       case "rescheduled":
-        return <RotateCcw className={cn(baseClass, "text-yellow-600")} />;
+        return <RotateCcw className={cn(baseClass, "text-status-warning")} />;
       case "paused":
-        return <Pause className={cn(baseClass, "text-amber-600")} />;
+        return <Pause className={cn(baseClass, "text-status-warning")} />;
       case "queued":
-        return <Circle className={cn(baseClass, "text-slate-300")} />;
+        return <Circle className={cn(baseClass, "text-muted-foreground/50")} />;
       case "skipped":
-        return <Ban className={cn(baseClass, "text-violet-500")} />;
+        return <Ban className={cn(baseClass, "text-muted-foreground/70")} />;
       default:
-        return <Clock className={cn(baseClass, "text-slate-400")} />;
+        return <Clock className={cn(baseClass, "text-muted-foreground/70")} />;
     }
   };
 
+  // Same rule the rest of the app follows: the surface stays neutral unless
+  // the state asks for a decision. A stage list where Completed is filled
+  // green makes the one failed stage harder to find, not easier.
   const getStatusLabel = () => {
+    const neutral = "text-muted-foreground bg-muted";
     switch (action.status) {
-      case "success": return { text: "Completed", class: "text-emerald-700 bg-emerald-100" };
-      case "error": return { text: "Failed", class: "text-red-700 bg-red-100" };
-      case "running": return { text: "Running", class: "text-blue-700 bg-blue-100" };
-      case "rescheduled": return { text: "Rescheduled", class: "text-yellow-700 bg-yellow-100" };
-      case "throttled": return { text: "Throttled", class: "text-orange-700 bg-orange-100" };
-      case "paused": return { text: "Paused", class: "text-amber-700 bg-amber-100" };
-      case "waiting": return { text: "Pending", class: "text-slate-600 bg-slate-100" };
-      case "queued": return { text: "Not Started", class: "text-slate-400 bg-slate-50" };
-      case "skipped": return { text: "Skipped", class: "text-violet-600 bg-violet-50" };
-      default: return { text: action.status, class: "text-slate-600 bg-slate-100" };
+      case "error": return { text: "Failed", class: "text-status-error bg-status-error-bg" };
+      case "running": return { text: "Running", class: "text-status-running bg-status-running-bg" };
+      case "success": return { text: "Completed", class: neutral };
+      case "rescheduled": return { text: "Rescheduled", class: neutral };
+      case "throttled": return { text: "Throttled", class: neutral };
+      case "paused": return { text: "Paused", class: neutral };
+      case "waiting": return { text: "Pending", class: neutral };
+      case "queued": return { text: "Not Started", class: "text-muted-foreground/70 bg-muted/50" };
+      case "skipped": return { text: "Skipped", class: neutral };
+      default: return { text: action.status, class: neutral };
     }
   };
 
@@ -683,20 +687,20 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
 
   return (
     <Collapsible open={isExpanded} onOpenChange={onToggle}>
-      <div className="border-2 border-slate-200 rounded-lg overflow-hidden bg-white shadow-sm hover:border-slate-300 transition-colors">
-        <div className="flex items-center hover:bg-slate-50 transition-colors">
+      <div className="border-2 border-border rounded-lg overflow-hidden bg-card shadow-sm hover:border-border-strong transition-colors">
+        <div className="flex items-center hover:bg-muted/50 transition-colors">
           <CollapsibleTrigger asChild>
             <button className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3.5 text-left">
               {getStatusIcon()}
-              <span className="font-mono text-sm font-bold text-slate-500">
+              <span className="font-mono text-sm font-bold text-muted-foreground">
                 #{(index + 1).toString().padStart(2, '0')}
               </span>
-              <span className="min-w-0 flex-1 text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+              <span className="min-w-0 flex-1 text-sm font-bold text-foreground [overflow-wrap:anywhere]">
                 {action.name}
               </span>
               {action.hasFailureHistory && action.status !== "error" && (
                 <span
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-50 text-red-700"
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-status-error-bg text-status-error"
                   title="Had a previous failure"
                   aria-label="Had a previous failure"
                 >
@@ -707,7 +711,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                 {statusInfo.text}
               </span>
               <ChevronDown className={cn(
-                "h-5 w-5 text-slate-400 transition-transform",
+                "h-5 w-5 text-muted-foreground/70 transition-transform",
                 isExpanded && "rotate-180"
               )} />
             </button>
@@ -715,14 +719,14 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
         </div>
 
         <CollapsibleContent>
-          <div className="px-4 pb-4 pt-3 border-t-2 border-slate-100 bg-slate-50">
+          <div className="px-4 pb-4 pt-3 border-t-2 border-border bg-muted/50">
             {/* Rerun / Skip buttons for failed stages */}
             {action.status === "error" && (
                 <div className="mb-3 flex gap-2">
                   <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 flex-1 justify-center text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border-2 border-red-200 rounded-lg transition-colors"
+                      className="gap-1.5 flex-1 justify-center text-sm font-semibold text-status-error bg-status-error-bg hover:bg-status-error-bg border-2 border-status-error/30 rounded-lg transition-colors"
                       disabled={rerunStage.isPending || skipStage.isPending}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -739,7 +743,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
                   <Button
                       variant="outline"
                       size="sm"
-                      className="gap-1.5 flex-1 justify-center text-sm font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border-2 border-amber-200 rounded-lg transition-colors"
+                      className="gap-1.5 flex-1 justify-center text-sm font-semibold text-status-warning bg-status-warning-bg hover:bg-status-warning-bg border-2 border-status-warning/30 rounded-lg transition-colors"
                       disabled={rerunStage.isPending || skipStage.isPending}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -758,43 +762,43 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
             <div className="grid grid-cols-2 gap-4 text-sm mb-4 md:grid-cols-4">
               {action.createdAt && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Created</p>
-                  <p className="font-mono font-bold text-slate-900">{action.createdAt}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Created</p>
+                  <p className="font-mono font-bold text-foreground">{action.createdAt}</p>
                 </div>
               )}
               {action.startedAt && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Started</p>
-                  <p className="font-mono font-bold text-slate-900">{action.startedAt}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Started</p>
+                  <p className="font-mono font-bold text-foreground">{action.startedAt}</p>
                 </div>
               )}
               {action.completedAt && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Finished</p>
-                  <p className="font-mono font-bold text-slate-900">{action.completedAt}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Finished</p>
+                  <p className="font-mono font-bold text-foreground">{action.completedAt}</p>
                 </div>
               )}
               {action.duration && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Duration</p>
-                  <p className="font-mono font-bold text-slate-900">{action.duration}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Duration</p>
+                  <p className="font-mono font-bold text-foreground">{action.duration}</p>
                 </div>
               )}
               {action.nextRetryAtExact && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Scheduled</p>
-                  <p className="font-mono font-bold text-slate-900">{action.nextRetryAtExact}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Scheduled</p>
+                  <p className="font-mono font-bold text-foreground">{action.nextRetryAtExact}</p>
                   {action.nextRetryAt && (
-                    <p className="text-xs text-slate-500">{action.nextRetryAt}</p>
+                    <p className="text-xs text-muted-foreground">{action.nextRetryAt}</p>
                   )}
                 </div>
               )}
               {action.hasFailureHistory && action.status !== "error" && (
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Previous failure</p>
-                  <p className="font-mono font-bold text-red-700">{action.lastFailedAtExact || "Recorded"}</p>
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider mb-1">Previous failure</p>
+                  <p className="font-mono font-bold text-status-error">{action.lastFailedAtExact || "Recorded"}</p>
                   {action.failureCount ? (
-                    <p className="text-xs text-red-600">{action.failureCount} failure{action.failureCount === 1 ? "" : "s"}</p>
+                    <p className="text-xs text-status-error">{action.failureCount} failure{action.failureCount === 1 ? "" : "s"}</p>
                   ) : null}
                 </div>
               )}
@@ -802,17 +806,17 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
             </div>
 
             {action.spanId && (
-                <div className="flex items-center justify-between mb-4 p-2 bg-white rounded-md border border-slate-200">
+                <div className="flex items-center justify-between mb-4 p-2 bg-card rounded-md border border-border">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider shrink-0">Span</span>
-                    <span className="font-mono text-xs text-slate-600 truncate">{action.spanId}</span>
+                    <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Span</span>
+                    <span className="font-mono text-xs text-muted-foreground truncate">{action.spanId}</span>
                   </div>
                   {spanUrl && (
                       <a
                           href={spanUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="shrink-0 ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:text-blue-900 transition-colors"
+                          className="shrink-0 ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-status-running hover:text-status-running transition-colors"
                       >
                         <ExternalLink className="h-3 w-3" />
                         Span
@@ -822,31 +826,31 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
             )}
             <div className="space-y-3">
               {hasInput && (
-                <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+                <div className="rounded-lg bg-card border-2 border-border p-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
                     Input
                   </p>
-                  <pre className="w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-slate-700 [overflow-wrap:anywhere]">
+                  <pre className="w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs text-foreground [overflow-wrap:anywhere]">
                     {formatPayloadPreview(action.input)}
                   </pre>
                 </div>
               )}
 
-              <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">
+              <div className="rounded-lg bg-card border-2 border-border p-3">
+                <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
                   Output
                 </p>
                 {hasOutput ? (
                   <pre className={cn(
                     "w-full overflow-hidden whitespace-pre-wrap break-words font-mono text-xs [overflow-wrap:anywhere]",
-                    action.status === "error" ? "text-red-700" : "text-slate-700"
+                    action.status === "error" ? "text-status-error" : "text-foreground"
                   )}>
                     {formatPayloadPreview(displayStageOutput)}
                   </pre>
                 ) : (
                   <p className={cn(
                     "w-full overflow-hidden whitespace-pre-wrap break-words text-sm font-medium [overflow-wrap:anywhere]",
-                    action.status === "error" ? "text-red-700" : "text-slate-800"
+                    action.status === "error" ? "text-status-error" : "text-foreground"
                   )}>
                     {getOutputPreview()}
                   </p>
@@ -854,7 +858,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
               </div>
 
               {parsedStageOutput?.llmUsage && (
-                <div className="rounded-lg bg-white border-2 border-slate-200 p-3">
+                <div className="rounded-lg bg-card border-2 border-border p-3">
                   <UsageCard
                     title={parsedStageOutput.llmOperation
                       ? `AI Usage · ${parsedStageOutput.llmOperation}`
@@ -877,11 +881,11 @@ function UsageCard({ title, usage }: { title: string; usage: LlmUsageView }) {
   const hasCache = (usage.cacheReadTokens || 0) > 0 || (usage.cacheCreationTokens || 0) > 0;
 
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-3">
+    <div className="rounded-lg border border-status-running/30 bg-status-running-bg/60 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-bold uppercase tracking-wider text-blue-800">{title}</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-status-running">{title}</p>
         {providerModel && (
-          <span className="rounded-full border border-blue-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700">
+          <span className="rounded-full border border-status-running/30 bg-card px-2 py-0.5 text-[11px] font-semibold text-status-running">
             {providerModel}
           </span>
         )}
@@ -914,10 +918,10 @@ function UsageSummaryCard({
 }) {
   return (
     <div className={cn(
-      "rounded-lg border border-emerald-200 bg-emerald-50/60 p-3",
-      compact && "bg-emerald-50/40"
+      "rounded-lg border border-status-success/30 bg-status-success-bg/60 p-3",
+      compact && "bg-status-success-bg/40"
     )}>
-      <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{title}</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-status-success">{title}</p>
       <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <UsageMetric label="LLM Calls" value={formatInteger(summary.totalCalls)} />
         <UsageMetric label="Input Tokens" value={formatInteger(summary.inputTokens)} />
@@ -925,14 +929,14 @@ function UsageSummaryCard({
         <UsageMetric label="Estimated Cost" value={formatUsd(summary.estimatedCostUsd)} />
       </div>
       {((summary.cacheReadTokens || 0) > 0 || (summary.cacheCreationTokens || 0) > 0) && (
-        <div className="mt-2 text-xs text-emerald-900">
+        <div className="mt-2 text-xs text-status-success">
           Cache: {formatInteger(summary.cacheReadTokens)} read / {formatInteger(summary.cacheCreationTokens)} write
         </div>
       )}
       {summary.models.length > 0 && (
-        <div className="mt-3 overflow-hidden rounded-md border border-emerald-200 bg-white">
+        <div className="mt-3 overflow-hidden rounded-md border border-status-success/30 bg-card">
           <table className="w-full text-xs">
-            <thead className="bg-emerald-50 text-emerald-900">
+            <thead className="bg-status-success-bg text-status-success">
               <tr>
                 <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Model</th>
                 <th className="px-3 py-2 text-left font-bold uppercase tracking-wider">Calls</th>
@@ -942,7 +946,7 @@ function UsageSummaryCard({
             </thead>
             <tbody>
               {summary.models.map((model, index) => (
-                <tr key={`${model.provider || "unknown"}-${model.model || "unknown"}-${index}`} className="border-t border-emerald-100 text-slate-700">
+                <tr key={`${model.provider || "unknown"}-${model.model || "unknown"}-${index}`} className="border-t border-status-success/20 text-foreground">
                   <td className="px-3 py-2 font-medium">
                     {[model.provider, model.model].filter(Boolean).join(" · ") || "Unknown model"}
                   </td>
@@ -963,21 +967,21 @@ function UsageSummaryCard({
 
 function StageUsageCard({ entry }: { entry: StageUsageEntry }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-border bg-card p-4">
       <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-        <span className="font-mono text-xs font-bold text-slate-500">
+        <span className="font-mono text-xs font-bold text-muted-foreground">
           #{(entry.index + 1).toString().padStart(2, "0")}
         </span>
-        <span className="min-w-0 break-words text-sm font-bold text-slate-900 [overflow-wrap:anywhere]">
+        <span className="min-w-0 break-words text-sm font-bold text-foreground [overflow-wrap:anywhere]">
           {entry.action.name}
         </span>
         {entry.action.handlerName && (
-          <span className="min-w-0 break-all text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          <span className="min-w-0 break-all text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {entry.action.handlerName}
           </span>
         )}
       </div>
-      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-slate-500">
+      <div className="mt-2 flex min-w-0 flex-wrap gap-x-4 gap-y-1 font-mono text-xs text-muted-foreground">
         {entry.action.startedAt && <span>STARTED {entry.action.startedAt}</span>}
         {entry.action.completedAt && <span>FINISHED {entry.action.completedAt}</span>}
         {entry.action.duration && <span>DURATION {entry.action.duration}</span>}
@@ -994,9 +998,9 @@ function StageUsageCard({ entry }: { entry: StageUsageEntry }) {
 
 function UsageMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-white/80 bg-white/80 px-3 py-2">
-      <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
-      <p className="mt-1 font-mono text-sm font-bold text-slate-900">{value}</p>
+    <div className="rounded-md border border-border bg-card/80 px-3 py-2">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 font-mono text-sm font-bold text-foreground">{value}</p>
     </div>
   );
 }

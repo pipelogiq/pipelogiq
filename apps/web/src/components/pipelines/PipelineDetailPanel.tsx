@@ -98,8 +98,8 @@ const statusColors: Record<UIStatus, string> = {
   rescheduled: "text-status-warning",
   throttled: "text-status-throttled",
   paused: "text-status-paused",
-  queued: "text-slate-400",
-  skipped: "text-violet-500",
+  queued: "text-muted-foreground/70",
+  skipped: "text-muted-foreground/70",
 };
 
 export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelProps) {

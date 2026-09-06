@@ -54,7 +54,7 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
 
   if (!display.isExpandable) {
     return (
-      <div className={cn("max-w-full whitespace-pre-wrap break-words font-mono text-sm text-slate-700 [overflow-wrap:anywhere]", className)}>
+      <div className={cn("max-w-full whitespace-pre-wrap break-words font-mono text-sm text-foreground [overflow-wrap:anywhere]", className)}>
         {item.value}
       </div>
     );
@@ -63,9 +63,9 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
   return (
     <>
       <div className={cn("w-full min-w-0 overflow-hidden", className)}>
-        <div className="flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+        <div className="flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-lg border border-border bg-muted/50 p-3">
           <div className="min-w-0 flex-1">
-            <div className="max-w-full whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700 [overflow-wrap:anywhere]">
+            <div className="max-w-full whitespace-pre-wrap break-words font-mono text-xs leading-5 text-foreground [overflow-wrap:anywhere]">
               {display.preview}
             </div>
           </div>
@@ -84,23 +84,23 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-5xl gap-0 overflow-hidden p-0">
-          <DialogHeader className="border-b border-slate-200 bg-slate-50 px-6 py-5">
+          <DialogHeader className="border-b border-border bg-muted/50 px-6 py-5">
             <div className="flex items-start justify-between gap-4 pr-8">
               <div className="min-w-0 space-y-2">
-                <DialogTitle className="break-all font-mono text-base text-slate-900">
+                <DialogTitle className="break-all font-mono text-base text-foreground">
                   {item.key}
                 </DialogTitle>
                 <DialogDescription className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className="border-slate-200 bg-white text-[11px] text-slate-600">
+                  <Badge variant="outline" className="border-border bg-card text-[11px] text-muted-foreground">
                     {display.kind === "json" ? "JSON" : "Text"}
                   </Badge>
-                  <Badge variant="outline" className="border-slate-200 bg-white text-[11px] text-slate-500">
+                  <Badge variant="outline" className="border-border bg-card text-[11px] text-muted-foreground">
                     {display.sizeLabel}
                   </Badge>
                   {item.valueType && (
                     <Badge
                       variant="outline"
-                      className="max-w-full border-blue-200 bg-blue-50 text-[11px] text-blue-700"
+                      className="max-w-full border-status-running/30 bg-status-running-bg text-[11px] text-status-running"
                       title={item.valueType}
                     >
                       <span className="truncate">{item.valueType}</span>
@@ -111,7 +111,7 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
 
               <div className="flex items-center gap-2">
                 {display.kind === "json" && (
-                  <div className="rounded-lg border border-slate-200 bg-white p-1">
+                  <div className="rounded-lg border border-border bg-card p-1">
                     <Button
                       type="button"
                       variant={showRaw ? "ghost" : "secondary"}
@@ -147,8 +147,8 @@ export function ContextValueViewer({ item, className }: ContextValueViewerProps)
             </div>
           </DialogHeader>
 
-          <ScrollArea className="max-h-[70vh] bg-slate-950">
-            <pre className="max-w-full whitespace-pre-wrap break-words p-6 font-mono text-xs leading-6 text-slate-100 [overflow-wrap:anywhere]">
+          <ScrollArea className="max-h-[70vh] bg-[hsl(228_18%_6%)]">
+            <pre className="max-w-full whitespace-pre-wrap break-words p-6 font-mono text-xs leading-6 text-[hsl(228_20%_94%)] [overflow-wrap:anywhere]">
               {display.kind === "json" && !showRaw ? display.prettyValue : item.value}
             </pre>
           </ScrollArea>

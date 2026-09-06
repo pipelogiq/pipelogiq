@@ -323,7 +323,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
                     </div>
                     <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
-                        <p className={cn("text-sm font-semibold", hotspot.failureRate > 10 ? "text-red-600" : hotspot.failureRate > 5 ? "text-amber-600" : "text-foreground")}>
+                        <p className={cn("text-sm font-semibold", hotspot.failureRate > 10 ? "text-status-error" : hotspot.failureRate > 5 ? "text-status-warning" : "text-foreground")}>
                           {hotspot.failureRate.toFixed(1)}%
                         </p>
                         <p className="text-xs text-muted-foreground">{hotspot.avgRetries.toFixed(1)} retries</p>
@@ -386,7 +386,7 @@ function DurationBar({ durationMs, maxMs }: { durationMs: number; maxMs: number 
       <div
         className={cn(
           "h-full rounded-full transition-all",
-          pct > 80 ? "bg-red-500" : pct > 50 ? "bg-amber-500" : "bg-blue-500"
+          pct > 80 ? "bg-status-error" : pct > 50 ? "bg-status-warning" : "bg-status-running"
         )}
         style={{ width: `${pct}%` }}
       />

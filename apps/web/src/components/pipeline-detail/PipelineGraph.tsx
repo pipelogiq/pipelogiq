@@ -49,8 +49,8 @@ const statusStyles: Record<StepStatus, string> = {
   rescheduled: "border-status-warning bg-status-warning-bg",
   throttled: "border-status-throttled bg-status-throttled-bg",
   paused: "border-status-paused bg-status-paused-bg",
-  queued: "border-slate-200 bg-slate-50",
-  skipped: "border-violet-200 bg-violet-50",
+  queued: "border-border bg-muted/50",
+  skipped: "border-border bg-muted",
 };
 
 const iconColors: Record<StepStatus, string> = {
@@ -61,8 +61,8 @@ const iconColors: Record<StepStatus, string> = {
   rescheduled: "text-status-warning",
   throttled: "text-status-throttled",
   paused: "text-status-paused",
-  queued: "text-slate-400",
-  skipped: "text-violet-500",
+  queued: "text-muted-foreground/70",
+  skipped: "text-muted-foreground/70",
 };
 
 export function PipelineGraph({ steps, selectedStepId, onStepSelect }: PipelineGraphProps) {
@@ -98,7 +98,7 @@ export function PipelineGraph({ steps, selectedStepId, onStepSelect }: PipelineG
                   </span>
                 )}
                 {step.retries && step.retries > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-status-warning text-[10px] font-bold text-white">
+                  <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-status-warning text-[10px] font-bold text-background">
                     {step.retries}
                   </span>
                 )}

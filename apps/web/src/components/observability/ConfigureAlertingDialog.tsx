@@ -388,19 +388,19 @@ export function ConfigureAlertingDialog({ open, onOpenChange, integration }: Con
           </details>
 
           {saveMutation.isError && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <div className="rounded-md border border-status-error/30 bg-status-error-bg p-3 text-sm text-status-error">
               Failed to save: {saveMutation.error instanceof Error ? saveMutation.error.message : "Unknown error"}
             </div>
           )}
 
           {testMutation.data && (
-            <div className={`rounded-md p-3 text-sm ${testMutation.data.success ? "bg-green-50 text-green-800 border border-green-200" : "bg-red-50 text-red-800 border border-red-200"}`}>
+            <div className={`rounded-md p-3 text-sm ${testMutation.data.success ? "bg-status-success-bg text-status-success border border-status-success/30" : "bg-status-error-bg text-status-error border border-status-error/30"}`}>
               {testMutation.data.message}
               {testMutation.data.latencyMs != null && ` (${testMutation.data.latencyMs}ms)`}
             </div>
           )}
           {testMutation.isError && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            <div className="rounded-md border border-status-error/30 bg-status-error-bg p-3 text-sm text-status-error">
               Failed to send test alert: {testMutation.error instanceof Error ? testMutation.error.message : "Unknown error"}
             </div>
           )}

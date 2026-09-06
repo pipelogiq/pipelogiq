@@ -165,7 +165,7 @@ function TraceRow({ trace, traceLinkTemplate, copiedId, onCopy }: TraceRowProps)
             className="p-0.5 rounded hover:bg-muted transition-colors shrink-0"
           >
             {copiedId === trace.traceId ? (
-              <Check className="h-3.5 w-3.5 text-green-600" />
+              <Check className="h-3.5 w-3.5 text-status-success" />
             ) : (
               <Copy className="h-3.5 w-3.5 text-muted-foreground" />
             )}

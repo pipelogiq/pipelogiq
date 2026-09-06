@@ -112,7 +112,7 @@ export function MetricsTab({ timeRange }: MetricsTabProps) {
                 <tr key={idx} className="hover:bg-muted/50 transition-colors">
                   <td className="px-5 py-3 font-medium">{hotspot.stageName}</td>
                   <td className="px-5 py-3 text-muted-foreground">{hotspot.pipelineName}</td>
-                  <td className={`px-5 py-3 text-right font-semibold ${hotspot.failureRate > 10 ? "text-red-600" : hotspot.failureRate > 5 ? "text-amber-600" : ""}`}>
+                  <td className={`px-5 py-3 text-right font-semibold ${hotspot.failureRate > 10 ? "text-status-error" : hotspot.failureRate > 5 ? "text-status-warning" : ""}`}>
                     {hotspot.failureRate.toFixed(1)}%
                   </td>
                   <td className="px-5 py-3 text-right font-mono">{hotspot.avgRetries.toFixed(1)}</td>
