@@ -58,7 +58,7 @@ func triggerScheduleRun(
 	}
 
 	pipeline, _, err := st.CreatePipelineIdempotent(
-		ctx, definition, appID, store.ScheduleIdempotencyKey(stored.ID, tick),
+		ctx, definition, appID, store.ManualScheduleIdempotencyKey(stored.ID, runID),
 	)
 	if err != nil {
 		_ = st.FailScheduleRun(ctx, runID, err.Error())

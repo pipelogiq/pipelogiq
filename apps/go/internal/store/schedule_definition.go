@@ -55,6 +55,18 @@ func ScheduleIdempotencyKey(scheduleID int64, scheduledFor time.Time) string {
 	return fmt.Sprintf("schedule:%d:%s", scheduleID, scheduledFor.UTC().Format(time.RFC3339))
 }
 
+// ManualScheduleIdempotencyKey is the key a manual run creates its pipeline
+// under. It is derived from the run id rather than the clock.
+//
+// Keying a manual run on its timestamp collides with a scheduled tick that fired
+// in the same second, and the two definitions are not identical — {{runId}}
+// differs — so the collision surfaces as an idempotency conflict rather than
+// resolving. A run id is unique by construction and still makes a retry of the
+// same manual run idempotent.
+func ManualScheduleIdempotencyKey(scheduleID int64, runID int64) string {
+	return fmt.Sprintf("schedule:%d:manual:%d", scheduleID, runID)
+}
+
 // DecodeScheduleDefinition parses the stored definition back into a create request.
 func DecodeScheduleDefinition(definitionJSON string) (types.PipelineCreateRequest, error) {
 	var req types.PipelineCreateRequest

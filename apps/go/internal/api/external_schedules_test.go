@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 )
 
@@ -526,5 +527,57 @@ func TestScheduleNameIsCaseInsensitive(t *testing.T) {
 	}
 	if len(listed.Schedules) != 1 {
 		t.Fatalf("len(schedules) = %d, want 1 (%s)", len(listed.Schedules), fmt.Sprint(listed.Schedules))
+	}
+}
+
+// TestManualTriggerDoesNotCollideWithAScheduledTick is a regression test for a
+// bug the schedules smoke found on real PostgreSQL: keying a manual run on the
+// clock collides with a scheduled tick that fired in the same second, and the
+// two definitions are not identical because {{runId}} differs, so the collision
+// surfaced as an idempotency conflict instead of resolving.
+func TestManualTriggerDoesNotCollideWithAScheduledTick(t *testing.T) {
+	_, db, router := setupExternalEndpointTest(t)
+	scheduleRequest(t, router, http.MethodPut, "/schedules/emails", cronScheduleBody(), "test-api-key")
+
+	var scheduleID int64
+	if err := db.Get(&scheduleID, `SELECT id FROM schedule WHERE name = 'emails'`); err != nil {
+		t.Fatalf("load schedule: %v", err)
+	}
+
+	// Stand in for a scheduled tick that already fired this second, taking the
+	// idempotency key a clock-derived manual key would have wanted.
+	tick := time.Now().UTC()
+	var pipelineID int
+	if err := db.QueryRow(`
+		INSERT INTO pipeline (name, status, created_at, is_completed, application_id, idempotency_key, request_hash, schedule_id)
+		VALUES ($1, $2, $3, false, $4, $5, $6, $7)
+		RETURNING id
+	`, "dispatch-due-emails", types.PipelineStatusRunning, tick, externalTestApplicationID,
+		store.ScheduleIdempotencyKey(scheduleID, tick), "a-different-hash", scheduleID).Scan(&pipelineID); err != nil {
+		t.Fatalf("seed scheduled pipeline: %v", err)
+	}
+
+	res := scheduleRequest(t, router, http.MethodPost, "/schedules/emails/trigger", nil, "test-api-key")
+	if res.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", res.Code, res.Body.String())
+	}
+
+	var out struct {
+		RunID      int64 `json:"runId"`
+		PipelineID int   `json:"pipelineId"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if out.PipelineID == pipelineID {
+		t.Fatalf("the manual run resolved the scheduled tick's pipeline instead of creating its own")
+	}
+
+	var key string
+	if err := db.Get(&key, `SELECT idempotency_key FROM pipeline WHERE id = $1`, out.PipelineID); err != nil {
+		t.Fatalf("load key: %v", err)
+	}
+	if want := store.ManualScheduleIdempotencyKey(scheduleID, out.RunID); key != want {
+		t.Fatalf("idempotency key = %q, want %q", key, want)
 	}
 }
