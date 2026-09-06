@@ -173,8 +173,13 @@ func (s *ExternalServer) handlePostStageResult(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// Deliberately NOT a strict decode. This is a worker-protocol endpoint, and
+	// the SDK's StageResultDto carries fields this message does not declare —
+	// tracing metadata and the idempotency key among them. Rejecting unknown
+	// fields would couple every SDK version to a server version, and would make
+	// adding a field to a worker a breaking change for the control plane.
 	var msg types.StageResultMessage
-	if err = decodeJSONStrictWithLimit(w, r, &msg, maxStageResultBytes+(64<<10)); err != nil {
+	if err = decodeJSONWithLimit(w, r, &msg, maxStageResultBytes+(64<<10)); err != nil {
 		statusCode = http.StatusBadRequest
 		writeProblemJSON(w, r, statusCode,
 			"https://api.pipelogiq.dev/errors/validation",

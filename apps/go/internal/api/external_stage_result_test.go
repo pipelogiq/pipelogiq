@@ -309,3 +309,100 @@ func TestPostStageResultEndpoint(t *testing.T) {
 		}
 	})
 }
+
+// TestPostStageResultAcceptsSdkExtraFields pins the cross-repo contract with the
+// .NET SDK. StageResultDto carries fields this message does not declare —
+// tracing metadata and the idempotency key — and it serialises PascalCase.
+//
+// A strict decoder here would couple every SDK version to a server version and
+// make adding a field to a worker a breaking change for the control plane.
+func TestPostStageResultAcceptsSdkExtraFields(t *testing.T) {
+	server, db, router := setupExternalEndpointTest(t)
+	recorder := captureStageResults(server, nil)
+	pipelineID := insertPipelineForExternalTest(t, db, "result-sdk", types.PipelineStatusRunning, false)
+	stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
+
+	// Exactly what PipelogiqApiClient.PostStageResultAsync puts on the wire:
+	// PascalCase names, plus fields the server does not model.
+	body := map[string]any{
+		"PipelineId":             pipelineID,
+		"StageId":                stageID,
+		"ExecutionId":            "exec-1",
+		"Attempt":                2,
+		"IsSuccess":              true,
+		"Result":                 `{"ok":true}`,
+		"retryable":              nil,
+		"IsWaitingForApproval":   false,
+		"RunNextIfCurrentFailed": false,
+		"Logs":                   []any{},
+		"ContextItems":           []any{},
+		"AppendedStages":         []any{},
+		// Declared by the SDK DTO, not by types.StageResultMessage.
+		"IdempotencyKey": "order-8891",
+		"TimeoutSeconds": 120,
+		"Traceparent":    "00-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbb-01",
+		"Tracestate":     "",
+		"TraceId":        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"SpanId":         "bbbbbbbbbbbbbbbb",
+	}
+
+	res := postStageResult(t, router, stageID, body, "test-api-key", "session-token")
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", res.Code, res.Body.String())
+	}
+	if recorder.count() != 1 {
+		t.Fatalf("published %d messages, want 1", recorder.count())
+	}
+
+	var published types.StageResultMessage
+	if err := json.Unmarshal(recorder.last(), &published); err != nil {
+		t.Fatalf("decode published payload: %v", err)
+	}
+	// PascalCase must still land on the right fields: Go matches case-insensitively.
+	if published.StageID != stageID || published.ExecutionID != "exec-1" || published.Attempt != 2 {
+		t.Fatalf("fencing fields lost from a PascalCase body: %+v", published)
+	}
+	if !published.IsSuccess {
+		t.Fatalf("isSuccess lost from a PascalCase body")
+	}
+}
+
+// TestPostStageResultRejectsMalformedBodies keeps the tolerant decode from
+// becoming a decode that accepts anything.
+func TestPostStageResultRejectsMalformedBodies(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{"not json", `this is not json`},
+		{"two objects", `{"stageId":1,"executionId":"e","attempt":1}{"stageId":2}`},
+		{"wrong type for stageId", `{"stageId":"eighty-one","executionId":"e","attempt":1}`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server, db, router := setupExternalEndpointTest(t)
+			recorder := captureStageResults(server, nil)
+			pipelineID := insertPipelineForExternalTest(t, db, "result-malformed", types.PipelineStatusRunning, false)
+			stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
+
+			req := httptest.NewRequest(
+				http.MethodPost,
+				fmt.Sprintf("/stages/%d/result", stageID),
+				strings.NewReader(tc.raw))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-API-Key", "test-api-key")
+			req.Header.Set("X-Worker-Session", "session-token")
+
+			res := httptest.NewRecorder()
+			router.ServeHTTP(res, req)
+
+			if res.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", res.Code, res.Body.String())
+			}
+			if recorder.count() != 0 {
+				t.Fatalf("a malformed body must not publish")
+			}
+		})
+	}
+}

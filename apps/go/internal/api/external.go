@@ -1474,6 +1474,29 @@ func decodeJSONStrictWithLimit(
 	return nil
 }
 
+// decodeJSONWithLimit decodes a single JSON object under a size cap, tolerating
+// fields the target does not declare.
+//
+// Use it on worker-protocol endpoints, where the client is an SDK that may be a
+// version ahead of the server. Use decodeJSONStrictWithLimit everywhere a typo
+// in a consumer's payload should be reported rather than silently ignored.
+func decodeJSONWithLimit(
+	w http.ResponseWriter,
+	r *http.Request,
+	target any,
+	maxBytes int64,
+) error {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("request body must contain a single JSON object")
+	}
+	return nil
+}
+
 func writeProblemJSON(
 	w http.ResponseWriter,
 	r *http.Request,
