@@ -32,15 +32,17 @@ interface PipelineSearchBarProps {
   isSearching?: boolean;
 }
 
+// The dot identifies which filter this is, so it keeps its hue. Token-based
+// rather than palette-based, so the dots hold up in the dark theme too.
 const statusOptions = [
-  { value: "running", label: "Running", color: "bg-blue-500" },
-  { value: "success", label: "Completed", color: "bg-emerald-500" },
-  { value: "error", label: "Failed", color: "bg-red-500" },
-  { value: "waiting", label: "Waiting", color: "bg-slate-500" },
-  { value: "rescheduled", label: "Rescheduled", color: "bg-yellow-500" },
-  { value: "throttled", label: "Throttled", color: "bg-orange-500" },
-  { value: "queued", label: "Queued", color: "bg-slate-400" },
-  { value: "paused", label: "Paused", color: "bg-amber-500" },
+  { value: "running", label: "Running", color: "bg-status-running" },
+  { value: "success", label: "Completed", color: "bg-status-success" },
+  { value: "error", label: "Failed", color: "bg-status-error" },
+  { value: "waiting", label: "Waiting", color: "bg-muted-foreground/50" },
+  { value: "rescheduled", label: "Rescheduled", color: "bg-status-warning" },
+  { value: "throttled", label: "Throttled", color: "bg-status-throttled" },
+  { value: "queued", label: "Queued", color: "bg-muted-foreground/40" },
+  { value: "paused", label: "Paused", color: "bg-status-paused" },
 ];
 
 const statusShortLabels: Record<string, string> = {
@@ -323,16 +325,12 @@ export function PipelineSearchBar({
                     return (
                       <span
                         key={s}
+                        // One neutral surface for every chip: these sit inside
+                        // a filter control, and eight tinted pills there
+                        // compete with the data they are filtering.
                         className={cn(
-                          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold leading-none",
-                          s === "running" && "bg-blue-100 text-blue-700",
-                          s === "success" && "bg-emerald-100 text-emerald-700",
-                          s === "error" && "bg-red-100 text-red-700",
-                          s === "waiting" && "bg-slate-100 text-slate-700",
-                          s === "rescheduled" && "bg-yellow-100 text-yellow-700",
-                          s === "throttled" && "bg-orange-100 text-orange-700",
-                          s === "queued" && "bg-slate-100 text-slate-700",
-                          s === "paused" && "bg-amber-100 text-amber-700",
+                          "inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5",
+                          "text-[10px] font-semibold leading-none text-muted-foreground"
                         )}
                       >
                         <span className={cn("h-1.5 w-1.5 rounded-full", opt?.color)} />

@@ -66,11 +66,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
   if (isLoading) {
     return (
-      <div className="h-full flex flex-col bg-white">
+      <div className="h-full flex flex-col bg-card">
         <div className="flex items-center justify-end px-6 py-5 border-b-2 border-slate-200">
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+            className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
           </button>
@@ -84,11 +84,11 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
   if (error || !pipeline) {
     return (
-      <div className="h-full flex flex-col bg-white">
+      <div className="h-full flex flex-col bg-card">
         <div className="flex items-center justify-end px-6 py-5 border-b-2 border-slate-200">
           <button
             onClick={onClose}
-            className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200 transition-colors"
+            className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
           </button>
@@ -136,33 +136,47 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
     (action.status === "rescheduled" || action.status === "throttled") && action.nextRetryAtExact
   );
 
+  // Same rule as StatusBadge: the surface stays neutral unless the state needs
+  // a decision, and the dot carries the hue the surface gives up. Tokens rather
+  // than palette values, so the panel is correct in the dark theme.
   const getStatusDisplay = () => {
+    const neutral = { bg: "bg-muted", text: "text-muted-foreground" };
     switch (pipeline.status) {
       case "running":
-        return { bg: "bg-blue-100", text: "text-blue-800", dot: "bg-blue-600", label: "Running" };
-      case "success":
-        return { bg: "bg-emerald-100", text: "text-emerald-800", dot: "bg-emerald-600", label: "Completed" };
+        return {
+          bg: "bg-status-running-bg",
+          text: "text-status-running",
+          dot: "bg-status-running",
+          label: "Running",
+        };
       case "error":
-        return { bg: "bg-red-100", text: "text-red-800", dot: "bg-red-600", label: "Failed" };
+        return {
+          bg: "bg-status-error-bg",
+          text: "text-status-error",
+          dot: "bg-status-error",
+          label: "Failed",
+        };
+      case "success":
+        return { ...neutral, dot: "bg-status-success", label: "Completed" };
       case "paused":
-        return { bg: "bg-amber-100", text: "text-amber-800", dot: "bg-amber-600", label: "Paused" };
+        return { ...neutral, dot: "bg-status-paused", label: "Paused" };
       case "rescheduled":
-        return { bg: "bg-yellow-100", text: "text-yellow-800", dot: "bg-yellow-600", label: "Rescheduled" };
+        return { ...neutral, dot: "bg-status-warning", label: "Rescheduled" };
       case "throttled":
-        return { bg: "bg-orange-100", text: "text-orange-800", dot: "bg-orange-600", label: "Throttled" };
+        return { ...neutral, dot: "bg-status-throttled", label: "Throttled" };
       case "queued":
-        return { bg: "bg-slate-50", text: "text-slate-400", dot: "bg-slate-300", label: "Not Started" };
+        return { ...neutral, dot: "bg-muted-foreground/40", label: "Not Started" };
       case "skipped":
-        return { bg: "bg-violet-50", text: "text-violet-600", dot: "bg-violet-400", label: "Skipped" };
+        return { ...neutral, dot: "bg-muted-foreground/40", label: "Skipped" };
       default:
-        return { bg: "bg-slate-100", text: "text-slate-700", dot: "bg-slate-500", label: "Pending" };
+        return { ...neutral, dot: "bg-muted-foreground/50", label: "Pending" };
     }
   };
 
   const status = getStatusDisplay();
 
   return (
-    <div className="h-full flex flex-col bg-white">
+    <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="px-4 py-4 bg-slate-50 border-b-2 border-slate-200">
         <div className="flex items-start justify-between gap-3">

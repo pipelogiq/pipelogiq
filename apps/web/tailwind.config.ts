@@ -16,6 +16,7 @@ export default {
     extend: {
       colors: {
         border: "hsl(var(--border))",
+        "border-strong": "hsl(var(--border-strong))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         background: "hsl(var(--background))",
@@ -82,13 +83,19 @@ export default {
         },
       },
       borderRadius: {
+        // --radius is 10px: controls sit at sm/md, cards at xl, the app shell
+        // at 2xl. Anything rounder than xl on a small element reads as a toy.
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) + 10px)",
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
-        mono: ["JetBrains Mono", "Menlo", "Monaco", "monospace"],
+        // "… Variable" is the family name @fontsource-variable registers; the
+        // static names stay as a fallback for anyone who installs those instead.
+        sans: ["Inter Variable", "Inter", "system-ui", "-apple-system", "sans-serif"],
+        mono: ["JetBrains Mono Variable", "JetBrains Mono", "Menlo", "Monaco", "monospace"],
       },
       keyframes: {
         "accordion-down": {
@@ -105,9 +112,15 @@ export default {
         "accordion-up": "accordion-up 0.2s ease-out",
       },
       boxShadow: {
-        soft: "0 2px 8px -2px rgba(0, 0, 0, 0.05), 0 4px 16px -4px rgba(0, 0, 0, 0.05)",
-        card: "0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04)",
-        elevated: "0 4px 24px -4px rgba(0, 0, 0, 0.08), 0 8px 32px -8px rgba(0, 0, 0, 0.08)",
+        // A card separates with a 1px border, not a shadow — these stay at the
+        // edge of perception so they read as a seam, not a drop shadow.
+        soft: "0 1px 2px rgba(15, 18, 30, 0.04)",
+        card: "0 1px 2px rgba(15, 18, 30, 0.03)",
+        // Reserved for layers that genuinely float: popovers, dropdowns, dialogs.
+        elevated: "0 12px 32px -12px rgba(15, 18, 30, 0.18), 0 2px 6px -2px rgba(15, 18, 30, 0.06)",
+        // Softer replacements for the Tailwind defaults the Radix primitives use.
+        md: "0 4px 12px -4px rgba(15, 18, 30, 0.10), 0 1px 3px rgba(15, 18, 30, 0.04)",
+        lg: "0 12px 32px -12px rgba(15, 18, 30, 0.18), 0 2px 6px -2px rgba(15, 18, 30, 0.06)",
       },
     },
   },

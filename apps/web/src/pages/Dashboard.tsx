@@ -34,7 +34,7 @@ export default function Dashboard() {
       />
 
       <div className="flex-1 space-y-6 p-6">
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <KpiCard
             title="Workers Online"
             value={status.onlineCount}
@@ -46,6 +46,7 @@ export default function Dashboard() {
             value={status.degradedCount}
             subtitle="Need attention"
             icon={ShieldAlert}
+            tone="critical"
           />
           <KpiCard
             title="Workers Offline"
@@ -70,6 +71,7 @@ export default function Dashboard() {
             value={status.items.reduce((sum, w) => sum + (w.jobsFailed || 0), 0).toLocaleString()}
             subtitle="All tracked workers"
             icon={HardDrive}
+            tone="critical"
           />
         </div>
 
@@ -211,24 +213,23 @@ function WorkerRow({ worker }: { worker: WorkerStatusResponse }) {
   );
 }
 
+/**
+ * Worker state colour follows the same rule as StatusBadge: the surface stays
+ * neutral unless the state asks the operator to do something. A registry of
+ * fifty healthy workers in fifty green pills hides the two that are broken.
+ *
+ * Token-based rather than palette-based, so these hold up in the dark theme.
+ */
 function stateBadgeClass(state: WorkerState): string {
   switch (state) {
-    case "ready":
-      return "bg-emerald-100 text-emerald-800";
-    case "starting":
-      return "bg-blue-100 text-blue-800";
-    case "degraded":
-      return "bg-amber-100 text-amber-800";
-    case "draining":
-      return "bg-orange-100 text-orange-800";
-    case "stopped":
-      return "bg-slate-200 text-slate-700";
     case "error":
-      return "bg-red-100 text-red-800";
     case "offline":
-      return "bg-rose-100 text-rose-800";
+      return "bg-status-error-bg text-status-error";
+    case "degraded":
+    case "draining":
+      return "bg-status-warning-bg text-status-warning";
     default:
-      return "bg-slate-100 text-slate-700";
+      return "bg-muted text-muted-foreground";
   }
 }
 

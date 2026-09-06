@@ -2,133 +2,155 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   Design tokens. See the Interface Datasheet for the reasoning behind each
+   scale. Three rules the values below encode:
+
+   1. One accent. --primary is the only hue that carries brand meaning; every
+      other surface is a neutral biased toward it, so nothing reads as
+      accidentally colourful.
+   2. Hairlines, not shadows. Cards separate with a 1px border. Shadow is
+      reserved for things that genuinely float above the page — popovers,
+      dropdowns, dialogs.
+   3. Colour is spent on what needs attention. Status hues exist, but the
+      badge only reaches for them when a state is actionable.
+   ───────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
     /* Core backgrounds */
-    --background: 0 0% 99%;
-    --foreground: 222 47% 11%;
-    
+    --background: 225 20% 98%;
+    --foreground: 225 24% 10%;
+
     /* Cards and surfaces */
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
-    
+    --card-foreground: 225 24% 10%;
+
     /* Popovers */
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
-    
-    /* Primary - Deep blue */
+    --popover-foreground: 225 24% 10%;
+
+    /* Primary - the single accent */
     --primary: 224 76% 38%;
     --primary-foreground: 0 0% 100%;
-    
+
     /* Secondary */
-    --secondary: 214 32% 96%;
-    --secondary-foreground: 222 47% 11%;
-    
+    --secondary: 225 22% 96%;
+    --secondary-foreground: 225 24% 10%;
+
     /* Muted */
-    --muted: 220 14% 96%;
-    --muted-foreground: 220 9% 46%;
-    
-    /* Accent */
-    --accent: 220 14% 96%;
-    --accent-foreground: 222 47% 11%;
-    
+    --muted: 225 22% 96%;
+    --muted-foreground: 225 8% 52%;
+
+    /* Accent (hover/active surface, not the brand hue) */
+    --accent: 225 22% 96%;
+    --accent-foreground: 225 24% 10%;
+
     /* Destructive */
-    --destructive: 0 84% 60%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    
-    /* Border and inputs */
-    --border: 220 13% 91%;
-    --input: 220 13% 91%;
+
+    /* Border and inputs — hairline by default, --border-strong for dividers
+       that need to read as structural rather than incidental. */
+    --border: 228 18% 92%;
+    --border-strong: 228 16% 86%;
+    --input: 228 18% 92%;
     --ring: 224 76% 48%;
-    
-    --radius: 0.5rem;
-    
+
+    /* 10px. Tailwind derives sm 6 / md 8 / lg 10; xl 14 and 2xl 20 are
+       declared in the theme for cards and the app shell. */
+    --radius: 0.625rem;
+
     /* Status colors */
-    --status-success: 160 84% 39%;
-    --status-success-bg: 158 64% 95%;
-    --status-warning: 38 92% 50%;
-    --status-warning-bg: 48 96% 95%;
-    --status-error: 0 84% 60%;
-    --status-error-bg: 0 86% 97%;
-    --status-running: 217 91% 60%;
-    --status-running-bg: 214 100% 97%;
-    --status-paused: 262 83% 58%;
-    --status-paused-bg: 270 100% 98%;
-    --status-throttled: 25 95% 53%;
-    --status-throttled-bg: 33 100% 96%;
-    
+    --status-success: 158 68% 32%;
+    --status-success-bg: 158 52% 95%;
+    --status-warning: 32 88% 38%;
+    --status-warning-bg: 40 90% 95%;
+    --status-error: 0 72% 51%;
+    --status-error-bg: 0 80% 96%;
+    --status-running: 224 76% 48%;
+    --status-running-bg: 224 90% 96%;
+    --status-paused: 225 8% 52%;
+    --status-paused-bg: 225 22% 96%;
+    --status-throttled: 32 88% 38%;
+    --status-throttled-bg: 40 90% 95%;
+
     /* Pipeline graph */
     --node-bg: 0 0% 100%;
-    --node-border: 220 13% 91%;
+    --node-border: 228 18% 92%;
     --node-border-hover: 224 76% 48%;
-    --edge-color: 220 13% 80%;
-    
+    --edge-color: 228 14% 80%;
+
     /* Sidebar */
-    --sidebar-background: 220 14% 98%;
-    --sidebar-foreground: 220 9% 46%;
+    --sidebar-background: 225 20% 98%;
+    --sidebar-foreground: 225 8% 52%;
     --sidebar-primary: 224 76% 38%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 14% 96%;
-    --sidebar-accent-foreground: 222 47% 11%;
-    --sidebar-border: 220 13% 91%;
+    --sidebar-accent: 225 22% 96%;
+    --sidebar-accent-foreground: 225 24% 10%;
+    --sidebar-border: 228 18% 92%;
     --sidebar-ring: 224 76% 48%;
   }
 
   .dark {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 98%;
-    
-    --card: 222 47% 8%;
-    --card-foreground: 210 40% 98%;
-    
-    --popover: 222 47% 8%;
-    --popover-foreground: 210 40% 98%;
-    
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 6%;
-    
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 98%;
-    
-    --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
-    
-    --accent: 217 33% 17%;
-    --accent-foreground: 210 40% 98%;
-    
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 40% 98%;
-    
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 217 91% 60%;
-    
-    --status-success: 160 84% 45%;
-    --status-success-bg: 160 50% 15%;
-    --status-warning: 38 92% 50%;
-    --status-warning-bg: 38 50% 15%;
-    --status-error: 0 84% 60%;
-    --status-error-bg: 0 50% 15%;
-    --status-running: 217 91% 60%;
-    --status-running-bg: 217 50% 15%;
-    --status-paused: 262 83% 58%;
-    --status-paused-bg: 262 50% 15%;
-    --status-throttled: 25 95% 53%;
-    --status-throttled-bg: 25 50% 15%;
-    
-    --node-bg: 222 47% 8%;
-    --node-border: 217 33% 25%;
-    --node-border-hover: 217 91% 60%;
-    --edge-color: 217 33% 30%;
-    
-    --sidebar-background: 222 47% 6%;
-    --sidebar-foreground: 215 20% 65%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 222 47% 6%;
-    --sidebar-accent: 217 33% 17%;
-    --sidebar-accent-foreground: 210 40% 98%;
-    --sidebar-border: 217 33% 17%;
-    --sidebar-ring: 217 91% 60%;
+    /* Near-black with only a trace of the accent hue, so it reads as ink
+       rather than as navy. */
+    --background: 228 18% 6%;
+    --foreground: 228 20% 94%;
+
+    --card: 228 16% 9%;
+    --card-foreground: 228 20% 94%;
+
+    --popover: 228 16% 11%;
+    --popover-foreground: 228 20% 94%;
+
+    /* Lifted so the accent still reads on a dark ground. */
+    --primary: 222 90% 66%;
+    --primary-foreground: 228 18% 6%;
+
+    --secondary: 228 14% 15%;
+    --secondary-foreground: 228 20% 94%;
+
+    --muted: 228 14% 15%;
+    --muted-foreground: 228 9% 60%;
+
+    --accent: 228 14% 15%;
+    --accent-foreground: 228 20% 94%;
+
+    --destructive: 0 72% 62%;
+    --destructive-foreground: 228 18% 6%;
+
+    --border: 228 13% 18%;
+    --border-strong: 228 12% 25%;
+    --input: 228 13% 18%;
+    --ring: 222 90% 66%;
+
+    --status-success: 152 62% 52%;
+    --status-success-bg: 155 40% 14%;
+    --status-warning: 38 92% 60%;
+    --status-warning-bg: 36 45% 14%;
+    --status-error: 0 80% 68%;
+    --status-error-bg: 0 45% 15%;
+    --status-running: 222 90% 66%;
+    --status-running-bg: 224 45% 17%;
+    --status-paused: 228 9% 60%;
+    --status-paused-bg: 228 14% 15%;
+    --status-throttled: 38 92% 60%;
+    --status-throttled-bg: 36 45% 14%;
+
+    --node-bg: 228 16% 9%;
+    --node-border: 228 13% 18%;
+    --node-border-hover: 222 90% 66%;
+    --edge-color: 228 12% 28%;
+
+    --sidebar-background: 228 18% 6%;
+    --sidebar-foreground: 228 9% 60%;
+    --sidebar-primary: 222 90% 66%;
+    --sidebar-primary-foreground: 228 18% 6%;
+    --sidebar-accent: 228 14% 15%;
+    --sidebar-accent-foreground: 228 20% 94%;
+    --sidebar-border: 228 13% 18%;
+    --sidebar-ring: 222 90% 66%;
   }
 }
 
@@ -139,13 +161,67 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    /* Inter character variants: single-storey a, straight-leg l, open g.
+       These only do anything now that Inter is actually loaded. */
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Headings carry the display treatment: tight tracking, balanced wrapping. */
+  h1, h2, h3 {
+    @apply tracking-tight;
+    text-wrap: balance;
+  }
+
+  /* Digits line up in every column without each table opting in. */
+  table {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* ── The metric block ───────────────────────────────────────────────────
+     Three tiers, and the gap between them is the point: label at 15px,
+     figure at 40px+, context at 13px muted. A dashboard where every number
+     is 24px reads as cheap however good the rest of it is. */
+  .metric-label {
+    @apply flex items-center gap-1.5 text-[15px] font-medium text-foreground;
+  }
+
+  .metric-value {
+    @apply mt-1 text-[40px] font-bold leading-none tracking-[-0.035em] text-foreground tabular-nums;
+  }
+
+  .metric-context {
+    @apply mt-1.5 text-[13px] text-muted-foreground;
+  }
+
+  /* ── Segmented control / tab track ──────────────────────────────────────
+     One pattern for every switcher: grey track, white active pane with a
+     hairline. The accent is spent on data, never on chrome. */
+  .segment-track {
+    @apply inline-flex items-center gap-0.5 rounded-lg bg-muted p-1;
+  }
+
+  .segment-item {
+    @apply rounded-md border border-transparent px-3.5 py-1.5 text-sm font-medium
+           text-muted-foreground transition-colors;
+  }
+
+  .segment-item[data-state="active"],
+  .segment-item[aria-selected="true"],
+  .segment-item[aria-pressed="true"] {
+    @apply border-border bg-card text-foreground;
   }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Hairline separator that reads as structural rather than incidental. */
+  .rule {
+    @apply border-b border-border-strong;
   }
 }
 

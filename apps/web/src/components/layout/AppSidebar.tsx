@@ -70,7 +70,7 @@ export function AppSidebar() {
   return (
     <aside
       className={cn(
-        "flex h-screen flex-col border-r border-border bg-sidebar transition-all duration-300",
+        "flex h-full flex-col border-r border-border bg-sidebar transition-all duration-300",
         collapsed ? "w-16" : "w-64"
       )}
     >
@@ -100,12 +100,12 @@ export function AppSidebar() {
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+                  ? "border border-border bg-card text-foreground shadow-card"
+                  : "border border-transparent text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 collapsed && "justify-center px-2"
               )}
             >
-              <item.icon className="h-5 w-5 shrink-0" />
+              <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.75} />
               {!collapsed && (
                 <>
                   <span className="flex-1">{item.name}</span>
