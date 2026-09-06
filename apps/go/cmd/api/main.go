@@ -54,6 +54,28 @@ func main() {
 
 	st := store.New(dbConn, logg)
 
+	// Provision the application and its API key before the administrator: a
+	// freshly created application has no members, which is what the admin
+	// bootstrap adopts, so a fresh host ends up with a usable dashboard.
+	bootstrapped, err := st.BootstrapApplication(ctx, store.ApplicationBootstrap{
+		Name:   cfg.BootstrapAppName,
+		AppID:  cfg.BootstrapAppID,
+		APIKey: cfg.BootstrapAPIKey,
+	})
+	if err != nil {
+		logg.Error("application bootstrap failed", "err", err)
+		os.Exit(1)
+	}
+	if bootstrapped != nil {
+		// The key itself is never logged; the queue prefix is what a consumer needs.
+		logg.Info("bootstrap: application ready",
+			"name", cfg.BootstrapAppName,
+			"applicationId", bootstrapped.ApplicationID,
+			"appId", bootstrapped.AppID,
+			"createdApplication", bootstrapped.CreatedApp,
+			"createdApiKey", bootstrapped.CreatedAPIKey)
+	}
+
 	// Provision the administrator from environment and drop the legacy seeded demo accounts.
 	if err := st.BootstrapAdmin(ctx, store.AdminBootstrap{
 		Email:        cfg.AdminEmail,

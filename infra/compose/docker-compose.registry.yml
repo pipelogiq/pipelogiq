@@ -9,7 +9,31 @@ version: "3.9"
 #   docker compose -f infra/compose/docker-compose.registry.yml up -d
 #
 # Pin a specific release with PIPELOGIQ_VERSION:
-#   PIPELOGIQ_VERSION=v0.4.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+#   PIPELOGIQ_VERSION=v0.4.1-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+#
+# Tracing is optional. Tempo and Grafana only start with the observability
+# profile; a host that already runs Grafana Alloy or another collector should
+# leave the profile off and point OTEL_EXPORTER_OTLP_ENDPOINT at it instead:
+#   docker compose -f infra/compose/docker-compose.registry.yml --profile observability up -d
+#
+# Published ports. Only these two are reachable from the host:
+#   3300 -> dashboard (put an authenticating reverse proxy in front of it)
+#   8081 -> external API (API-key authenticated)
+# Postgres (5432), RabbitMQ (5672/15672), the internal API (8080), and the
+# metrics listeners (9090/9091) stay on the pipelogiq network. Reach them with
+# `docker compose exec` or by attaching a container to the network. Publishing
+# any of them exposes an unauthenticated administrative surface.
+#
+# Co-hosting with another Compose project: both projects join the external
+# `pipelogiq` network, and that project's reverse proxy addresses these services
+# by container name — pipelogiq-app:80 for the dashboard, pipelogiq-app:8081 for
+# the external API. See docs/quickstart.md for the Caddy snippet.
+#
+# Resource limits are deployment-specific and therefore not set here. On a
+# shared VPS, add them per service under the Compose v2 non-swarm keys:
+#   mem_limit: 1g        # Postgres: 1-2g
+#   cpus: "1.0"          # RabbitMQ: 512m / 0.5
+#                        # pipelogiq-app and -worker: 512m / 0.5 each
 
 networks:
   pipelogiq:
@@ -23,8 +47,9 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-pipelogiq}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
       POSTGRES_DB: ${POSTGRES_DB:-pipelogiq}
-    ports:
-      - "5441:5432"
+    # Not published. Uncomment only for local debugging, never in production.
+    # ports:
+    #   - "5441:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     networks:
@@ -34,16 +59,19 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   pipelogiq-rabbitmq:
     image: rabbitmq:3.13-management
     container_name: pipelogiq-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    ports:
-      - "5672:5672"
-      - "15672:15672"
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-guest}
+    # Neither AMQP nor the management UI is published. The management UI has no
+    # authentication worth exposing on a public host.
+    # ports:
+    #   - "5672:5672"
+    #   - "15672:15672"
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     networks:
@@ -53,25 +81,30 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
   pipelogiq-tempo:
     image: grafana/tempo:2.7.2
     container_name: pipelogiq-tempo
+    profiles: ["observability"]
     user: root
     command: ["-config.file=/etc/tempo/tempo.yaml"]
     volumes:
       - ../observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/tmp/tempo
-    ports:
-      - "3200:3200"
-      - "4317:4317"
-      - "4318:4318"
+    # OTLP is consumed from inside the pipelogiq network only.
+    # ports:
+    #   - "3200:3200"
+    #   - "4317:4317"
+    #   - "4318:4318"
     networks:
       - pipelogiq
+    restart: unless-stopped
 
   pipelogiq-grafana:
     image: grafana/grafana:11.2.2
     container_name: pipelogiq-grafana
+    profiles: ["observability"]
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -79,13 +112,15 @@ services:
     depends_on:
       pipelogiq-tempo:
         condition: service_started
-    ports:
-      - "3100:3000"
+    # Reach Grafana through the reverse proxy, or with an SSH tunnel.
+    # ports:
+    #   - "3100:3000"
     volumes:
       - grafana-data:/var/lib/grafana
       - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
     networks:
       - pipelogiq
+    restart: unless-stopped
 
   pipelogiq-app:
     image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-latest}
@@ -108,13 +143,18 @@ services:
       ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       ADMIN_FIRST_NAME: ${ADMIN_FIRST_NAME:-Admin}
       ADMIN_LAST_NAME: ${ADMIN_LAST_NAME:-User}
+      # A fresh host provisions its application and API key from here instead of
+      # dashboard clicks. Both are ignored once the application exists.
+      BOOTSTRAP_APPLICATION_NAME: ${BOOTSTRAP_APPLICATION_NAME:-}
+      BOOTSTRAP_APPLICATION_APP_ID: ${BOOTSTRAP_APPLICATION_APP_ID:-}
+      BOOTSTRAP_API_KEY: ${BOOTSTRAP_API_KEY:-}
       LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-true}
       LIQUIBASE_URL: ${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
       LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
       LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
       LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-pipelogiq-app}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-pipelogiq-tempo:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
@@ -124,8 +164,6 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      pipelogiq-tempo:
-        condition: service_started
     ports:
       - "3300:80"
       - "8081:8081"
@@ -155,7 +193,7 @@ services:
       METRICS_ADDR: ${WORKER_METRICS_ADDR:-:9090}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME_WORKER:-pipelogiq-worker}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-pipelogiq-tempo:4317}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
       OTEL_EXPORTER_OTLP_INSECURE: ${OTEL_EXPORTER_OTLP_INSECURE:-true}
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
@@ -167,10 +205,9 @@ services:
         condition: service_healthy
       pipelogiq-rabbitmq:
         condition: service_healthy
-      pipelogiq-tempo:
-        condition: service_started
-    ports:
-      - "9090:9090"
+    # Metrics are scraped from inside the pipelogiq network.
+    # ports:
+    #   - "9090:9090"
     networks:
       - pipelogiq
     healthcheck:
@@ -178,6 +215,7 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
 volumes:
   pgdata:

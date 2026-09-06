@@ -125,6 +125,10 @@ Management UIs:
 | RabbitMQ Management | http://localhost:15672 | guest / guest |
 | Grafana | http://localhost:3100  | admin / admin |
 
+The registry Compose file publishes only `3300` and `8081`, and keeps Tempo and
+Grafana behind the `observability` profile. See
+[Co-hosted production deployment](#co-hosted-production-deployment) below.
+
 ---
 
 ## Compose files reference
@@ -139,6 +143,153 @@ Management UIs:
 
 All files use the external `pipelogiq` Docker network. The `docker-compose.registry.yml` file
 supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `latest`).
+
+---
+
+## Co-hosted production deployment
+
+`docker-compose.registry.yml` is written for a single VPS that already runs
+another Compose project with its own reverse proxy. Both projects join the
+external `pipelogiq` network, so the proxy addresses Pipelogiq by container name
+and nothing but the proxy is exposed to the internet.
+
+### Ports
+
+Only two ports are published on the host:
+
+| Port | Service | Notes |
+|---|---|---|
+| `3300` | dashboard (`pipelogiq-app:80`) | Put authentication in front of it. There is no anonymous access, but the login page should not be public either. |
+| `8081` | external API (`pipelogiq-app:8081`) | API-key authenticated. This is what SDK clients and HTTP workers call. |
+
+Nothing else is published. Postgres, RabbitMQ (`5672` and the management UI on
+`15672`), the internal API (`8080`), and the metrics listeners (`9090`, `9091`)
+stay on the `pipelogiq` network. Publishing any of them puts an unauthenticated
+administrative surface on a public address. Reach them for debugging through
+`docker compose exec` or an SSH tunnel.
+
+### Environment
+
+Create the network once, then set the release, the secret, and the bootstrap
+application:
+
+```bash
+docker network create pipelogiq 2>/dev/null || true
+```
+
+In `.env`:
+
+```bash
+PIPELOGIQ_VERSION=v0.4.1-preview.1
+JWT_SECRET=<openssl rand -base64 48>
+POSTGRES_PASSWORD=<openssl rand -hex 24>
+BOOTSTRAP_APPLICATION_NAME=your-app
+BOOTSTRAP_API_KEY=<openssl rand -hex 32>
+ADMIN_EMAIL=ops@example.com
+```
+
+On first start the API creates the application, stores the API key, and logs one
+line naming the application and its queue prefix — never the key itself:
+
+```
+bootstrap: application ready name=your-app applicationId=1 appId=app_1 createdApplication=true createdApiKey=true
+```
+
+`appId` is what an HTTP worker substitutes into `queues.stageNextPattern`; see
+[HTTP workers](http-workers.md). Both bootstrap variables are ignored once the
+application exists, so rotating or revoking a key in the dashboard survives a
+restart.
+
+Start it:
+
+```bash
+docker compose -f infra/compose/docker-compose.registry.yml up -d
+```
+
+### Tracing
+
+Tempo and Grafana are behind the `observability` profile and do not start by
+default. A host that already runs Grafana Alloy or another OTLP collector should
+leave the profile off and point the exporter at the existing collector:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=alloy:4317
+```
+
+To run the bundled stack instead:
+
+```bash
+docker compose -f infra/compose/docker-compose.registry.yml --profile observability up -d
+```
+
+Leaving `OTEL_EXPORTER_OTLP_ENDPOINT` empty disables OTLP export; the services
+run normally without it.
+
+### Caddy
+
+In the other project's `Caddyfile`, proxying by container name over the shared
+network. Basic auth guards the dashboard; the external API authenticates itself
+with `X-API-Key`:
+
+```caddyfile
+ops.example.com {
+    encode zstd gzip
+
+    basic_auth {
+        # caddy hash-password --plaintext '<password>'
+        ops $2a$14$replace.with.your.own.bcrypt.hash
+    }
+
+    reverse_proxy pipelogiq-app:80
+}
+
+pipeline-api.example.com {
+    encode zstd gzip
+
+    # The dashboard's WebSocket lives on the internal API and is not exposed
+    # here; this host serves the API-key surface only.
+    reverse_proxy pipelogiq-app:8081
+}
+```
+
+The proxy container must be attached to the `pipelogiq` network for those names
+to resolve. In the other project's Compose file:
+
+```yaml
+services:
+  caddy:
+    networks:
+      - default
+      - pipelogiq
+
+networks:
+  pipelogiq:
+    external: true
+```
+
+### Resource limits
+
+Limits depend on the host, so the file ships none. On a shared VPS, add them per
+service (Compose v2 non-swarm keys):
+
+```yaml
+services:
+  pipelogiq-postgres:
+    mem_limit: 2g
+    cpus: "1.0"
+  pipelogiq-rabbitmq:
+    mem_limit: 512m
+    cpus: "0.5"
+  pipelogiq-app:
+    mem_limit: 512m
+    cpus: "0.5"
+  pipelogiq-worker:
+    mem_limit: 512m
+    cpus: "0.5"
+```
+
+All data lives in named volumes (`pgdata`, `rabbitmq-data`, `grafana-data`,
+`tempo-data`) and every service restarts `unless-stopped`.
 
 ---
 

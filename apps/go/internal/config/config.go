@@ -49,6 +49,9 @@ type APIConfig struct {
 	AdminPasswordHash       string
 	AdminFirstName          string
 	AdminLastName           string
+	BootstrapAppName        string
+	BootstrapAppID          string
+	BootstrapAPIKey         string
 }
 
 type WorkerConfig struct {
@@ -89,6 +92,9 @@ func LoadAPI() (APIConfig, error) {
 		AdminPasswordHash:       strings.TrimSpace(os.Getenv("ADMIN_PASSWORD_HASH")),
 		AdminFirstName:          getEnv("ADMIN_FIRST_NAME", "Admin"),
 		AdminLastName:           getEnv("ADMIN_LAST_NAME", "User"),
+		BootstrapAppName:        strings.TrimSpace(os.Getenv("BOOTSTRAP_APPLICATION_NAME")),
+		BootstrapAppID:          strings.TrimSpace(os.Getenv("BOOTSTRAP_APPLICATION_APP_ID")),
+		BootstrapAPIKey:         strings.TrimSpace(os.Getenv("BOOTSTRAP_API_KEY")),
 	}
 
 	// Metrics live on their own listener because nginx proxies the whole API surface.
