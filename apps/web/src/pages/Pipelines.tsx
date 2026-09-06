@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { PipelineSummaryBar } from "@/components/pipelines/PipelineSummaryBar";
 import { PipelineSearchBar, SearchFilters } from "@/components/pipelines/PipelineSearchBar";
 import { PipelineTable } from "@/components/pipelines/PipelineTable";
 import { PipelineSidePanel } from "@/components/pipelines/PipelineSidePanel";
@@ -275,7 +276,8 @@ export default function Pipelines() {
         subtitle="Search and monitor pipeline executions"
       />
 
-      <div className="px-4 py-4 border-b border-border bg-background">
+      <div className="space-y-4 border-b border-border bg-background px-4 py-4">
+        <PipelineSummaryBar />
         <PipelineSearchBar
           onFiltersChange={handleFiltersChange}
           totalResults={totalResults}
