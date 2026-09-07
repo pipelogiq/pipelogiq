@@ -26,4 +26,4 @@ The dashboard supports live pipeline operations from the list view, including bu
 
 ## Status
 
-Pipelogiq is in preview (`v0.5.0-preview.1`). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.
+Pipelogiq is in preview (`v0.6.0-preview.1`). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.

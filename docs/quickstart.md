@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.5.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.6.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:
@@ -180,7 +180,7 @@ docker network create pipelogiq 2>/dev/null || true
 In `.env`:
 
 ```bash
-PIPELOGIQ_VERSION=v0.5.0-preview.1
+PIPELOGIQ_VERSION=v0.6.0-preview.1
 JWT_SECRET=<openssl rand -base64 48>
 POSTGRES_PASSWORD=<openssl rand -hex 24>
 BOOTSTRAP_APPLICATION_NAME=your-app

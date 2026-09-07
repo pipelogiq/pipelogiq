@@ -7,6 +7,8 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+## [0.6.0-preview.1] - 2026-09-07
+
 ### Breaking changes
 
 - **`DATABASE_URL` is required.** The silent fallback to a SQLite file is gone;

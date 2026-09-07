@@ -49,7 +49,7 @@ To run migrations by hand:
 
 ```bash
 docker run --rm --network pipelogiq \
-  ghcr.io/pipelogiq/pipelogiq-migrate:v0.5.0-preview.1 \
+  ghcr.io/pipelogiq/pipelogiq-migrate:v0.6.0-preview.1 \
   --url=jdbc:postgresql://pipelogiq-postgres:5432/pipelogiq \
   --username=pipelogiq --password="$POSTGRES_PASSWORD" \
   --searchPath=/liquibase --changeLogFile=database/changelog.xml update
