@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Radar, BellRing, LineChart, ScrollText } from 'lucide-react';
 import { observabilityApi } from '@/api/client';
 import type {
   ObservabilityConfig,
@@ -14,10 +15,10 @@ import type {
 // and merge them with the dynamic data from the API.
 
 const INTEGRATION_META: Record<string, Pick<Integration, 'name' | 'description' | 'icon'>> = {
-  opentelemetry: { name: 'OpenTelemetry',  description: 'Export traces and spans via OTLP protocol',    icon: '🔭' },
-  alerting:      { name: 'Alerts',          description: 'Route notifications to chat, webhook, and on-call tools', icon: '🚨' },
-  grafana:       { name: 'Grafana',         description: 'Visualize metrics and dashboards',              icon: '📈' },
-  graylog:       { name: 'Logs',  description: 'Centralized log management and search',        icon: '📋' },
+  opentelemetry: { name: 'OpenTelemetry', description: 'Export traces and spans via OTLP protocol',                 icon: Radar },
+  alerting:      { name: 'Alerts',        description: 'Route notifications to chat, webhook, and on-call tools',   icon: BellRing },
+  grafana:       { name: 'Grafana',       description: 'Visualize metrics and dashboards',                          icon: LineChart },
+  graylog:       { name: 'Logs',          description: 'Centralized log management and search',                     icon: ScrollText },
 };
 
 const SUPPORTED_INTEGRATION_TYPES = new Set(Object.keys(INTEGRATION_META));

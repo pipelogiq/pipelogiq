@@ -675,3 +675,91 @@ func TestUnfinishedSchedulePipeline(t *testing.T) {
 }
 
 func timePointer(t time.Time) *time.Time { return &t }
+
+// A schedule's run policies can be set from the dashboard, and the SDK re-applies
+// the same schedule on every deploy. If an upsert that says nothing about the
+// policies reset them to the defaults, the operator's choice would quietly
+// disappear at the next deploy — so an omitted policy has to mean "leave it".
+func TestUpsertScheduleKeepsPoliciesTheDashboardSet(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	t.Run("an omitted policy keeps the stored one", func(t *testing.T) {
+		t.Parallel()
+		st, _ := setupScheduleStore(t)
+
+		if _, _, err := st.UpsertSchedule(ctx, 1, baseUpsert(t, "emails")); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if _, err := st.SetSchedulePolicies(ctx, 1, "emails",
+			types.OverlapPolicyAllow, types.CatchupPolicyAll); err != nil {
+			t.Fatalf("set policies: %v", err)
+		}
+
+		redeploy := baseUpsert(t, "emails")
+		redeploy.OverlapPolicy = ""
+		redeploy.CatchupPolicy = ""
+
+		after, _, err := st.UpsertSchedule(ctx, 1, redeploy)
+		if err != nil {
+			t.Fatalf("re-apply: %v", err)
+		}
+		if after.OverlapPolicy != types.OverlapPolicyAllow {
+			t.Fatalf("overlap policy reset to %q, want it left at %q",
+				after.OverlapPolicy, types.OverlapPolicyAllow)
+		}
+		if after.CatchupPolicy != types.CatchupPolicyAll {
+			t.Fatalf("catchup policy reset to %q, want it left at %q",
+				after.CatchupPolicy, types.CatchupPolicyAll)
+		}
+	})
+
+	t.Run("an explicit policy still wins", func(t *testing.T) {
+		t.Parallel()
+		st, _ := setupScheduleStore(t)
+
+		if _, _, err := st.UpsertSchedule(ctx, 1, baseUpsert(t, "emails")); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if _, err := st.SetSchedulePolicies(ctx, 1, "emails",
+			types.OverlapPolicyAllow, types.CatchupPolicyNone); err != nil {
+			t.Fatalf("set policies: %v", err)
+		}
+
+		// A schedule declared in code stays reproducible: naming the policy
+		// overrides whatever the dashboard did.
+		declared := baseUpsert(t, "emails")
+		declared.OverlapPolicy = types.OverlapPolicyQueue
+
+		after, _, err := st.UpsertSchedule(ctx, 1, declared)
+		if err != nil {
+			t.Fatalf("re-apply: %v", err)
+		}
+		if after.OverlapPolicy != types.OverlapPolicyQueue {
+			t.Fatalf("overlap policy is %q, want the declared %q",
+				after.OverlapPolicy, types.OverlapPolicyQueue)
+		}
+	})
+
+	t.Run("a new schedule with no policy takes the default", func(t *testing.T) {
+		t.Parallel()
+		st, _ := setupScheduleStore(t)
+
+		fresh := baseUpsert(t, "emails")
+		fresh.OverlapPolicy = ""
+		fresh.CatchupPolicy = ""
+
+		created, _, err := st.UpsertSchedule(ctx, 1, fresh)
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		if created.OverlapPolicy != types.OverlapPolicySkip {
+			t.Fatalf("overlap policy is %q, want the default %q",
+				created.OverlapPolicy, types.OverlapPolicySkip)
+		}
+		if created.CatchupPolicy != types.CatchupPolicyNone {
+			t.Fatalf("catchup policy is %q, want the default %q",
+				created.CatchupPolicy, types.CatchupPolicyNone)
+		}
+	})
+}

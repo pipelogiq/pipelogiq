@@ -26,10 +26,18 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/hooks/use-toast';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   useSchedule,
   useScheduleRuns,
   useSetScheduleStatus,
   useTriggerSchedule,
+  useUpdateSchedulePolicies,
 } from '@/hooks/use-schedules';
 import {
   describeSchedule,
@@ -40,7 +48,23 @@ import {
   scheduleHealthLabel,
 } from '@/lib/schedule-format';
 import { cn } from '@/lib/utils';
-import type { ScheduleRunOutcome } from '@/types/schedules';
+import type { CatchupPolicy, OverlapPolicy, ScheduleRunOutcome } from '@/types/schedules';
+
+// What each policy actually does, in the words an operator would use. These are
+// decisions about a run already in flight, which is why they are worth spelling
+// out rather than leaving as four bare nouns in a dropdown.
+const overlapOptions: { value: OverlapPolicy; label: string; hint: string }[] = [
+  { value: 'Skip', label: 'Skip', hint: 'Do not start. The tick is recorded as skipped.' },
+  { value: 'Queue', label: 'Queue', hint: 'Start once the run in flight finishes.' },
+  { value: 'Replace', label: 'Replace', hint: 'Cancel the run in flight, then start.' },
+  { value: 'Allow', label: 'Allow', hint: 'Start anyway, alongside the run in flight.' },
+];
+
+const catchupOptions: { value: CatchupPolicy; label: string; hint: string }[] = [
+  { value: 'None', label: 'None', hint: 'Ticks missed while down are dropped.' },
+  { value: 'One', label: 'One', hint: 'Run only the most recent missed tick.' },
+  { value: 'All', label: 'All', hint: 'Run every missed tick, up to the ceiling.' },
+];
 
 // Created is the expected outcome of a tick, so it stays neutral — a run
 // history where every good row is filled with the brand colour buries the one
@@ -64,6 +88,7 @@ export default function ScheduleDetail() {
   const { data: runs, isLoading: runsLoading } = useScheduleRuns(scheduleId);
   const setStatus = useSetScheduleStatus();
   const trigger = useTriggerSchedule();
+  const updatePolicies = useUpdateSchedulePolicies();
   const { toast } = useToast();
 
   const [runDialogOpen, setRunDialogOpen] = useState(false);
@@ -99,6 +124,25 @@ export default function ScheduleDetail() {
   }
 
   const archived = schedule.status === 'Archived';
+
+  // Policies are the one part of a schedule the dashboard owns. The SDK
+  // declares what a schedule runs; how a collision is handled is an operational
+  // call, so an upsert that says nothing about it leaves this alone.
+  const savePolicies = (patch: { overlapPolicy?: OverlapPolicy; catchupPolicy?: CatchupPolicy }) => {
+    if (!schedule) return;
+    updatePolicies.mutate(
+      { id: schedule.id, ...patch },
+      {
+        onSuccess: () => toast({ title: 'Policy updated' }),
+        onError: (error: Error) =>
+          toast({
+            title: 'Could not update the policy',
+            description: error.message,
+            variant: 'destructive',
+          }),
+      },
+    );
+  };
 
   const changeStatus = (action: 'pause' | 'resume' | 'archive') => {
     setStatus.mutate(
@@ -226,10 +270,28 @@ export default function ScheduleDetail() {
               )}
               {schedule.runAt && <Field label="Run at">{formatAbsolute(schedule.runAt)}</Field>}
               <Field label="Time zone">{schedule.timeZone}</Field>
-              <Field label="Overlap">{schedule.overlapPolicy}</Field>
+              <Field label="On overlap">
+                <PolicySelect
+                  value={schedule.overlapPolicy}
+                  options={overlapOptions}
+                  disabled={archived || updatePolicies.isPending}
+                  onChange={value =>
+                    savePolicies({ overlapPolicy: value as OverlapPolicy })
+                  }
+                />
+              </Field>
               <Field label="Catch-up">
-                {schedule.catchupPolicy}
-                {schedule.catchupPolicy === 'All' && ` (max ${schedule.catchupMax})`}
+                <PolicySelect
+                  value={schedule.catchupPolicy}
+                  options={catchupOptions}
+                  disabled={archived || updatePolicies.isPending}
+                  onChange={value =>
+                    savePolicies({ catchupPolicy: value as CatchupPolicy })
+                  }
+                />
+                {schedule.catchupPolicy === 'All' && (
+                  <span className="text-muted-foreground"> max {schedule.catchupMax}</span>
+                )}
               </Field>
               <Field label="Jitter">{schedule.jitterSeconds}s</Field>
               <Field label="Next run">
@@ -398,5 +460,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <dt className="text-xs uppercase tracking-wide text-muted-foreground">{label}</dt>
       <dd className="mt-1">{children}</dd>
     </div>
+  );
+}
+
+function PolicySelect({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: { value: string; label: string; hint: string }[];
+  disabled?: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className="h-8 w-full">
+        {/* The trigger renders the label alone. Left to itself SelectValue
+            echoes the whole item, hint included, and shows "Allow…". */}
+        <SelectValue>{options.find(option => option.value === value)?.label ?? value}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(option => (
+          <SelectItem key={option.value} value={option.value}>
+            <span className="font-medium">{option.label}</span>
+            <span className="block text-xs text-muted-foreground">{option.hint}</span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }

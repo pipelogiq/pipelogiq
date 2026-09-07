@@ -532,3 +532,60 @@ func TestReconcileScheduleGaugesDropsInactiveSeries(t *testing.T) {
 		t.Fatalf("a paused schedule kept %d gauges, want 0", exported)
 	}
 }
+
+// TestSchedulerAllowsOverlappingRun is the counterpart to the Skip test: a
+// schedule that opts into concurrency fires its tick even with a run in flight.
+func TestSchedulerAllowsOverlappingRun(t *testing.T) {
+	t.Parallel()
+
+	st, db := setupSchedulerRaceStore(t)
+	scheduleID := seedRaceSchedule(t, st, time.Now().UTC().Add(-time.Minute))
+	worker := newSchedulerTestWorker(st)
+
+	if _, err := db.Exec(`UPDATE schedule SET overlap_policy = $2 WHERE id = $1`,
+		scheduleID, types.OverlapPolicyAllow); err != nil {
+		t.Fatalf("set overlap policy: %v", err)
+	}
+	if _, err := db.Exec(`
+		INSERT INTO pipeline (name, status, created_at, is_completed, application_id, schedule_id)
+		VALUES ('in-flight', 'Running', $1, false, 1, $2)
+	`, time.Now().UTC(), scheduleID); err != nil {
+		t.Fatalf("seed running pipeline: %v", err)
+	}
+
+	if err := worker.schedulerPass(context.Background(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatalf("scheduler pass: %v", err)
+	}
+
+	var overlapSkips int
+	if err := db.Get(&overlapSkips, `
+		SELECT COUNT(*) FROM schedule_run
+		WHERE schedule_id = $1 AND skip_reason = $2
+	`, scheduleID, types.ScheduleSkipReasonOverlap); err != nil {
+		t.Fatalf("count overlap skips: %v", err)
+	}
+	if overlapSkips != 0 {
+		t.Fatalf("Allow recorded %d overlap skips, want none", overlapSkips)
+	}
+
+	var created int
+	if err := db.Get(&created, `
+		SELECT COUNT(*) FROM pipeline WHERE schedule_id = $1 AND name = 'dispatch-due-emails'
+	`, scheduleID); err != nil {
+		t.Fatalf("count pipelines: %v", err)
+	}
+	if created != 1 {
+		t.Fatalf("Allow created %d pipelines alongside the in-flight one, want 1", created)
+	}
+
+	// The point of Allow: the earlier run is untouched, unlike Replace.
+	var stillRunning int
+	if err := db.Get(&stillRunning, `
+		SELECT COUNT(*) FROM pipeline WHERE schedule_id = $1 AND name = 'in-flight' AND status = 'Running'
+	`, scheduleID); err != nil {
+		t.Fatalf("count in-flight: %v", err)
+	}
+	if stillRunning != 1 {
+		t.Fatalf("Allow disturbed the in-flight pipeline (%d still running, want 1)", stillRunning)
+	}
+}

@@ -12,6 +12,7 @@ import {
   FileJson,
   Loader2,
   Shield,
+  X,
 } from "lucide-react";
 import { useRerunStage } from "@/hooks/use-pipelines";
 import { useEffectiveStagePolicies } from "@/hooks/use-policies";
@@ -168,9 +169,10 @@ export function StepDetailsPanel({ step, action, onClose }: StepDetailsPanelProp
         </div>
         <button
           onClick={onClose}
+          aria-label="Close"
           className="text-muted-foreground hover:text-foreground"
         >
-          ✕
+          <X className="h-4 w-4" />
         </button>
       </div>
 
@@ -211,7 +213,7 @@ export function StepDetailsPanel({ step, action, onClose }: StepDetailsPanelProp
       )}
 
       <Tabs defaultValue="policy" className="flex-1 overflow-hidden">
-        <TabsList className="mx-5 mt-4 flex flex-wrap">
+        <TabsList className="mx-5 mt-4 overflow-x-auto">
           <TabsTrigger value="policy" className="gap-1.5">
             <Shield className="h-3.5 w-3.5" />
             Policy

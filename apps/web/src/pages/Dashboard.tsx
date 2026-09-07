@@ -28,10 +28,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col">
-      <AppHeader
-        title="Dashboard"
-        subtitle="Real-time worker registry and activity logs"
-      />
+      <AppHeader title="Dashboard" />
 
       <div className="flex-1 space-y-6 p-6">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -78,10 +75,12 @@ export default function Dashboard() {
         <div className="grid gap-6 lg:grid-cols-5">
           <div className="rounded-xl border border-border bg-card lg:col-span-3">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h3 className="font-semibold text-foreground">Worker Registry</h3>
-              <span className="text-xs text-muted-foreground">
-                {workersLoading ? "Refreshing..." : `${status.totalCount} workers`}
-              </span>
+              <h3 className="font-semibold text-foreground">
+                Worker Registry <span className="block-count">({status.totalCount})</span>
+              </h3>
+              {workersLoading && (
+                <span className="text-xs text-muted-foreground">Refreshing...</span>
+              )}
             </div>
             <div className="max-h-[520px] overflow-auto">
               <table className="w-full text-sm">
@@ -121,10 +120,12 @@ export default function Dashboard() {
 
           <div className="rounded-xl border border-border bg-card lg:col-span-2">
             <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h3 className="font-semibold text-foreground">Worker Activity</h3>
-              <span className="text-xs text-muted-foreground">
-                {eventsLoading ? "Refreshing..." : `${events?.length || 0} events`}
-              </span>
+              <h3 className="font-semibold text-foreground">
+                Worker Activity <span className="block-count">({events?.length ?? 0})</span>
+              </h3>
+              {eventsLoading && (
+                <span className="text-xs text-muted-foreground">Refreshing...</span>
+              )}
             </div>
             <div className="max-h-[520px] overflow-auto p-4">
               {eventsError && (

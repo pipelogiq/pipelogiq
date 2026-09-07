@@ -107,7 +107,9 @@ export function LiveActivityFeed() {
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-status-success opacity-75" />
             <span className="relative inline-flex h-2 w-2 rounded-full bg-status-success" />
           </div>
-          <h3 className="font-semibold text-foreground">Live Activity</h3>
+          <h3 className="font-semibold text-foreground">
+            Live Activity <span className="block-count">({activities.length})</span>
+          </h3>
         </div>
         <span className="text-xs text-muted-foreground">Last 30 seconds</span>
       </div>

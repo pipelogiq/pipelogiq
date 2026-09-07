@@ -176,6 +176,18 @@ func (s *Store) UpsertSchedule(
 	now := time.Now().UTC()
 	created := errors.Is(err, ErrScheduleNotFound)
 
+	// A brand new schedule has no stored policy to fall back on, so an omitted
+	// one takes the documented default here. On update the empty string is
+	// meaningful and is handled in the statement below.
+	insertOverlap := upsert.OverlapPolicy
+	if insertOverlap == "" {
+		insertOverlap = types.OverlapPolicySkip
+	}
+	insertCatchup := upsert.CatchupPolicy
+	if insertCatchup == "" {
+		insertCatchup = types.CatchupPolicyNone
+	}
+
 	var id int64
 	if created {
 		if err = tx.QueryRowContext(ctx, `
@@ -192,7 +204,7 @@ func (s *Store) UpsertSchedule(
 			nullString(upsert.CronExpression), upsert.TimeZone,
 			nullInt(upsert.IntervalSeconds), nullTime(upsert.RunAt),
 			upsert.DefinitionJSON,
-			upsert.OverlapPolicy, upsert.CatchupPolicy, upsert.CatchupMax, upsert.JitterSeconds,
+			insertOverlap, insertCatchup, upsert.CatchupMax, upsert.JitterSeconds,
 			nullTime(upsert.NextRunAt), nullString(upsert.CreatedBy), now,
 		).Scan(&id); err != nil {
 			return nil, false, fmt.Errorf("create schedule: %w", err)
@@ -219,7 +231,9 @@ func (s *Store) UpsertSchedule(
 			UPDATE schedule SET
 				status = $2, kind = $3, cron_expression = $4, time_zone = $5,
 				interval_seconds = $6, run_at = $7, definition_json = $8,
-				definition_version = $9, overlap_policy = $10, catchup_policy = $11,
+				definition_version = $9,
+				overlap_policy = COALESCE(NULLIF($10, ''), overlap_policy),
+				catchup_policy = COALESCE(NULLIF($11, ''), catchup_policy),
 				catchup_max = $12, jitter_seconds = $13, next_run_at = $14, updated_at = $15
 			WHERE id = $1
 		`,
@@ -439,6 +453,32 @@ func (s *Store) SetScheduleStatus(
 
 // ListScheduleRuns pages a schedule's run history by descending id, joining the
 // pipeline so the dashboard can show an outcome without a second round trip.
+// SetSchedulePolicies updates only the run policies, leaving the definition and
+// the planning cursor untouched: changing how overlapping ticks are handled is
+// not a change to what the schedule runs, so it must not bump the definition
+// version or move next_run_at.
+func (s *Store) SetSchedulePolicies(
+	ctx context.Context,
+	appID int,
+	name string,
+	overlap string,
+	catchup string,
+) (*types.ScheduleResponse, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE schedule
+		SET overlap_policy = $3, catchup_policy = $4, updated_at = CURRENT_TIMESTAMP
+		WHERE application_id = $1 AND lower(name) = lower($2)
+	`, appID, name, overlap, catchup)
+	if err != nil {
+		return nil, fmt.Errorf("update schedule policies: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err == nil && affected == 0 {
+		return nil, ErrScheduleNotFound
+	}
+	return s.GetSchedule(ctx, appID, name)
+}
+
 func (s *Store) ListScheduleRuns(
 	ctx context.Context,
 	scheduleID int64,

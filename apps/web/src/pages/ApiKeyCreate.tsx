@@ -126,10 +126,7 @@ export default function ApiKeyCreate() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <AppHeader
-        title="Create API Key"
-        subtitle="Set up a new application and generate an API key"
-      />
+      <AppHeader title="Create API Key" />
 
       <div className="flex-1 p-6 max-w-2xl">
         <button

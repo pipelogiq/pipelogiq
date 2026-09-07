@@ -4,11 +4,10 @@ import { cn } from "@/lib/utils";
 /**
  * Status colour is spent on what needs a decision, not on every state.
  *
- * The surface stays neutral for anything the operator does not have to act on
- * — Completed is the expected outcome, and a wall of green makes the one red
- * row harder to find, not easier. Two states break that rule on purpose:
- * `error`, which is the thing you are scanning for, and `running`, which is
- * the thing you are waiting on.
+ * The surface stays neutral for anything the operator does not have to act on.
+ * Three states are coloured on purpose: `error`, which is the thing you are
+ * scanning for, `running`, which is the thing you are waiting on, and
+ * `success`, which reads as the confirmation that a run landed.
  *
  * Distinction at close range comes from the dot, which keeps its semantic hue
  * in every variant. So the list reads as "one row needs me" from across the
@@ -19,7 +18,7 @@ const statusBadgeVariants = cva(
   {
     variants: {
       status: {
-        success: "bg-muted text-muted-foreground",
+        success: "bg-status-success-bg text-status-success",
         warning: "bg-muted text-muted-foreground",
         error: "bg-status-error-bg text-status-error",
         running: "bg-status-running-bg text-status-running",

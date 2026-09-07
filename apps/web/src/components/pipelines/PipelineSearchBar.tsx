@@ -30,6 +30,8 @@ interface PipelineSearchBarProps {
   onFiltersChange: (filters: SearchFilters) => void;
   totalResults: number;
   isSearching?: boolean;
+  /** Query handed in from the URL, e.g. by the search box in the app header. */
+  initialQuery?: string;
 }
 
 // The dot identifies which filter this is, so it keeps its hue. Token-based
@@ -63,6 +65,7 @@ export function PipelineSearchBar({
   onFiltersChange,
   totalResults,
   isSearching = false,
+  initialQuery = "",
 }: PipelineSearchBarProps) {
   const [filters, setFilters] = useState<SearchFilters>({
     query: "",
@@ -74,7 +77,7 @@ export function PipelineSearchBar({
     contextFilters: [],
   });
 
-  const [searchInput, setSearchInput] = useState("");
+  const [searchInput, setSearchInput] = useState(initialQuery);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [statusOpen, setStatusOpen] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
@@ -89,11 +92,18 @@ export function PipelineSearchBar({
     setFilters((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  // initial fetch on mount
+  // Initial fetch on mount, and again whenever the header sends a new query
+  // while this page is already open. Routed through the same parser as typing,
+  // so `orderId:123` becomes a context filter either way.
   useEffect(() => {
-    onFiltersChange(filters);
+    if (initialQuery) {
+      setSearchInput(initialQuery);
+      parseAndApplySearch(initialQuery, true);
+    } else {
+      onFiltersChange(filters);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [initialQuery]);
 
   const parseAndApplySearch = (input: string, apply = false) => {
     const keyValuePattern = /(\w+):([^\s]+)/g;

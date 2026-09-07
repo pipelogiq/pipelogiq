@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { PipelineSummaryBar } from "@/components/pipelines/PipelineSummaryBar";
 import { PipelineSearchBar, SearchFilters } from "@/components/pipelines/PipelineSearchBar";
@@ -36,6 +37,11 @@ function mapUIStatusToAPI(status: string): string[] {
 }
 
 export default function Pipelines() {
+  // The header's search box navigates here with ?search=, so the query
+  // survives a reload and is a link someone can share.
+  const [searchParams] = useSearchParams();
+  const urlQuery = searchParams.get("search") ?? "";
+
   const [filters, setFilters] = useState<SearchFilters>({
     query: "",
     status: "all",
@@ -253,10 +259,7 @@ export default function Pipelines() {
   if (error) {
     return (
       <div className="flex flex-col h-screen">
-        <AppHeader
-          title="Pipelines"
-          subtitle="Search and monitor pipeline executions"
-        />
+        <AppHeader title="Pipelines" />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <p className="text-destructive mb-2">Failed to load pipelines</p>
@@ -271,16 +274,14 @@ export default function Pipelines() {
 
   return (
     <div className="flex flex-col h-screen">
-      <AppHeader
-        title="Pipelines"
-        subtitle="Search and monitor pipeline executions"
-      />
+      <AppHeader title="Pipelines" />
 
       <div className="space-y-4 border-b border-border bg-background px-4 py-4">
         <PipelineSummaryBar />
         <PipelineSearchBar
           onFiltersChange={handleFiltersChange}
           totalResults={totalResults}
+          initialQuery={urlQuery}
         />
       </div>
 

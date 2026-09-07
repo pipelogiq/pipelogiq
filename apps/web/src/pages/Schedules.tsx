@@ -108,10 +108,7 @@ export default function Schedules() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <AppHeader
-        title="Schedules"
-        subtitle="Recurring triggers that create ordinary pipelines"
-      />
+      <AppHeader title="Schedules" />
 
       <div className="flex-1 space-y-6 p-6">
         <div className="grid gap-4 md:grid-cols-4">
@@ -175,7 +172,7 @@ export default function Schedules() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Trigger</TableHead>
+                  <TableHead>On overlap</TableHead>
                   <TableHead>Next run</TableHead>
                   <TableHead>Last run</TableHead>
                   <TableHead>Recent</TableHead>
@@ -190,20 +187,27 @@ export default function Schedules() {
                   return (
                     <TableRow key={schedule.id}>
                       <TableCell>
-                        <Link
-                          to={`/schedules/${schedule.id}`}
-                          className="font-medium text-foreground hover:underline"
-                        >
-                          {schedule.name}
-                        </Link>
-                        {archived && (
-                          <Badge variant="outline" className="ml-2">
-                            Archived
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-2">
+                          <Link
+                            to={`/schedules/${schedule.id}`}
+                            className="font-medium text-foreground hover:underline"
+                          >
+                            {schedule.name}
+                          </Link>
+                          {archived && <Badge variant="outline">Archived</Badge>}
+                        </div>
+                        {/* The trigger is what a schedule *is*, so it sits under the
+                            name in full-strength text rather than greyed out in a
+                            column of its own. */}
+                        <p className="mt-0.5 text-sm text-foreground">
+                          {describeSchedule(schedule)}
+                        </p>
                       </TableCell>
+                      {/* What happens when a tick lands on a run still in
+                          flight is the behaviour operators ask about most, and
+                          it was invisible from this list. */}
                       <TableCell className="text-sm text-muted-foreground">
-                        {describeSchedule(schedule)}
+                        {schedule.overlapPolicy}
                       </TableCell>
                       <TableCell className="text-sm">
                         {schedule.status === 'Active' && schedule.nextRunAt ? (

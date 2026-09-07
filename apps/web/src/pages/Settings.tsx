@@ -38,10 +38,7 @@ export default function Settings() {
 
   return (
     <div className="flex flex-col">
-      <AppHeader
-        title="Settings"
-        subtitle="Manage applications, API keys, and your licence"
-      />
+      <AppHeader title="Settings" />
 
       <div className="flex-1 p-6 space-y-6">
         <div>

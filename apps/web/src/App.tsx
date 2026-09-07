@@ -1,3 +1,4 @@
+import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -35,41 +36,45 @@ const queryClient = new QueryClient({
 });
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <AuthProvider>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route
-              element={
-                <ProtectedRoute>
-                  <PipelineWebSocketProvider>
-                    <AppLayout />
-                  </PipelineWebSocketProvider>
-                </ProtectedRoute>
-              }
-            >
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/pipelines" element={<Pipelines />} />
-              <Route path="/pipelines/:id" element={<PipelineDetail />} />
-              <Route path="/executions" element={<Executions />} />
-              <Route path="/schedules" element={<Schedules />} />
-              <Route path="/schedules/:id" element={<ScheduleDetail />} />
-              <Route path="/action-policies" element={<Policies />} />
-              <Route path="/policies" element={<Navigate to="/action-policies" replace />} />
-              <Route path="/observability" element={<Observability />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/settings/api-key/new" element={<ApiKeyCreate />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </AuthProvider>
-  </QueryClientProvider>
+  // attribute="class" matches tailwind's darkMode: ["class"]; defaultTheme
+  // "system" means an untouched install follows the operating system.
+  <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<Login />} />
+              <Route
+                element={
+                  <ProtectedRoute>
+                    <PipelineWebSocketProvider>
+                      <AppLayout />
+                    </PipelineWebSocketProvider>
+                  </ProtectedRoute>
+                }
+              >
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/pipelines" element={<Pipelines />} />
+                <Route path="/pipelines/:id" element={<PipelineDetail />} />
+                <Route path="/executions" element={<Executions />} />
+                <Route path="/schedules" element={<Schedules />} />
+                <Route path="/schedules/:id" element={<ScheduleDetail />} />
+                <Route path="/action-policies" element={<Policies />} />
+                <Route path="/policies" element={<Navigate to="/action-policies" replace />} />
+                <Route path="/observability" element={<Observability />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/settings/api-key/new" element={<ApiKeyCreate />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </AuthProvider>
+    </QueryClientProvider>
+  </ThemeProvider>
 );
 
 export default App;

@@ -42,7 +42,7 @@ export default function PipelineDetail() {
   if (isLoading) {
     return (
       <div className="flex flex-col h-screen">
-        <AppHeader title="Loading..." subtitle="Pipeline Execution Details" />
+        <AppHeader title="Loading..." />
         <div className="flex-1 flex items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -53,7 +53,7 @@ export default function PipelineDetail() {
   if (error || !pipeline) {
     return (
       <div className="flex flex-col h-screen">
-        <AppHeader title="Pipeline Not Found" subtitle="Pipeline Execution Details" />
+        <AppHeader title="Pipeline Not Found" />
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <p className="text-muted-foreground">
             {error instanceof Error ? error.message : "Pipeline not found"}
@@ -71,10 +71,7 @@ export default function PipelineDetail() {
 
   return (
     <div className="flex flex-col h-screen">
-      <AppHeader
-        title={pipeline.pipelineName}
-        subtitle="Pipeline Execution Details"
-      />
+      <AppHeader title={pipeline.pipelineName} />
 
       <div className="flex-1 overflow-hidden">
         <div className="h-full flex">

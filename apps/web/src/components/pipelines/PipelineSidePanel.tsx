@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { tabsTriggerVariants } from "@/components/ui/tabs-variants";
 import { PipelineAction } from "./PipelineDetailPanel";
 import {
   Collapsible,
@@ -317,7 +318,9 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
       {/* Tabs */}
       <div className="px-6 border-b border-border bg-card">
-        <div className="flex">
+        {/* Driven from URL state rather than Radix, so the classes come from
+            the Tabs primitive to keep one underline treatment in the app. */}
+        <div className="flex gap-6">
           {([
             { key: "stages" as const, label: `Stages (${stageCount})` },
             { key: "logs" as const, label: "Logs" },
@@ -327,12 +330,8 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
               <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={cn(
-                      "flex-1 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px text-center",
-                      resolvedActiveTab === tab.key
-                          ? "border-primary text-foreground"
-                          : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
-                  )}
+                  data-state={resolvedActiveTab === tab.key ? "active" : "inactive"}
+                  className={tabsTriggerVariants({ variant: "underline" })}
               >
                 {tab.label}
               </button>

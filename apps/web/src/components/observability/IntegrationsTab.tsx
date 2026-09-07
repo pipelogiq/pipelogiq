@@ -137,7 +137,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
               <div
                 key={integration.type}
                 className={cn(
-                  "rounded-xl border bg-card p-5 transition-all hover:shadow-soft",
+                  "rounded-xl border bg-card p-6 transition-all hover:shadow-soft",
                   integration.status === "connected" ? "border-status-success/30" :
                   integration.status === "error" || integration.status === "disconnected" ? "border-status-error/30" :
                   "border-border",
@@ -146,7 +146,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
                 {/* Header */}
                 <div className="mb-3 flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{integration.icon}</span>
+                    <integration.icon className="h-5 w-5 shrink-0 text-muted-foreground" strokeWidth={1.75} />
                     <div>
                       <h4 className="font-semibold text-foreground">{integration.name}</h4>
                       <p className="text-sm text-muted-foreground">{integration.description}</p>

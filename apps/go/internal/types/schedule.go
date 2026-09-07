@@ -26,6 +26,7 @@ const (
 	OverlapPolicySkip    = "Skip"
 	OverlapPolicyQueue   = "Queue"
 	OverlapPolicyReplace = "Replace"
+	OverlapPolicyAllow   = "Allow"
 )
 
 // Catch-up policies decide what happens to ticks missed while the scheduler was
@@ -174,6 +175,8 @@ func NormalizeOverlapPolicy(policy string) string {
 		return OverlapPolicyQueue
 	case "replace":
 		return OverlapPolicyReplace
+	case "allow", "parallel", "concurrent":
+		return OverlapPolicyAllow
 	default:
 		return ""
 	}

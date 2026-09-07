@@ -48,6 +48,8 @@ import type {
 
 import type { LicenseStatus } from '@/types/license';
 import type {
+  CatchupPolicy,
+  OverlapPolicy,
   Schedule,
   ScheduleListResponse,
   ScheduleRunListResponse,
@@ -441,6 +443,18 @@ export const schedulesApi = {
     return request<TriggerScheduleResponse>(`/schedules/${id}/trigger`, {
       method: 'POST',
       body: input === undefined ? undefined : JSON.stringify({ input }),
+    });
+  },
+
+  // Only the two run policies are writable: an omitted field keeps whatever is
+  // stored, so one can be changed without restating the other.
+  updatePolicies: async (
+    id: number,
+    policies: { overlapPolicy?: OverlapPolicy; catchupPolicy?: CatchupPolicy },
+  ): Promise<Schedule> => {
+    return request<Schedule>(`/schedules/${id}/policies`, {
+      method: 'PATCH',
+      body: JSON.stringify(policies),
     });
   },
 };

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { schedulesApi } from '@/api/client';
-import type { Schedule, ScheduleStatus } from '@/types/schedules';
+import type { CatchupPolicy, OverlapPolicy, Schedule, ScheduleStatus } from '@/types/schedules';
 
 export function useSchedules(status?: ScheduleStatus) {
   return useQuery({
@@ -44,6 +44,18 @@ export function useSetScheduleStatus() {
       if (action === 'resume') return schedulesApi.resume(id);
       return schedulesApi.archive(id);
     },
+    onSuccess: (_data, variables) => invalidateSchedule(queryClient, variables.id),
+  });
+}
+
+export function useUpdateSchedulePolicies() {
+  const queryClient = useQueryClient();
+  return useMutation<
+    Schedule,
+    Error,
+    { id: number; overlapPolicy?: OverlapPolicy; catchupPolicy?: CatchupPolicy }
+  >({
+    mutationFn: ({ id, ...policies }) => schedulesApi.updatePolicies(id, policies),
     onSuccess: (_data, variables) => invalidateSchedule(queryClient, variables.id),
   });
 }

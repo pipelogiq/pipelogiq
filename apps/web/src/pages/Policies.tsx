@@ -838,16 +838,10 @@ export default function Policies() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <AppHeader
-        title="Action Policies"
-        subtitle="Operational rules for retries, rate limits, timeouts, and circuit breakers"
-      />
+      <AppHeader title="Action Policies" />
 
       <div className="flex-1 space-y-6 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-muted-foreground">
-            Manage execution guardrails and enforcement behavior across pipelines.
-          </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex items-center gap-2">
             <Select value={range} onValueChange={value => setRange(value as PolicyRange)}>
               <SelectTrigger className="w-[150px]">
@@ -1222,7 +1216,7 @@ export default function Policies() {
 
               <Tabs defaultValue="overview" className="flex h-[calc(100vh-180px)] flex-col">
                 <div className="border-b border-border px-4">
-                  <TabsList className="h-11 rounded-none bg-transparent">
+                  <TabsList className="h-11 border-b-0">
                     <TabsTrigger value="overview">Overview</TabsTrigger>
                     <TabsTrigger value="rules">Rules</TabsTrigger>
                     <TabsTrigger value="applied">Applied To</TabsTrigger>

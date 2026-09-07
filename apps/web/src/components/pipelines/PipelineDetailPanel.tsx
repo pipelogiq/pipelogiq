@@ -190,7 +190,7 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
 
       {/* Tabs Content */}
       <Tabs defaultValue="actions" className="flex-1 flex flex-col min-h-0">
-        <TabsList className="mx-5 mt-3 justify-start w-fit">
+        <TabsList className="mx-5 mt-3">
           <TabsTrigger value="actions">Actions</TabsTrigger>
           <TabsTrigger value="context">Context</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
@@ -351,7 +351,7 @@ function ActionDetailView({ action }: { action: PipelineAction }) {
             {action.status}
           </StatusBadge>
         </div>
-        <TabsList className="h-8">
+        <TabsList variant="segment" className="h-8">
           <TabsTrigger value="logs" className="text-xs h-7">Logs</TabsTrigger>
           <TabsTrigger value="input" className="text-xs h-7">Input</TabsTrigger>
           <TabsTrigger value="output" className="text-xs h-7">Output</TabsTrigger>

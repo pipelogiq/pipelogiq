@@ -385,6 +385,11 @@ func (w *Worker) applyOverlapPolicy(ctx context.Context, row store.ScheduleRow, 
 		// Queue lets the run be created; ordering is handled at creation time.
 		return false
 	}
+	if row.OverlapPolicy == types.OverlapPolicyAllow {
+		// Allow means concurrent runs are the point, so there is nothing to
+		// check and no reason to pay for the lookup.
+		return false
+	}
 
 	running, err := w.store.UnfinishedSchedulePipeline(ctx, row.ID)
 	if err != nil {

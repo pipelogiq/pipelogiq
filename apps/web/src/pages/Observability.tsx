@@ -20,16 +20,15 @@ export default function Observability() {
 
   return (
     <div className="flex flex-col h-screen">
-      <AppHeader
-        title="Observability"
-        subtitle="Control plane for traces, metrics, and operational insights"
-      />
+      <AppHeader title="Observability" />
 
       <div className="flex-1 flex flex-col min-h-0">
         <Tabs defaultValue="overview" className="flex-1 flex flex-col min-h-0">
           {/* Tab bar + time range selector */}
-          <div className="flex items-center justify-between px-6 py-3 border-b border-border bg-background">
-            <TabsList>
+          {/* The container carries the rail; the list gives up its own border so
+              the active tab underlines onto a single 1px line. */}
+          <div className="flex items-end justify-between gap-4 px-6 pt-3 border-b border-border bg-background">
+            <TabsList className="border-b-0">
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="traces">Traces</TabsTrigger>
               <TabsTrigger value="metrics">Metrics</TabsTrigger>
@@ -37,7 +36,7 @@ export default function Observability() {
             </TabsList>
 
             <Select value={timeRange} onValueChange={(v) => setTimeRange(v as TimeRange)}>
-              <SelectTrigger className="w-36">
+              <SelectTrigger className="mb-2 w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

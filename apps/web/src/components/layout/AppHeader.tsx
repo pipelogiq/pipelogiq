@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Bell, Search, User, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/contexts/AuthContext";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface AppHeaderProps {
   title: string;
@@ -18,6 +21,18 @@ interface AppHeaderProps {
 
 export function AppHeader({ title, subtitle }: AppHeaderProps) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+
+  // The box says "Search pipelines", so that is where it goes. The query
+  // travels in the URL rather than in shared state: it survives a reload and
+  // the result is a link that can be sent to someone else.
+  const handleSearch = (event: React.FormEvent) => {
+    event.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    navigate(`/pipelines?search=${encodeURIComponent(trimmed)}`);
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -34,14 +49,19 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
 
       <div className="flex items-center gap-4">
         {/* Search */}
-        <div className="relative">
+        <form onSubmit={handleSearch} className="relative" role="search">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
             placeholder="Search pipelines..."
+            aria-label="Search pipelines"
             className="w-64 pl-9"
           />
-        </div>
+        </form>
+
+        <ThemeToggle />
 
         {/* Notifications */}
         <Button variant="ghost" size="icon" className="relative">

@@ -124,7 +124,7 @@ export function MetricsTab({ timeRange }: MetricsTabProps) {
       </div>
 
       {/* Metrics info */}
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-xl border border-border bg-card p-6">
         <h4 className="mb-2 text-sm font-semibold">Prometheus Metrics</h4>
         <p className="text-sm text-muted-foreground mb-3">
           Pipelogiq exposes Prometheus-compatible metrics at the <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">/metrics</code> endpoint on each running process. Configure your Prometheus scraper or Grafana to collect these metrics.

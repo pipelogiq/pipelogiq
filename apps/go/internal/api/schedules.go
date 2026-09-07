@@ -26,6 +26,7 @@ func (s *Server) registerScheduleRoutes(r chi.Router) {
 	r.Post("/{id}/resume", s.handleResumeScheduleInternal)
 	r.Post("/{id}/archive", s.handleArchiveScheduleInternal)
 	r.Post("/{id}/trigger", s.handleTriggerScheduleInternal)
+	r.Patch("/{id}/policies", s.handleUpdateSchedulePoliciesInternal)
 }
 
 // requireScheduleAccess loads the schedule and checks membership in one step.
@@ -263,4 +264,61 @@ func (s *Server) handleTriggerScheduleInternal(w http.ResponseWriter, r *http.Re
 		"pipelineId": pipelineID,
 		"trigger":    types.ScheduleTriggerManual,
 	}, http.StatusCreated)
+}
+
+// handleUpdateSchedulePoliciesInternal lets an operator change how a schedule
+// behaves when ticks collide, without touching what it runs.
+//
+// Only the two policies are writable here. Jitter and the catch-up ceiling stay
+// with the definition the SDK declares, because those are tuning the schedule
+// itself rather than deciding what to do about a run already in flight.
+func (s *Server) handleUpdateSchedulePoliciesInternal(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	stored, ok := s.requireScheduleAccess(w, r, ctx)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		OverlapPolicy string `json:"overlapPolicy"`
+		CatchupPolicy string `json:"catchupPolicy"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&req); err != nil {
+		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// An omitted field keeps the stored value, so a caller can change one
+	// policy without having to restate the other.
+	overlap := stored.OverlapPolicy
+	if strings.TrimSpace(req.OverlapPolicy) != "" {
+		if overlap = types.NormalizeOverlapPolicy(req.OverlapPolicy); overlap == "" {
+			writeJSONError(w, "overlapPolicy must be Skip, Queue, Replace, or Allow", http.StatusBadRequest)
+			return
+		}
+	}
+	catchup := stored.CatchupPolicy
+	if strings.TrimSpace(req.CatchupPolicy) != "" {
+		if catchup = types.NormalizeCatchupPolicy(req.CatchupPolicy); catchup == "" {
+			writeJSONError(w, "catchupPolicy must be None, One, or All", http.StatusBadRequest)
+			return
+		}
+	}
+
+	updated, err := s.store.SetSchedulePolicies(ctx, stored.ApplicationID, stored.Name, overlap, catchup)
+	if err != nil {
+		if store.IsScheduleNotFoundError(err) {
+			writeJSONError(w, "not found", http.StatusNotFound)
+			return
+		}
+		s.logger.Error("set schedule policies failed", "scheduleId", stored.ID, "err", err)
+		writeJSONError(w, "failed to update the schedule", http.StatusInternalServerError)
+		return
+	}
+	s.logger.Info("schedule policies changed from the dashboard",
+		"scheduleId", stored.ID, "name", stored.Name,
+		"overlapPolicy", overlap, "catchupPolicy", catchup)
+	writeJSON(w, updated, http.StatusOK)
 }

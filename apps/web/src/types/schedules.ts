@@ -2,7 +2,7 @@
 
 export type ScheduleKind = 'Cron' | 'Interval' | 'Once';
 export type ScheduleStatus = 'Active' | 'Paused' | 'Archived';
-export type OverlapPolicy = 'Skip' | 'Queue' | 'Replace';
+export type OverlapPolicy = 'Skip' | 'Queue' | 'Replace' | 'Allow';
 export type CatchupPolicy = 'None' | 'One' | 'All';
 export type ScheduleTrigger = 'Cron' | 'Interval' | 'Once' | 'Manual' | 'Catchup';
 export type ScheduleRunOutcome = 'Created' | 'Skipped' | 'Failed';

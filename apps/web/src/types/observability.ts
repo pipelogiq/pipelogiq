@@ -1,3 +1,5 @@
+import type { LucideIcon } from 'lucide-react';
+
 // Integration status lifecycle: not_configured → configured → connected ↔ disconnected / error
 export type IntegrationStatus = 'not_configured' | 'configured' | 'connected' | 'disconnected' | 'error';
 
@@ -74,7 +76,7 @@ export interface Integration {
   type: IntegrationType;
   name: string;
   description: string;
-  icon: string;
+  icon: LucideIcon;
   status: IntegrationStatus;
   lastTestedAt?: string;
   lastSuccessAt?: string;

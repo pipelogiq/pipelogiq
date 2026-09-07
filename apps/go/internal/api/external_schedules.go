@@ -380,14 +380,22 @@ func buildScheduleUpsert(
 		addValidationError(fieldErrors, "kind", "kind must be Cron, Interval, or Once")
 	}
 
-	overlap := types.NormalizeOverlapPolicy(req.OverlapPolicy)
-	if overlap == "" {
-		addValidationError(fieldErrors, "overlapPolicy", "overlapPolicy must be Skip, Queue, or Replace")
+	// An omitted policy is left to the stored value rather than silently
+	// resetting to the default: the dashboard can set these, and a deploy that
+	// says nothing about them should not undo that. An explicit value still
+	// wins, so a schedule declared in code stays reproducible.
+	overlap := ""
+	if strings.TrimSpace(req.OverlapPolicy) != "" {
+		if overlap = types.NormalizeOverlapPolicy(req.OverlapPolicy); overlap == "" {
+			addValidationError(fieldErrors, "overlapPolicy", "overlapPolicy must be Skip, Queue, Replace, or Allow")
+		}
 	}
 
-	catchup := types.NormalizeCatchupPolicy(req.CatchupPolicy)
-	if catchup == "" {
-		addValidationError(fieldErrors, "catchupPolicy", "catchupPolicy must be None, One, or All")
+	catchup := ""
+	if strings.TrimSpace(req.CatchupPolicy) != "" {
+		if catchup = types.NormalizeCatchupPolicy(req.CatchupPolicy); catchup == "" {
+			addValidationError(fieldErrors, "catchupPolicy", "catchupPolicy must be None, One, or All")
+		}
 	}
 
 	timeZone := strings.TrimSpace(req.TimeZone)

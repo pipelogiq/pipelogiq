@@ -49,7 +49,7 @@ export function OverviewTab({ timeRange }: OverviewTabProps) {
       type: "alerting",
       name: "Alerts",
       description: "Route notifications to chat, webhook, and on-call tools",
-      icon: "🚨",
+      icon: BellRing,
       status: status?.alerting.configured ? "configured" : "not_configured",
       config: {
         channels: status?.alerting.channels ?? [],
@@ -96,7 +96,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
           </h3>
           <div className="grid gap-4 md:grid-cols-2">
             {/* OTel Card */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Radar className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
@@ -143,7 +143,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             </div>
 
             {/* Alerts Card */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <BellRing className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
@@ -174,7 +174,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             </div>
 
             {/* Logs Card */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ScrollText className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
@@ -199,7 +199,7 @@ OTEL_SERVICE_NAME=pipelogiq`;
             </div>
 
             {/* Grafana Card */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+            <div className="rounded-xl border border-border bg-card p-6 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <LineChart className="h-4 w-4 text-muted-foreground" strokeWidth={1.75} />
@@ -271,16 +271,18 @@ OTEL_SERVICE_NAME=pipelogiq`;
           <div className="grid gap-6 lg:grid-cols-2">
             {/* Slowest Stages */}
             <div className="rounded-xl border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <div className="flex items-center justify-between border-b border-border px-6 py-3">
                 <div className="flex items-center gap-2">
                   <Clock className="h-4 w-4 text-muted-foreground" />
-                  <h4 className="font-semibold text-sm">Slowest Stages (p95)</h4>
+                  <h4 className="font-semibold text-sm">
+                    Slowest Stages (p95) <span className="block-count">({insights.slowestStages.length})</span>
+                  </h4>
                 </div>
                 <span className="text-xs text-muted-foreground">{timeRangeLabel(timeRange)}</span>
               </div>
               <div className="divide-y divide-border">
                 {insights.slowestStages.map((stage, idx) => (
-                  <div key={idx} className="flex items-center justify-between px-5 py-3 hover:bg-muted/50 transition-colors">
+                  <div key={idx} className="flex items-center justify-between px-6 py-3 hover:bg-muted/50 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{stage.stageName}</p>
                       <p className="text-xs text-muted-foreground truncate">{stage.pipelineName}</p>
@@ -307,16 +309,18 @@ OTEL_SERVICE_NAME=pipelogiq`;
 
             {/* Error Hotspots */}
             <div className="rounded-xl border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-5 py-3">
+              <div className="flex items-center justify-between border-b border-border px-6 py-3">
                 <div className="flex items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                  <h4 className="font-semibold text-sm">Error Hotspots</h4>
+                  <h4 className="font-semibold text-sm">
+                    Error Hotspots <span className="block-count">({insights.errorHotspots.length})</span>
+                  </h4>
                 </div>
                 <span className="text-xs text-muted-foreground">{timeRangeLabel(timeRange)}</span>
               </div>
               <div className="divide-y divide-border">
                 {insights.errorHotspots.map((hotspot, idx) => (
-                  <div key={idx} className="flex items-center justify-between px-5 py-3 hover:bg-muted/50 transition-colors">
+                  <div key={idx} className="flex items-center justify-between px-6 py-3 hover:bg-muted/50 transition-colors">
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{hotspot.stageName}</p>
                       <p className="text-xs text-muted-foreground truncate">{hotspot.pipelineName}</p>

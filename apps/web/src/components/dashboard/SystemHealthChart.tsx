@@ -18,75 +18,74 @@ const data = [
   { time: "24:00", success: 450, failed: 10, delayed: 8 },
 ];
 
+/**
+ * Every colour here is a token, so the chart follows the theme instead of
+ * pinning one palette. Recharts wants real colour values rather than classes,
+ * and `hsl(var(--token))` resolves as an SVG paint the same way it does in CSS.
+ *
+ * These are the semantic hues, not the neutral ramp: the ramp is for splitting
+ * one quantity into categories, where the hues would be arbitrary. Here each
+ * series already means something, and Failed is the line you are scanning for.
+ */
+const series = [
+  { key: "success", label: "Success", color: "hsl(var(--status-success))" },
+  { key: "failed", label: "Failed", color: "hsl(var(--status-error))" },
+  { key: "delayed", label: "Delayed", color: "hsl(var(--status-warning))" },
+] as const;
+
 export function SystemHealthChart() {
   return (
-    <div className="rounded-xl border border-border bg-card p-5">
+    <div className="rounded-xl border border-border bg-card p-6">
       <div className="mb-4 flex items-center justify-between">
         <h3 className="font-semibold text-foreground">Execution Trends</h3>
         <div className="flex items-center gap-4 text-xs">
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-status-success" />
-            <span className="text-muted-foreground">Success</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-status-error" />
-            <span className="text-muted-foreground">Failed</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="h-2 w-2 rounded-full bg-status-warning" />
-            <span className="text-muted-foreground">Delayed</span>
-          </div>
+          {series.map(s => (
+            <div key={s.key} className="flex items-center gap-1.5">
+              <div className="h-2 w-2 rounded-full" style={{ background: s.color }} />
+              <span className="text-muted-foreground">{s.label}</span>
+            </div>
+          ))}
         </div>
       </div>
 
       <ResponsiveContainer width="100%" height={240}>
         <AreaChart data={data}>
-          <defs>
-            <linearGradient id="colorSuccess" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0.2} />
-              <stop offset="95%" stopColor="hsl(160, 84%, 39%)" stopOpacity={0} />
-            </linearGradient>
-            <linearGradient id="colorFailed" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0.2} />
-              <stop offset="95%" stopColor="hsl(0, 84%, 60%)" stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 13%, 91%)" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
           <XAxis
             dataKey="time"
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(220, 9%, 46%)", fontSize: 12 }}
+            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(220, 9%, 46%)", fontSize: 12 }}
+            // Five gridlines, not ten. The reader wants the shape, not a ruler.
+            tickCount={5}
+            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: "hsl(0, 0%, 100%)",
-              border: "1px solid hsl(220, 13%, 91%)",
+              backgroundColor: "hsl(var(--popover))",
+              color: "hsl(var(--popover-foreground))",
+              border: "1px solid hsl(var(--border))",
               borderRadius: "8px",
-              boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+              boxShadow: "0 12px 32px -12px rgba(15, 18, 30, 0.18)",
             }}
           />
-          <Area
-            type="monotone"
-            dataKey="success"
-            stroke="hsl(160, 84%, 39%)"
-            strokeWidth={2}
-            fillOpacity={1}
-            fill="url(#colorSuccess)"
-          />
-          <Area
-            type="monotone"
-            dataKey="failed"
-            stroke="hsl(0, 84%, 60%)"
-            strokeWidth={2}
-            fillOpacity={1}
-            fill="url(#colorFailed)"
-          />
+          {/* A flat wash rather than a gradient — the gradient was decoration
+              and it is the one thing on the stop list a chart tends to smuggle in. */}
+          {series.map(s => (
+            <Area
+              key={s.key}
+              type="monotone"
+              dataKey={s.key}
+              stroke={s.color}
+              strokeWidth={2}
+              fill={s.color}
+              fillOpacity={0.08}
+            />
+          ))}
         </AreaChart>
       </ResponsiveContainer>
     </div>

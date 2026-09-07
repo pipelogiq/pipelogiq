@@ -698,7 +698,7 @@ export default function Executions() {
                       {selectedAction.name} Details
                     </h4>
                     <Tabs defaultValue="logs" className="w-full">
-                      <TabsList className="w-full grid grid-cols-3">
+                      <TabsList variant="segment" className="w-full grid grid-cols-3">
                         <TabsTrigger value="logs">Logs</TabsTrigger>
                         <TabsTrigger value="input">Input</TabsTrigger>
                         <TabsTrigger value="output">Output</TabsTrigger>

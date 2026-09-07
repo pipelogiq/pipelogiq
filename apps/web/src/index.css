@@ -191,26 +191,16 @@
     @apply mt-1 text-[40px] font-bold leading-none tracking-[-0.035em] text-foreground tabular-nums;
   }
 
+  /* ── Count beside a block heading ───────────────────────────────────────
+     "Worker Registry (12)". Reads at the same size as the title it follows,
+     which is why it goes inside the heading rather than into a 12px aside on
+     the far side of the header row, where nobody looks. */
+  .block-count {
+    @apply font-medium text-muted-foreground;
+  }
+
   .metric-context {
     @apply mt-1.5 text-[13px] text-muted-foreground;
-  }
-
-  /* ── Segmented control / tab track ──────────────────────────────────────
-     One pattern for every switcher: grey track, white active pane with a
-     hairline. The accent is spent on data, never on chrome. */
-  .segment-track {
-    @apply inline-flex items-center gap-0.5 rounded-lg bg-muted p-1;
-  }
-
-  .segment-item {
-    @apply rounded-md border border-transparent px-3.5 py-1.5 text-sm font-medium
-           text-muted-foreground transition-colors;
-  }
-
-  .segment-item[data-state="active"],
-  .segment-item[aria-selected="true"],
-  .segment-item[aria-pressed="true"] {
-    @apply border-border bg-card text-foreground;
   }
 }
 
