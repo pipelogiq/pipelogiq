@@ -1346,4 +1346,71 @@
                 onDelete="CASCADE"/>
     </changeSet>
 
+    <!-- API keys are stored as SHA-256 digests. The clear key is shown once at
+         creation and never persisted; key_prefix lets an operator recognise a
+         key in the dashboard without revealing it. -->
+    <changeSet id="hash api keys" author="pipelogiq">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="api_key" columnName="key_hash"/></not>
+        </preConditions>
+        <addColumn tableName="api_key">
+            <column name="key_hash" type="varchar(64)"/>
+            <column name="key_prefix" type="varchar(16)"/>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="backfill api key hashes" author="pipelogiq" dbms="postgresql">
+        <preConditions onFail="MARK_RAN">
+            <sqlCheck expectedResult="0">SELECT count(*) FROM api_key WHERE key_hash IS NOT NULL</sqlCheck>
+        </preConditions>
+        <sql>
+            UPDATE api_key
+            SET key_hash = encode(sha256(convert_to(key, 'UTF8')), 'hex'),
+                key_prefix = left(key, 8)
+            WHERE key IS NOT NULL AND key_hash IS NULL;
+            UPDATE api_key SET key = NULL WHERE key_hash IS NOT NULL;
+        </sql>
+        <sql>CREATE UNIQUE INDEX IF NOT EXISTS uq_api_key_hash ON api_key(key_hash)</sql>
+    </changeSet>
+
+    <!-- Bumping token_version invalidates every JWT issued to the account: logout,
+         password change, and administrative revocation all use it. -->
+    <changeSet id="add user token version" author="pipelogiq">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="user" columnName="token_version"/></not>
+        </preConditions>
+        <addColumn tableName="user">
+            <column name="token_version" type="int" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="add audit log" author="pipelogiq">
+        <preConditions onFail="MARK_RAN">
+            <not><tableExists tableName="audit_log"/></not>
+        </preConditions>
+        <createTable tableName="audit_log">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="ts" type="timestamp">
+                <constraints nullable="false"/>
+            </column>
+            <column name="user_id" type="int"/>
+            <column name="email" type="varchar(255)"/>
+            <column name="action" type="varchar(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="target" type="varchar(255)"/>
+            <column name="outcome" type="varchar(32)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="remote_addr" type="varchar(64)"/>
+            <column name="details" type="text"/>
+        </createTable>
+        <sql>CREATE INDEX IF NOT EXISTS idx_audit_log_ts ON audit_log(ts)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_audit_log_user_ts ON audit_log(user_id, ts)</sql>
+    </changeSet>
+
 </databaseChangeLog>

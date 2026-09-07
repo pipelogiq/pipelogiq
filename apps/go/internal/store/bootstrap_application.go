@@ -92,9 +92,9 @@ func (s *Store) BootstrapApplication(
 
 	if apiKey != "" && result.CreatedApp {
 		if _, err = tx.ExecContext(ctx, `
-			INSERT INTO api_key (application_id, name, key, created_at)
-			VALUES ($1, $2, $3, $4)
-		`, result.ApplicationID, "bootstrap", apiKey, time.Now().UTC()); err != nil {
+			INSERT INTO api_key (application_id, name, key_hash, key_prefix, created_at)
+			VALUES ($1, $2, $3, $4, $5)
+		`, result.ApplicationID, "bootstrap", HashAPIKey(apiKey), KeyPrefix(apiKey), time.Now().UTC()); err != nil {
 			return nil, fmt.Errorf("create bootstrap api key: %w", err)
 		}
 		result.CreatedAPIKey = true

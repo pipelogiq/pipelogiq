@@ -441,7 +441,9 @@ func setupIdempotencyEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http
 	CREATE TABLE api_key (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		application_id INTEGER NOT NULL,
-		key TEXT NOT NULL,
+		key TEXT NULL,
+		key_hash TEXT NULL,
+		key_prefix TEXT NULL,
 		created_at TIMESTAMP NULL,
 		disabled_at TIMESTAMP NULL,
 		expires_at TIMESTAMP NULL,
@@ -461,9 +463,9 @@ func setupIdempotencyEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http
 		{applicationID: idempotencyTestOtherApplicationID, value: idempotencyTestOtherAPIKey},
 	} {
 		if _, err := db.Exec(`
-			INSERT INTO api_key (application_id, key, created_at, disabled_at, expires_at)
+			INSERT INTO api_key (application_id, key_hash, created_at, disabled_at, expires_at)
 			VALUES ($1, $2, $3, NULL, NULL)
-		`, apiKey.applicationID, apiKey.value, time.Now().UTC()); err != nil {
+		`, apiKey.applicationID, store.HashAPIKey(apiKey.value), time.Now().UTC()); err != nil {
 			_ = db.Close()
 			t.Fatalf("insert api key: %v", err)
 		}

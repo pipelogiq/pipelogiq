@@ -55,9 +55,10 @@ const (
 
 // Skip reasons.
 const (
-	ScheduleSkipReasonOverlap = "Overlap"
-	ScheduleSkipReasonPaused  = "Paused"
-	ScheduleSkipReasonCatchup = "Catchup"
+	ScheduleSkipReasonOverlap  = "Overlap"
+	ScheduleSkipReasonPaused   = "Paused"
+	ScheduleSkipReasonCatchup  = "Catchup"
+	ScheduleSkipReasonNoWorker = "NoWorker"
 )
 
 // Placeholders substituted into stage inputs and context values. These three and

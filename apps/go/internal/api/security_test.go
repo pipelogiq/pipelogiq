@@ -12,7 +12,7 @@ import (
 func TestJWTIncludesRoleClaims(t *testing.T) {
 	secret := []byte("0123456789abcdef0123456789abcdef")
 
-	token, err := generateJWT(secret, 42, "admin@pipelogiq.local", "Admin")
+	token, err := generateJWT(secret, 42, "admin@pipelogiq.local", "Admin", 0)
 	if err != nil {
 		t.Fatalf("generateJWT() error = %v", err)
 	}

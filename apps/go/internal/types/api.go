@@ -212,6 +212,9 @@ type UserResponse struct {
 	Email     string    `json:"email" db:"email"`
 	Role      string    `json:"role" db:"role"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
+	// TokenVersion changes on logout and password change; a JWT carrying an older
+	// value is rejected. Never serialised.
+	TokenVersion int `json:"-" db:"token_version"`
 }
 
 type LoginRequest struct {
@@ -237,14 +240,17 @@ type SaveApplicationRequest struct {
 // ApiKey types
 
 type ApiKeyResponse struct {
-	ID            int        `json:"id" db:"id"`
-	ApplicationID int        `json:"applicationId" db:"application_id"`
-	Name          *string    `json:"name,omitempty" db:"name"`
-	Key           *string    `json:"key,omitempty" db:"key"`
-	CreatedAt     *time.Time `json:"createdAt,omitempty" db:"created_at"`
-	DisabledAt    *time.Time `json:"disabledAt,omitempty" db:"disabled_at"`
-	ExpiresAt     *time.Time `json:"expiresAt,omitempty" db:"expires_at"`
-	LastUsed      *time.Time `json:"lastUsed,omitempty" db:"last_used"`
+	ID            int     `json:"id" db:"id"`
+	ApplicationID int     `json:"applicationId" db:"application_id"`
+	Name          *string `json:"name,omitempty" db:"name"`
+	// Key carries the clear value exactly once, in the response that created it.
+	Key *string `json:"key,omitempty" db:"-"`
+	// KeyPrefix identifies the key in listings without revealing it.
+	KeyPrefix  *string    `json:"keyPrefix,omitempty" db:"key_prefix"`
+	CreatedAt  *time.Time `json:"createdAt,omitempty" db:"created_at"`
+	DisabledAt *time.Time `json:"disabledAt,omitempty" db:"disabled_at"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty" db:"expires_at"`
+	LastUsed   *time.Time `json:"lastUsed,omitempty" db:"last_used"`
 }
 
 type GenerateApiKeyRequest struct {

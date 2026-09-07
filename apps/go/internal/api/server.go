@@ -44,7 +44,8 @@ type Server struct {
 	// pro holds the commercial implementations, or the not-licensed stubs when
 	// the binary was built without the `pro` tag. Handlers gate on the licence
 	// before touching it either way.
-	pro pro.Providers
+	pro          pro.Providers
+	loginLimiter *loginLimiter
 }
 
 func NewServer(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger) *Server {
@@ -89,6 +90,7 @@ func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient 
 		jwtSecret:            []byte(cfg.JWTSecret),
 		allowedOrigins:       allowedOriginsMap(cfg.AllowedOrigins),
 		pro:                  pro.Load(st.DB(), logger),
+		loginLimiter:         newLoginLimiter(loginWindow, loginPerIP, loginPerEmail),
 	}
 }
 
@@ -121,6 +123,7 @@ func (s *Server) routes() http.Handler {
 
 		// Auth
 		r.Get("/auth/me", s.handleGetCurrentUser)
+		r.Post("/auth/password", s.handleChangePassword)
 		r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
 			s.hub.ServeWS(w, r)
 		})
@@ -146,6 +149,10 @@ func (s *Server) routes() http.Handler {
 
 		r.Group(func(admin chi.Router) {
 			admin.Use(s.requireAdminMiddleware)
+			admin.Use(s.auditMutations)
+
+			// Audit trail
+			admin.Get("/audit", s.handleListAudit)
 
 			// Application endpoints
 			admin.Get("/applications", s.handleGetApplications)

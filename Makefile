@@ -71,8 +71,11 @@ fmt: ## Check Go formatting (exits non-zero if changes needed)
 		(echo "gofmt: the following files need formatting:" && cd $(GO_DIR) && gofmt -l . && exit 1)
 
 .PHONY: lint
-lint: ## Run go vet and web lint
+lint: ## Run go vet, golangci-lint (if installed), contract checks and web lint
 	cd $(GO_DIR) && $(GO) vet ./...
+	@if command -v golangci-lint >/dev/null 2>&1; then cd $(GO_DIR) && golangci-lint run --timeout=5m; else echo "golangci-lint not installed; skipping"; fi
+	./scripts/check-openapi-routes.sh
+	./scripts/check-versions.sh
 	@if [ -f $(WEB_DIR)/package.json ]; then cd $(WEB_DIR) && npm run lint; fi
 
 .PHONY: migrate-up

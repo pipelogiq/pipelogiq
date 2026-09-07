@@ -622,7 +622,9 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 	CREATE TABLE api_key (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		application_id INTEGER NOT NULL,
-		key TEXT NOT NULL,
+		key TEXT NULL,
+		key_hash TEXT NULL,
+		key_prefix TEXT NULL,
 		created_at TIMESTAMP NULL,
 		disabled_at TIMESTAMP NULL,
 		expires_at TIMESTAMP NULL,

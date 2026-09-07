@@ -322,3 +322,29 @@ func (s *Store) ActiveScheduleNames(ctx context.Context) (map[string]struct{}, e
 	}
 	return out, nil
 }
+
+// HasLiveWorker reports whether the application has a worker that could pick up
+// a job right now.
+//
+// Draining and stopped workers do not count: draining means the worker is
+// deliberately finishing up and taking nothing new. A stale heartbeat does not
+// count either — a process that died without saying so leaves its last state
+// behind, and only the clock reveals it.
+func (s *Store) HasLiveWorker(ctx context.Context, appID int, offlineAfter time.Duration) (bool, error) {
+	if offlineAfter <= 0 {
+		offlineAfter = 45 * time.Second
+	}
+	cutoff := time.Now().UTC().Add(-offlineAfter)
+
+	var live int
+	if err := s.db.QueryRowxContext(ctx, `
+		SELECT COUNT(*)
+		FROM worker_client
+		WHERE application_id = $1
+		  AND state NOT IN ('stopped', 'error', 'offline', 'draining')
+		  AND last_seen_at > $2
+	`, appID, cutoff).Scan(&live); err != nil {
+		return false, fmt.Errorf("count live workers: %w", err)
+	}
+	return live > 0, nil
+}

@@ -1,0 +1,42 @@
+# A deliberately small, high-signal set. Broaden it once the baseline is green
+# rather than starting with a wall of findings nobody reads.
+run:
+  timeout: 5m
+  build-tags:
+    - pro
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - gosimple
+    - unused
+    - ineffassign
+    - errcheck
+    - gosec
+    - bodyclose
+    - misspell
+
+linters-settings:
+  errcheck:
+    # Deliberate fire-and-forget writes are annotated with `_ =` in this codebase;
+    # these are the few calls where an unchecked error is conventional.
+    exclude-functions:
+      - (net/http.ResponseWriter).Write
+      - (*database/sql.Tx).Rollback
+      - (*github.com/jmoiron/sqlx.Tx).Rollback
+  gosec:
+    excludes:
+      - G404 # math/rand for jitter is fine; crypto/rand is used for secrets
+      - G115 # integer conversions are bounds-checked where they matter
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - bodyclose
+  max-issues-per-linter: 0
+  max-same-issues: 0

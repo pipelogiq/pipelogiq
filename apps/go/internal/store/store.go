@@ -101,15 +101,16 @@ func (s *Store) ValidateAPIKey(ctx context.Context, key string) (int, error) {
 	if strings.TrimSpace(key) == "" {
 		return 0, errors.New("api key required")
 	}
+	keyHash := HashAPIKey(key)
 	var appID int
 	err := s.db.QueryRowContext(ctx, `
 		SELECT application_id
 		FROM api_key
-		WHERE key=$1
+		WHERE key_hash=$1
 		  AND disabled_at IS NULL
 		  AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
 		LIMIT 1
-	`, key).Scan(&appID)
+	`, keyHash).Scan(&appID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, errors.New("api key not found or disabled")
@@ -117,7 +118,13 @@ func (s *Store) ValidateAPIKey(ctx context.Context, key string) (int, error) {
 		return 0, err
 	}
 
-	_, _ = s.db.ExecContext(ctx, `UPDATE api_key SET last_used=CURRENT_TIMESTAMP WHERE key=$1`, key)
+	// last_used is a coarse signal; writing it on every request turned each API
+	// call into a hot-row update. Once a minute per key is plenty.
+	threshold := time.Now().UTC().Add(-time.Minute)
+	_, _ = s.db.ExecContext(ctx, `
+		UPDATE api_key SET last_used=CURRENT_TIMESTAMP
+		WHERE key_hash=$1 AND (last_used IS NULL OR last_used < $2)
+	`, keyHash, threshold)
 	return appID, nil
 }
 

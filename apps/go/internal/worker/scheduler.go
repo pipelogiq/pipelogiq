@@ -320,6 +320,15 @@ func (w *Worker) fireScheduleTick(
 	)
 	defer span.End()
 
+	// A pipeline nobody can pick up is not work, it is a queue that grows until
+	// somebody notices. This gate comes before the overlap policy because it is
+	// a precondition rather than a decision about a run already in flight, and
+	// it applies whatever the policy says — Allow included.
+	if skipped := w.skipWithoutWorker(ctx, row, tick, trigger); skipped {
+		span.SetStatus(codes.Ok, "skipped: no worker available")
+		return
+	}
+
 	if skipped := w.applyOverlapPolicy(ctx, row, tick); skipped {
 		span.SetStatus(codes.Ok, "skipped by overlap policy")
 		return
@@ -377,6 +386,43 @@ func (w *Worker) fireScheduleTick(
 	// out a poll interval.
 	w.triggerPublisher()
 	w.publishScheduleRunCreated(ctx, row, runID, pipelineID, tick)
+}
+
+// skipWithoutWorker reports whether the tick was consumed because the
+// application has nothing running that could execute it.
+//
+// The check failing open is deliberate: if the registry cannot be read, firing
+// the tick and leaving a pipeline to be picked up later is the lesser harm
+// compared with silently dropping scheduled work.
+func (w *Worker) skipWithoutWorker(
+	ctx context.Context,
+	row store.ScheduleRow,
+	tick time.Time,
+	trigger string,
+) bool {
+	live, err := w.store.HasLiveWorker(ctx, row.ApplicationID, w.cfg.WorkerOfflineAfter)
+	if err != nil {
+		w.logger.Error("worker availability check failed", "scheduleId", row.ID, "err", err)
+		return false
+	}
+	if live {
+		return false
+	}
+
+	if _, err = w.store.RecordScheduleRun(ctx, store.ScheduleRunRecord{
+		ScheduleID:        row.ID,
+		ScheduledFor:      tick,
+		Trigger:           trigger,
+		Outcome:           types.ScheduleRunOutcomeSkipped,
+		SkipReason:        types.ScheduleSkipReasonNoWorker,
+		DefinitionVersion: row.DefinitionVersion,
+	}); err != nil && !errors.Is(err, store.ErrScheduleRunAlreadyRecorded) {
+		w.logger.Error("record no-worker skip failed", "scheduleId", row.ID, "err", err)
+	}
+	w.metrics.scheduler.runs.WithLabelValues(row.Name, types.ScheduleRunOutcomeSkipped).Inc()
+	w.logger.Info("schedule tick skipped: no worker online for the application",
+		"scheduleId", row.ID, "applicationId", row.ApplicationID, "scheduledFor", tick)
+	return true
 }
 
 // applyOverlapPolicy reports whether the tick was consumed by the policy.

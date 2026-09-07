@@ -60,6 +60,8 @@ type APIConfig struct {
 	// WorkerBrokerHandout controls whether bootstrap includes a connection string at
 	// all. When false, workers must be given PIPELOGIQ_RABBITMQ_URL locally.
 	WorkerBrokerHandout bool
+	// CookieSecure is auto (TLS or X-Forwarded-Proto=https), always, or never.
+	CookieSecure string
 }
 
 type WorkerConfig struct {
@@ -71,6 +73,9 @@ type WorkerConfig struct {
 	QueueTopologyOwnership string
 	QueueDLQEnabled        bool
 	QueueDLQMessageTTL     time.Duration
+	// Shared with the API so "offline" means the same thing on the dashboard as
+	// it does to the scheduler deciding whether a tick has anywhere to go.
+	WorkerOfflineAfter time.Duration
 }
 
 func LoadAPI() (APIConfig, error) {
@@ -106,6 +111,7 @@ func LoadAPI() (APIConfig, error) {
 		BootstrapAPIKey:         strings.TrimSpace(os.Getenv("BOOTSTRAP_API_KEY")),
 		WorkerRabbitURL:         strings.TrimSpace(os.Getenv("WORKER_RABBITMQ_URL")),
 		WorkerBrokerHandout:     getBool("WORKER_BROKER_HANDOUT", true),
+		CookieSecure:            strings.ToLower(getEnv("COOKIE_SECURE", "auto")),
 	}
 
 	// Metrics live on their own listener because nginx proxies the whole API surface.
@@ -141,6 +147,7 @@ func LoadWorker() (WorkerConfig, error) {
 		QueueTopologyOwnership: getTopologyOwnership("RABBIT_TOPOLOGY_OWNERSHIP", TopologyOwnershipServer),
 		QueueDLQEnabled:        getBool("RABBIT_DLQ_ENABLED", true),
 		QueueDLQMessageTTL:     getDuration("RABBIT_DLQ_TTL", 30*time.Second),
+		WorkerOfflineAfter:     getDuration("WORKER_OFFLINE_AFTER", 45*time.Second),
 	}
 
 	return cfg, nil

@@ -1509,10 +1509,25 @@ func validateAppendStagesRequest(req types.AppendStagesRequest) map[string][]str
 		return result
 	}
 
+	seenNames := make(map[string]int, len(req.Stages))
 	for idx, stage := range req.Stages {
 		prefix := fmt.Sprintf("stages[%d]", idx)
-		if strings.TrimSpace(stage.Name) == "" {
+		name := strings.TrimSpace(stage.Name)
+		switch {
+		case name == "":
 			result[prefix+".stageName"] = []string{"stageName is required"}
+		case utf8.RuneCountInString(name) > maxStageNameRunes:
+			result[prefix+".stageName"] = []string{fmt.Sprintf("stageName must be at most %d characters", maxStageNameRunes)}
+		case strings.ContainsAny(name, ",\n\r\t"):
+			// Dependencies are resolved by name; a comma or control character in a
+			// name would corrupt the dependency list silently.
+			result[prefix+".stageName"] = []string{"stageName must not contain commas or control characters"}
+		default:
+			if first, dup := seenNames[strings.ToLower(name)]; dup {
+				result[prefix+".stageName"] = []string{fmt.Sprintf("stageName duplicates stages[%d]; names must be unique within a pipeline", first)}
+			} else {
+				seenNames[strings.ToLower(name)] = idx
+			}
 		}
 		if strings.TrimSpace(stage.StageHandler) == "" {
 			result[prefix+".stageHandlerName"] = []string{"stageHandlerName is required"}
@@ -1535,6 +1550,11 @@ func validateAppendStagesRequest(req types.AppendStagesRequest) map[string][]str
 		backoff := strings.ToLower(strings.TrimSpace(stage.Options.Backoff))
 		if backoff != "" && backoff != "fixed" && backoff != "linear" && backoff != "exponential" {
 			result[prefix+".options.backoff"] = []string{"backoff must be fixed, linear, or exponential"}
+		}
+		for depIdx, dep := range stage.Options.DependsOn {
+			if strings.TrimSpace(dep) == "" || strings.ContainsAny(dep, ",\n\r\t") {
+				result[fmt.Sprintf("%s.options.dependsOn[%d]", prefix, depIdx)] = []string{"dependsOn entries must be stage names without commas"}
+			}
 		}
 		for codeIdx, code := range stage.Options.RetryOnErrorCodes {
 			if strings.TrimSpace(code) == "" {

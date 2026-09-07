@@ -41,6 +41,9 @@ export default function Pipelines() {
   // survives a reload and is a link someone can share.
   const [searchParams] = useSearchParams();
   const urlQuery = searchParams.get("search") ?? "";
+  // ?selected= opens the side panel straight away, so a link from the schedule
+  // run history lands on the run itself rather than on the top of the list.
+  const urlSelected = searchParams.get("selected");
 
   const [filters, setFilters] = useState<SearchFilters>({
     query: "",
@@ -51,7 +54,7 @@ export default function Pipelines() {
     tags: [],
     contextFilters: [],
   });
-  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(null);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(urlSelected);
   const [selectedBulkPipelineIds, setSelectedBulkPipelineIds] = useState<Set<string>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);

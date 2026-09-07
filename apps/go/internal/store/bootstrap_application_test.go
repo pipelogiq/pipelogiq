@@ -22,7 +22,9 @@ CREATE TABLE api_key (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	application_id INTEGER NOT NULL,
 	name TEXT NULL,
-	key TEXT NOT NULL,
+	key TEXT NULL,
+		key_hash TEXT NULL,
+		key_prefix TEXT NULL,
 	created_at TIMESTAMP NULL,
 	last_used TIMESTAMP NULL,
 	disabled_at TIMESTAMP NULL,
@@ -77,7 +79,7 @@ func TestBootstrapApplication(t *testing.T) {
 		}
 
 		var name string
-		if err := db.Get(&name, `SELECT name FROM api_key WHERE key = $1`, "bootstrap-secret"); err != nil {
+		if err := db.Get(&name, `SELECT name FROM api_key WHERE key_hash = $1`, HashAPIKey("bootstrap-secret")); err != nil {
 			t.Fatalf("load key row: %v", err)
 		}
 		if name != "bootstrap" {

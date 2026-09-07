@@ -459,10 +459,10 @@ func setupExternalEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Ha
 	}
 
 	if _, err := db.Exec(`
-		INSERT INTO api_key (application_id, key, created_at, disabled_at, expires_at)
+		INSERT INTO api_key (application_id, key_hash, created_at, disabled_at, expires_at)
 		VALUES ($1, $2, $3, NULL, NULL), ($4, $5, $3, NULL, NULL)
-	`, externalTestApplicationID, "test-api-key", time.Now().UTC(),
-		externalTestApplicationID+1, "other-api-key"); err != nil {
+	`, externalTestApplicationID, store.HashAPIKey("test-api-key"), time.Now().UTC(),
+		externalTestApplicationID+1, store.HashAPIKey("other-api-key")); err != nil {
 		_ = db.Close()
 		t.Fatalf("insert api key: %v", err)
 	}

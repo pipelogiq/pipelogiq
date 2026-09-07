@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -18,7 +19,7 @@ func (s *Store) GetApiKeys(ctx context.Context, applicationID int) ([]types.ApiK
 	keys := []types.ApiKeyResponse{}
 
 	err := s.db.SelectContext(ctx, &keys, `
-		SELECT id, application_id, name, key, created_at, disabled_at, expires_at, last_used
+		SELECT id, application_id, name, key_prefix, created_at, disabled_at, expires_at, last_used
 		FROM api_key
 		WHERE application_id = $1
 		ORDER BY id
@@ -56,10 +57,10 @@ func (s *Store) GenerateApiKey(ctx context.Context, userID int, req types.Genera
 	var id int
 
 	err = tx.QueryRowContext(ctx, `
-		INSERT INTO api_key (application_id, name, key, created_at, expires_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO api_key (application_id, name, key_hash, key_prefix, created_at, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		RETURNING id
-	`, applicationID, req.Name, key, now, req.ExpiresAt).Scan(&id)
+	`, applicationID, req.Name, HashAPIKey(key), KeyPrefix(key), now, req.ExpiresAt).Scan(&id)
 
 	if err != nil {
 		return nil, fmt.Errorf("insert api key: %w", err)
@@ -74,6 +75,7 @@ func (s *Store) GenerateApiKey(ctx context.Context, userID int, req types.Genera
 		ApplicationID: applicationID,
 		Name:          req.Name,
 		Key:           &key,
+		KeyPrefix:     ptrString(KeyPrefix(key)),
 		CreatedAt:     &now,
 		ExpiresAt:     req.ExpiresAt,
 	}, nil
@@ -145,3 +147,21 @@ func generateRandomKey(length int) (string, error) {
 	}
 	return hex.EncodeToString(bytes), nil
 }
+
+// HashAPIKey returns the SHA-256 digest under which a key is stored and looked up.
+// The clear key is never persisted.
+func HashAPIKey(key string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(key)))
+	return hex.EncodeToString(sum[:])
+}
+
+// KeyPrefix is the recognisable head of a key shown in listings.
+func KeyPrefix(key string) string {
+	key = strings.TrimSpace(key)
+	if len(key) <= 8 {
+		return key
+	}
+	return key[:8]
+}
+
+func ptrString(value string) *string { return &value }

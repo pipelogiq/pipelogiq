@@ -6,7 +6,7 @@ export type OverlapPolicy = 'Skip' | 'Queue' | 'Replace' | 'Allow';
 export type CatchupPolicy = 'None' | 'One' | 'All';
 export type ScheduleTrigger = 'Cron' | 'Interval' | 'Once' | 'Manual' | 'Catchup';
 export type ScheduleRunOutcome = 'Created' | 'Skipped' | 'Failed';
-export type ScheduleSkipReason = 'Overlap' | 'Paused' | 'Catchup';
+export type ScheduleSkipReason = 'Overlap' | 'Paused' | 'Catchup' | 'NoWorker';
 
 export interface ScheduleHealth {
   recentRuns: number;

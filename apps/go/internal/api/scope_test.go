@@ -249,7 +249,7 @@ func (fx *scopeFixture) do(t *testing.T, userID int, method, path string, body a
 	req := httptest.NewRequest(method, path, reader)
 	req.Header.Set("Content-Type", "application/json")
 
-	token, err := generateJWT(fx.jwtSecret, userID, fmt.Sprintf("user%d@example.com", userID), "Admin")
+	token, err := generateJWT(fx.jwtSecret, userID, fmt.Sprintf("user%d@example.com", userID), "Admin", 0)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
@@ -277,6 +277,27 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 		user_id INTEGER NOT NULL,
 		application_id INTEGER NOT NULL
 	);
+	CREATE TABLE "user" (
+		id INTEGER PRIMARY KEY,
+		first_name TEXT NOT NULL,
+		last_name TEXT NULL,
+		email TEXT NOT NULL,
+		password TEXT NOT NULL,
+		role TEXT NOT NULL,
+		created_at TIMESTAMP NULL,
+		token_version INTEGER NOT NULL DEFAULT 0
+	);
+	CREATE TABLE audit_log (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		ts TIMESTAMP NOT NULL,
+		user_id INTEGER NULL,
+		email TEXT NULL,
+		action TEXT NOT NULL,
+		target TEXT NULL,
+		outcome TEXT NOT NULL,
+		remote_addr TEXT NULL,
+		details TEXT NULL
+	);
 	`
 	if _, err := db.Exec(schema); err != nil {
 		t.Fatalf("create schema: %v", err)
@@ -285,6 +306,7 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 	seed := `
 	INSERT INTO application (id, name) VALUES (1, 'own'), (2, 'other');
 	INSERT INTO user_application (user_id, application_id) VALUES (10, 1);
+	INSERT INTO "user" (id, first_name, email, password, role) VALUES (10, 'Scoped', 'user10@example.com', 'x', 'Admin'), (11, 'Stranger', 'user11@example.com', 'x', 'Admin');
 	`
 	if _, err := db.Exec(seed); err != nil {
 		t.Fatalf("seed: %v", err)
@@ -311,6 +333,7 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 		jwtSecret:      fx.jwtSecret,
 		allowedOrigins: allowedOriginsMap(cfg.AllowedOrigins),
 		pro:            pro.Load(db, logger),
+		loginLimiter:   newLoginLimiter(loginWindow, loginPerIP, loginPerEmail),
 	}
 	fx.router = srv.routes()
 

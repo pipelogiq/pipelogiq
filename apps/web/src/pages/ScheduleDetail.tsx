@@ -60,6 +60,12 @@ const overlapOptions: { value: OverlapPolicy; label: string; hint: string }[] = 
   { value: 'Allow', label: 'Allow', hint: 'Start anyway, alongside the run in flight.' },
 ];
 
+// "NoWorker" is accurate but reads like a field name; the history is where
+// someone is trying to understand why nothing ran.
+function skipReasonLabel(reason: string): string {
+  return reason === 'NoWorker' ? 'No worker' : reason;
+}
+
 const catchupOptions: { value: CatchupPolicy; label: string; hint: string }[] = [
   { value: 'None', label: 'None', hint: 'Ticks missed while down are dropped.' },
   { value: 'One', label: 'One', hint: 'Run only the most recent missed tick.' },
@@ -384,7 +390,7 @@ export default function ScheduleDetail() {
                     <TableCell>
                       <Badge variant={outcomeVariant[run.outcome]}>
                         {run.outcome}
-                        {run.skipReason ? ` · ${run.skipReason}` : ''}
+                        {run.skipReason ? ` · ${skipReasonLabel(run.skipReason)}` : ''}
                       </Badge>
                       {run.error && (
                         <p className="mt-1 max-w-md truncate text-xs text-destructive" title={run.error}>
@@ -395,7 +401,7 @@ export default function ScheduleDetail() {
                     <TableCell className="text-sm">
                       {run.pipelineId ? (
                         <Link
-                          to={`/pipelines/${run.pipelineId}`}
+                          to={`/pipelines?search=${run.pipelineId}&selected=${run.pipelineId}`}
                           className="text-foreground hover:underline"
                         >
                           #{run.pipelineId}

@@ -56,15 +56,22 @@ func (s *Server) applicationScopeMiddleware(next http.Handler) http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 
-		ids, err := s.store.GetUserApplicationIDs(ctx, userID)
+		access, err := s.store.GetUserAccess(ctx, userID)
 		if err != nil {
 			s.logger.Error("resolve application scope failed", "userId", userID, "err", err)
 			writeJSONError(w, "failed to resolve access scope", http.StatusInternalServerError)
 			return
 		}
 
+		// A token minted before the last logout or password change is dead.
+		if claimed, _ := r.Context().Value(tokenVersionKey).(int); claimed != access.TokenVersion {
+			http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: "", Path: "/", MaxAge: -1})
+			writeJSONError(w, "session expired", http.StatusUnauthorized)
+			return
+		}
+
 		next.ServeHTTP(w, r.WithContext(
-			context.WithValue(r.Context(), applicationScopeKey, newApplicationScope(ids)),
+			context.WithValue(r.Context(), applicationScopeKey, newApplicationScope(access.ApplicationIDs)),
 		))
 	})
 }

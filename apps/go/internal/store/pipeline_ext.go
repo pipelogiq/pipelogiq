@@ -133,9 +133,27 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 				   )
 			)
 		`, argNum, argNum, argNum, argNum, argNum, argNum))
-		conditions = append(conditions, "p.id IN (SELECT pipeline_id FROM search_matches)")
 		args = append(args, searchPattern)
 		argNum++
+
+		// A bare number is how people refer to a run — "#487" in the run history,
+		// "487" typed into the search box. Matching the id turns that into the
+		// obvious result instead of no results at all.
+		if id, convErr := strconv.Atoi(strings.TrimPrefix(strings.TrimSpace(*req.Search), "#")); convErr == nil && id > 0 {
+			ctes[len(ctes)-1] = strings.TrimSuffix(strings.TrimRight(ctes[len(ctes)-1], " \n\t"), ")") +
+				fmt.Sprintf(`
+				UNION
+
+				SELECT ps4.id
+				FROM pipeline ps4
+				WHERE ps4.id = $%d
+			)
+		`, argNum)
+			args = append(args, id)
+			argNum++
+		}
+
+		conditions = append(conditions, "p.id IN (SELECT pipeline_id FROM search_matches)")
 	}
 
 	// Keyword filter

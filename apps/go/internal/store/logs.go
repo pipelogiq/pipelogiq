@@ -54,8 +54,8 @@ func (s *Store) SaveLog(ctx context.Context, req types.LogRequest) (*types.LogRe
 	if req.ApiKey != nil && *req.ApiKey != "" {
 		var id int
 		err := s.db.QueryRowContext(ctx, `
-			SELECT application_id FROM api_key WHERE key = $1 AND disabled_at IS NULL
-		`, *req.ApiKey).Scan(&id)
+			SELECT application_id FROM api_key WHERE key_hash = $1 AND disabled_at IS NULL
+		`, HashAPIKey(*req.ApiKey)).Scan(&id)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("validate api key: %w", err)
 		}

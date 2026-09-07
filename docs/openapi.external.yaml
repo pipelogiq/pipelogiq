@@ -848,6 +848,152 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetails"
 
+  /version:
+    get:
+      summary: Server version and licence tier
+      operationId: getVersion
+      tags:
+        - System
+      security: []
+      responses:
+        "200":
+          description: Build metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionInfo"
+
+  /logs:
+    post:
+      summary: Record an application log line
+      description: |
+        Stores a free-form log line against the calling application. Keywords
+        make the line searchable from the dashboard.
+      operationId: saveLog
+      tags:
+        - Application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogRequest"
+      responses:
+        "200":
+          description: Log line stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogResponse"
+        "400":
+          description: Malformed body
+        "401":
+          description: Missing or invalid API key
+
+  /workers/bootstrap:
+    post:
+      summary: Register a worker and receive its session
+      description: |
+        Called once when a worker process starts. The response carries the
+        session token every later worker-protocol request must send as
+        `X-Worker-Session`, the queue topology, and — when the operator allows
+        hand-out — the broker address for AMQP workers. HTTP workers ignore
+        `messageBroker` and use `/jobs/pull`.
+      operationId: bootstrapWorker
+      tags:
+        - Worker protocol
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerBootstrapRequest"
+      responses:
+        "200":
+          description: Worker registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkerBootstrapResponse"
+        "400":
+          description: Malformed body
+        "401":
+          description: Missing or invalid API key
+        "503":
+          description: Broker hand-out is enabled but no broker address is configured
+
+  /workers/heartbeat:
+    post:
+      summary: Report worker liveness and counters
+      operationId: workerHeartbeat
+      tags:
+        - Worker protocol
+      security:
+        - ApiKeyAuth: []
+          WorkerSessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerHeartbeatRequest"
+      responses:
+        "200":
+          description: Heartbeat recorded
+        "400":
+          description: Malformed body
+        "401":
+          description: Missing or invalid API key or worker session
+
+  /workers/events:
+    post:
+      summary: Append worker lifecycle events
+      description: |
+        Batched, at most `WORKER_EVENTS_MAX_BATCH` events per call. Events feed
+        the dashboard's worker activity feed and alerting.
+      operationId: workerEvents
+      tags:
+        - Worker protocol
+      security:
+        - ApiKeyAuth: []
+          WorkerSessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerEventsRequest"
+      responses:
+        "200":
+          description: Events recorded
+        "400":
+          description: Malformed body or batch too large
+        "401":
+          description: Missing or invalid API key or worker session
+
+  /workers/shutdown:
+    post:
+      summary: Announce a graceful shutdown
+      operationId: workerShutdown
+      tags:
+        - Worker protocol
+      security:
+        - ApiKeyAuth: []
+          WorkerSessionAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkerShutdownRequest"
+      responses:
+        "200":
+          description: Worker marked stopped
+        "400":
+          description: Malformed body
+        "401":
+          description: Missing or invalid API key or worker session
+
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -1811,3 +1957,133 @@ components:
             type: array
             items:
               type: string
+
+    VersionInfo:
+      type: object
+      properties:
+        version: { type: string, example: v0.5.0-preview.1 }
+        commit: { type: string }
+        buildDate: { type: string }
+        goVersion: { type: string }
+        tier: { type: string, enum: [community, pro, enterprise] }
+
+    LogRequest:
+      type: object
+      properties:
+        message: { type: string }
+        logLevel: { type: string, example: INFO }
+        created: { type: string, format: date-time }
+        keywords:
+          type: array
+          items: { $ref: "#/components/schemas/PipelineKeyword" }
+
+    LogResponse:
+      type: object
+      properties:
+        id: { type: integer }
+        applicationId: { type: integer }
+        message: { type: string }
+        logLevel: { type: string }
+        created: { type: string, format: date-time }
+        keywords:
+          type: array
+          items: { $ref: "#/components/schemas/PipelineKeyword" }
+
+    WorkerBootstrapRequest:
+      type: object
+      required: [workerName]
+      properties:
+        workerName: { type: string }
+        instanceId: { type: string, description: Stable per process; a restart with the same id reuses the worker record }
+        workerVersion: { type: string }
+        sdkVersion: { type: string }
+        environment: { type: string }
+        hostName: { type: string }
+        pid: { type: integer }
+        supportedHandlers:
+          type: array
+          items: { type: string }
+        capabilities: { type: object, additionalProperties: true }
+        metadata: { type: object, additionalProperties: true }
+
+    WorkerBootstrapResponse:
+      type: object
+      properties:
+        workerId: { type: string }
+        workerSessionToken: { type: string, description: Send as X-Worker-Session on every worker-protocol request }
+        configVersion: { type: string }
+        application:
+          type: object
+          properties:
+            applicationId: { type: integer }
+            applicationName: { type: string }
+            appId: { type: string, description: Queue prefix for this application }
+        messageBroker:
+          type: object
+          description: Present for AMQP workers. connectionString is empty when the operator disabled hand-out (WORKER_BROKER_HANDOUT=false).
+          properties:
+            type: { type: string, example: rabbitmq }
+            connectionString: { type: string }
+            prefetch: { type: integer }
+            topologyOwnership: { type: string, enum: [server-owned, client-owned] }
+            dlqEnabled: { type: boolean }
+            dlqTtlSec: { type: integer }
+        queues:
+          type: object
+          properties:
+            stageResult: { type: string }
+            stageSetStatus: { type: string }
+            stageUpdatedFanout: { type: string }
+            stageNextPattern: { type: string, example: "{appId}.stage.{handler}" }
+        heartbeat:
+          type: object
+          properties:
+            intervalSec: { type: integer }
+            offlineAfterSec: { type: integer }
+        observability:
+          type: object
+          properties:
+            traceLinkTemplate: { type: string }
+            logsLinkTemplate: { type: string }
+
+    WorkerHeartbeatRequest:
+      type: object
+      required: [workerId, state]
+      properties:
+        workerId: { type: string }
+        state: { type: string, enum: [starting, ready, degraded, stopping, stopped] }
+        uptimeSec: { type: integer }
+        brokerConnected: { type: boolean }
+        inFlightJobs: { type: integer }
+        jobsProcessed: { type: integer }
+        jobsFailed: { type: integer }
+        queueLag: { type: integer }
+        cpuPercent: { type: number }
+        memoryMb: { type: number }
+        lastError: { type: string }
+        message: { type: string }
+        metadata: { type: object, additionalProperties: true }
+
+    WorkerEventsRequest:
+      type: object
+      required: [workerId, events]
+      properties:
+        workerId: { type: string }
+        events:
+          type: array
+          items:
+            type: object
+            required: [level, eventType, message]
+            properties:
+              ts: { type: string, format: date-time }
+              level: { type: string, enum: [DEBUG, INFO, WARN, ERROR] }
+              eventType: { type: string, example: worker.state_changed }
+              message: { type: string }
+              details: { type: object, additionalProperties: true }
+
+    WorkerShutdownRequest:
+      type: object
+      required: [workerId]
+      properties:
+        workerId: { type: string }
+        reason: { type: string }

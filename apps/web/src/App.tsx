@@ -3,14 +3,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Pipelines from "./pages/Pipelines";
-import PipelineDetail from "./pages/PipelineDetail";
 import Executions from "./pages/Executions";
 import Schedules from "./pages/Schedules";
 import ScheduleDetail from "./pages/ScheduleDetail";
@@ -20,6 +19,14 @@ import Settings from "./pages/Settings";
 import ApiKeyCreate from "./pages/ApiKeyCreate";
 import NotFound from "./pages/NotFound";
 import { usePipelineWebSocket } from "@/hooks/use-pipeline-ws";
+
+// There is one pipeline UI: the list with its side panel. This keeps older
+// /pipelines/:id links working by sending them there with the run selected,
+// rather than maintaining a second, thinner view of the same thing.
+function PipelineRoute() {
+  const { id } = useParams();
+  return <Navigate to={`/pipelines?search=${id}&selected=${id}`} replace />;
+}
 
 function PipelineWebSocketProvider({ children }: { children: React.ReactNode }) {
   usePipelineWebSocket();
@@ -58,7 +65,7 @@ const App = () => (
               >
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/pipelines" element={<Pipelines />} />
-                <Route path="/pipelines/:id" element={<PipelineDetail />} />
+                <Route path="/pipelines/:id" element={<PipelineRoute />} />
                 <Route path="/executions" element={<Executions />} />
                 <Route path="/schedules" element={<Schedules />} />
                 <Route path="/schedules/:id" element={<ScheduleDetail />} />
