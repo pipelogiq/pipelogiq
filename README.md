@@ -96,10 +96,10 @@ See [docs/quickstart.md](docs/quickstart.md) for local development without Docke
    └────────────────────┘        └─────────────────┘
 ```
 
-- **pipelogiq-app** — single container with the React dashboard (nginx) and the API. nginx proxies `/api/` and `/ws` to the co-located API at `localhost:8080`. Exposes the dashboard on `:3300` and the external API on `:8081`
+- **pipelogiq-app** — single container with the React dashboard (nginx) and the API, running unprivileged. nginx listens on `8080` and proxies `/api/` and `/ws` to the co-located API on the loopback port `8088`. Compose publishes the dashboard on `:3300` and the external API on `:8081`
 - **pipelogiq-worker** — polls for ready stages and dispatches them to RabbitMQ queues; processes results and manages pipeline state; Prometheus metrics on `:9090`
 - **External workers** — pull jobs from the external API, execute stage logic, and report results back
-- **Database migrations** — managed by Liquibase (`database/changelog.xml`); run automatically by `pipelogiq-app` on startup via its entrypoint script
+- **pipelogiq-migrate** — applies the Liquibase changelog (`database/changelog.xml`) and exits; Compose starts `pipelogiq-app` only after it succeeds, and the Helm chart runs it as a pre-upgrade job
 
 See [docs/architecture.md](docs/architecture.md) for details.
 
@@ -115,7 +115,8 @@ infra/           Dockerfiles, Docker Compose files, observability config
                    docker-compose.infra.yml   — Postgres, RabbitMQ, Tempo, Grafana
                    docker-compose.app.yml     — pipelogiq-app only (build from source)
                    docker-compose.worker.yml  — pipelogiq-worker only (build from source)
-  docker/          Dockerfiles and nginx config
+  docker/          Dockerfiles (app, worker, migrate) and nginx config
+  helm/            Helm chart with a pre-upgrade migration job
 docs/            Documentation
 ```
 
@@ -151,6 +152,8 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 - [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
 - [Observability](docs/observability.md) — trace context, metrics, integration config
 - [Policies](docs/policies.md) — rate limit, retry, timeout, circuit breaker (experimental)
+- [Operations](docs/operations.md) — backup, restore, upgrade, rollback, secret rotation
+- [Versioning](docs/versioning.md) — what the version number promises, deprecation, supported versions
 
 The additive reliability migration can be verified against an isolated
 temporary PostgreSQL instance with

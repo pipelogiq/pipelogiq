@@ -84,6 +84,25 @@ services:
     networks:
       - pipelogiq
 
+  pipelogiq-migrate:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.migrate
+    container_name: pipelogiq-migrate
+    command:
+      - --url=${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
+      - --username=${POSTGRES_USER:-pipelogiq}
+      - --password=${POSTGRES_PASSWORD:-pipelogiq}
+      - --searchPath=/liquibase
+      - --changeLogFile=database/changelog.xml
+      - update
+    depends_on:
+      pipelogiq-postgres:
+        condition: service_healthy
+    networks:
+      - pipelogiq
+    restart: "no"
+
   pipelogiq-app:
     build:
       context: ../..
@@ -101,7 +120,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env to a unique random value of at least 32 characters}
-      HTTP_ADDR: ":8080"
+      HTTP_ADDR: ":8088"
       EXTERNAL_HTTP_ADDR: ":8081"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_VISIBILITY_TIMEOUT: ${GATEWAY_VISIBILITY_TIMEOUT:-60s}
@@ -128,11 +147,6 @@ services:
       SSO_GROUP_CLAIM: ${SSO_GROUP_CLAIM:-}
       SSO_GROUP_ROLE_MAP: ${SSO_GROUP_ROLE_MAP:-}
       AUDIT_EXPORT_SIGNING_KEY: ${AUDIT_EXPORT_SIGNING_KEY:-}
-      LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-true}
-      LIQUIBASE_URL: ${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
-      LIQUIBASE_USERNAME: ${POSTGRES_USER:-pipelogiq}
-      LIQUIBASE_PASSWORD: ${POSTGRES_PASSWORD:-pipelogiq}
-      LIQUIBASE_CHANGELOG_FILE: ${LIQUIBASE_CHANGELOG_FILE:-/app/database/changelog.xml}
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-pipelogiq-app}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-pipelogiq-tempo:4317}
       OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-grpc}
@@ -140,6 +154,8 @@ services:
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
     depends_on:
+      pipelogiq-migrate:
+        condition: service_completed_successfully
       pipelogiq-postgres:
         condition: service_healthy
       pipelogiq-rabbitmq:
@@ -147,12 +163,12 @@ services:
       pipelogiq-tempo:
         condition: service_started
     ports:
-      - "3300:80"
+      - "3300:8080"
       - "8081:8081"
     networks:
       - pipelogiq
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,11 +39,6 @@ type policyDetailResponse struct {
 	TriggerCountInRange int        `json:"triggerCountInRange"`
 }
 
-type policyStoreSnapshot struct {
-	Policies []types.Policy      `json:"policies"`
-	Events   []types.PolicyEvent `json:"events"`
-}
-
 type policyListFilter struct {
 	Search     string
 	Source     *types.PolicySource
@@ -58,33 +51,39 @@ type policyListFilter struct {
 	SortDir    string
 }
 
+// policyRepository is the API-side view of policies: an in-memory index over the
+// policy and policy_event tables. Every mutation is written through to the
+// database before it is visible; the cache exists so list, search and insights
+// stay cheap. With db nil (tests) it is purely in-memory.
 type policyRepository struct {
 	mu            sync.RWMutex
 	policies      map[string]types.Policy
 	events        map[string][]types.PolicyEvent
-	filePath      string
+	persisted     map[string]struct{}
+	db            *dbPolicyRepository
 	logger        *slog.Logger
 	eventListener func(types.PolicyEvent)
 }
 
-// TODO: Swap this file-backed repository for DB tables once policy schema is live in production.
+// newPolicyRepository builds an in-memory repository with no persistence. Tests use it.
 func newPolicyRepository(logger *slog.Logger) *policyRepository {
-	repo := &policyRepository{
-		policies: make(map[string]types.Policy),
-		events:   make(map[string][]types.PolicyEvent),
-		filePath: resolvePolicyStorePath(),
-		logger:   logger,
+	return &policyRepository{
+		policies:  make(map[string]types.Policy),
+		events:    make(map[string][]types.PolicyEvent),
+		persisted: make(map[string]struct{}),
+		logger:    logger,
 	}
-
-	if err := repo.load(); err != nil {
-		logger.Error("load policy store failed; starting with empty store", "err", err, "path", repo.filePath)
-	}
-
-	return repo
 }
 
-func NewPolicyRepositoryForRuntime(logger *slog.Logger) *policyRepository {
-	return newPolicyRepository(logger)
+// NewPolicyRepositoryFromDB builds the repository over the database and loads the
+// current policies and their events into the index.
+func NewPolicyRepositoryFromDB(logger *slog.Logger, db *dbPolicyRepository) *policyRepository {
+	repo := newPolicyRepository(logger)
+	repo.db = db
+	if err := repo.loadFromDB(); err != nil {
+		logger.Error("load policies from database failed; starting with an empty index", "err", err)
+	}
+	return repo
 }
 
 func (r *policyRepository) setEventListener(listener func(types.PolicyEvent)) {
@@ -93,106 +92,61 @@ func (r *policyRepository) setEventListener(listener func(types.PolicyEvent)) {
 	r.eventListener = listener
 }
 
-func resolvePolicyStorePath() string {
-	if envPath := strings.TrimSpace(os.Getenv("POLICY_STORE_PATH")); envPath != "" {
-		return envPath
-	}
+func (r *policyRepository) loadFromDB() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	candidates := []string{
-		"./data/policies.json",
-		"../../data/policies.json",
-	}
-
-	for _, candidate := range candidates {
-		if dirExists(filepath.Dir(candidate)) {
-			return candidate
-		}
-	}
-
-	return "./data/policies.json"
-}
-
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
+	policies, err := r.db.listAll(ctx)
 	if err != nil {
-		return false
+		return fmt.Errorf("list policies: %w", err)
 	}
-	return info.IsDir()
-}
+	events, err := r.db.listEvents(ctx)
+	if err != nil {
+		return fmt.Errorf("list policy events: %w", err)
+	}
 
-func (r *policyRepository) load() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	content, err := os.ReadFile(r.filePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return err
-	}
-
-	if len(content) == 0 {
-		return nil
-	}
-
-	var snapshot policyStoreSnapshot
-	if err := json.Unmarshal(content, &snapshot); err != nil {
-		return err
-	}
-
-	r.policies = make(map[string]types.Policy, len(snapshot.Policies))
-	for _, policy := range snapshot.Policies {
+	r.policies = make(map[string]types.Policy, len(policies))
+	r.persisted = make(map[string]struct{}, len(policies))
+	for _, policy := range policies {
 		policy = normalizePolicy(policy)
 		r.policies[policy.ID] = clonePolicy(policy)
+		r.persisted[policy.ID] = struct{}{}
 	}
-
 	r.events = make(map[string][]types.PolicyEvent)
-	for _, event := range snapshot.Events {
+	for _, event := range events {
 		r.events[event.PolicyID] = append(r.events[event.PolicyID], clonePolicyEvent(event))
 	}
-
 	return nil
 }
 
+// saveLocked writes the index through to the database: every policy is upserted
+// and anything that disappeared from the index is deleted. Policies are few, so
+// the full pass is cheaper than tracking dirty rows and impossible to get wrong.
 func (r *policyRepository) saveLocked() error {
-	snapshot := policyStoreSnapshot{
-		Policies: make([]types.Policy, 0, len(r.policies)),
-		Events:   make([]types.PolicyEvent, 0, len(r.events)*2),
+	if r.db == nil {
+		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	for _, policy := range r.policies {
-		snapshot.Policies = append(snapshot.Policies, clonePolicy(policy))
-	}
-	sort.Slice(snapshot.Policies, func(i, j int) bool {
-		return snapshot.Policies[i].UpdatedAt.After(snapshot.Policies[j].UpdatedAt)
-	})
-
-	for _, events := range r.events {
-		for _, event := range events {
-			snapshot.Events = append(snapshot.Events, clonePolicyEvent(event))
+	for id, policy := range r.policies {
+		if err := r.db.upsert(ctx, clonePolicy(policy)); err != nil {
+			return fmt.Errorf("persist policy %s: %w", id, err)
 		}
+		r.persisted[id] = struct{}{}
 	}
-	sort.Slice(snapshot.Events, func(i, j int) bool {
-		return snapshot.Events[i].TS.Before(snapshot.Events[j].TS)
-	})
-
-	data, err := json.MarshalIndent(snapshot, "", "  ")
-	if err != nil {
-		return err
+	for id := range r.persisted {
+		if _, ok := r.policies[id]; ok {
+			continue
+		}
+		if err := r.db.deleteByID(ctx, id); err != nil {
+			return fmt.Errorf("delete policy %s: %w", id, err)
+		}
+		delete(r.persisted, id)
 	}
-
-	dir := filepath.Dir(r.filePath)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
-
-	tempFile := fmt.Sprintf("%s.tmp", r.filePath)
-	if err := os.WriteFile(tempFile, data, 0o644); err != nil {
-		return err
-	}
-
-	return os.Rename(tempFile, r.filePath)
+	return nil
 }
 
 func (r *policyRepository) list(filter policyListFilter) types.PolicyListResponse {
@@ -738,6 +692,13 @@ func (r *policyRepository) appendEventLocked(policyID, actor string, eventType t
 		Details:  cloneMap(details),
 	}
 	r.events[policyID] = append(r.events[policyID], event)
+	if r.db != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := r.db.insertEvent(ctx, event); err != nil {
+			r.logger.Error("persist policy event failed", "policyId", policyID, "err", err)
+		}
+		cancel()
+	}
 	if r.eventListener != nil {
 		r.eventListener(clonePolicyEvent(event))
 	}

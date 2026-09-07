@@ -401,7 +401,7 @@ export default function ScheduleDetail() {
                     <TableCell className="text-sm">
                       {run.pipelineId ? (
                         <Link
-                          to={`/pipelines?search=${run.pipelineId}&selected=${run.pipelineId}`}
+                          to={`/pipelines?search=%23${run.pipelineId}&selected=${run.pipelineId}`}
                           className="text-foreground hover:underline"
                         >
                           #{run.pipelineId}

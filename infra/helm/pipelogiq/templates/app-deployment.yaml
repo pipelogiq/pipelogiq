@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-app
+  labels: {{- include "pipelogiq.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.app.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "pipelogiq.name" . }}
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        {{- include "pipelogiq.labels" . | nindent 8 }}
+        app.kubernetes.io/component: app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: "{{ .Values.image.registry }}/pipelogiq-app:{{ include "pipelogiq.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - { name: dashboard, containerPort: 8080 }
+            - { name: external, containerPort: 8081 }
+            - { name: metrics, containerPort: {{ .Values.metrics.api }} }
+          env:
+            - { name: APP_ID, value: {{ .Values.app.appId | quote }} }
+            - { name: HTTP_ADDR, value: ":8088" }
+            - { name: EXTERNAL_HTTP_ADDR, value: ":8081" }
+            - { name: METRICS_ADDR, value: ":{{ .Values.metrics.api }}" }
+            - { name: CORS_ALLOWED_ORIGINS, value: {{ .Values.app.corsAllowedOrigins | quote }} }
+            - { name: ADMIN_EMAIL, value: {{ .Values.app.adminEmail | quote }} }
+            - { name: WORKER_RABBITMQ_URL, value: {{ .Values.app.workerRabbitUrl | quote }} }
+            - { name: WORKER_BROKER_HANDOUT, value: {{ .Values.app.workerBrokerHandout | quote }} }
+            - { name: COOKIE_SECURE, value: {{ .Values.app.cookieSecure | quote }} }
+            - { name: JWT_SECRET, valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: JWT_SECRET } } }
+            - { name: DATABASE_URL, valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: DATABASE_URL } } }
+            - { name: RABBITMQ_URL, valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: RABBITMQ_URL } } }
+            - { name: SECRETS_ENCRYPTION_KEY, valueFrom: { secretKeyRef: { name: {{ .Values.existingSecret }}, key: SECRETS_ENCRYPTION_KEY } } }
+          readinessProbe:
+            httpGet: { path: /api/readyz, port: dashboard }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /api/healthz, port: dashboard }
+            periodSeconds: 10
+          resources: {{- toYaml .Values.app.resources | nindent 12 }}

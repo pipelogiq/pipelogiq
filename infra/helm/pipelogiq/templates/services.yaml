@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-dashboard
+  labels: {{- include "pipelogiq.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "pipelogiq.name" . }}
+    app.kubernetes.io/component: app
+  ports:
+    - { name: http, port: {{ .Values.service.dashboardPort }}, targetPort: dashboard }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-external-api
+  labels: {{- include "pipelogiq.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "pipelogiq.name" . }}
+    app.kubernetes.io/component: app
+  ports:
+    - { name: http, port: {{ .Values.service.externalApiPort }}, targetPort: external }

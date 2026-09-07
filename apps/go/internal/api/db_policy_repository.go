@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -30,25 +31,18 @@ func NewDBPolicyRepository(db *sqlx.DB, logger *slog.Logger) *dbPolicyRepository
 	return newDBPolicyRepository(db, logger)
 }
 
-// SeedDBFromFileStore copies all policies from the file-backed store into the DB.
-// Called once on API startup so existing policies are available to the DB runtime.
-func SeedDBFromFileStore(fileRepo *policyRepository, dbRepo *dbPolicyRepository, logger *slog.Logger) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	policies := fileRepo.runtimePolicies()
-	for _, p := range policies {
-		if err := dbRepo.upsert(ctx, p); err != nil {
-			logger.Error("seed policy to db failed", "policyId", p.ID, "err", err)
-		}
-	}
-	if len(policies) > 0 {
-		logger.Info("seeded policies from file store to DB", "count", len(policies))
-	}
+// runtimePolicies returns the active policies the stage runtime enforces.
+func (r *dbPolicyRepository) runtimePolicies(ctx context.Context) ([]types.Policy, error) {
+	return r.listPolicies(ctx, true)
 }
 
-// runtimePolicies returns all active policies from the DB.
-func (r *dbPolicyRepository) runtimePolicies(ctx context.Context) ([]types.Policy, error) {
+// listAll returns every policy regardless of status; the API repository loads
+// its cache from it at startup.
+func (r *dbPolicyRepository) listAll(ctx context.Context) ([]types.Policy, error) {
+	return r.listPolicies(ctx, false)
+}
+
+func (r *dbPolicyRepository) listPolicies(ctx context.Context, activeOnly bool) ([]types.Policy, error) {
 	type row struct {
 		ID          string         `db:"id"`
 		Name        string         `db:"name"`
@@ -73,9 +67,9 @@ func (r *dbPolicyRepository) runtimePolicies(ctx context.Context) ([]types.Polic
 		       targeting::text, rule::text,
 		       version, created_at, created_by, updated_at, updated_by
 		FROM policy
-		WHERE status = 'active'
+		WHERE ($1 = false OR status = 'active')
 		ORDER BY updated_at DESC
-	`)
+	`, activeOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -208,4 +202,53 @@ func nullableJSON(b []byte) any {
 		return nil
 	}
 	return string(b)
+}
+
+// insertEvent persists a lifecycle event (created, updated, enabled, triggered…)
+// so the audit trail and insights survive a restart.
+func (r *dbPolicyRepository) insertEvent(ctx context.Context, event types.PolicyEvent) error {
+	detailsJSON, err := json.Marshal(event.Details)
+	if err != nil {
+		return fmt.Errorf("marshal policy event details: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx, `
+		INSERT INTO policy_event (id, policy_id, ts, actor, type, details)
+		VALUES ($1, $2, $3, $4, $5, $6)
+	`, event.ID, event.PolicyID, event.TS.UTC(), event.Actor, string(event.Type), string(detailsJSON))
+	return err
+}
+
+// listEvents returns every stored policy event, oldest first.
+func (r *dbPolicyRepository) listEvents(ctx context.Context) ([]types.PolicyEvent, error) {
+	type row struct {
+		ID       string         `db:"id"`
+		PolicyID string         `db:"policy_id"`
+		TS       time.Time      `db:"ts"`
+		Actor    sql.NullString `db:"actor"`
+		Type     string         `db:"type"`
+		Details  sql.NullString `db:"details"`
+	}
+	rows, err := r.db.QueryxContext(ctx, `
+		SELECT id, policy_id, ts, actor, type, details::text
+		FROM policy_event
+		ORDER BY ts ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []types.PolicyEvent
+	for rows.Next() {
+		var rw row
+		if err := rows.StructScan(&rw); err != nil {
+			return nil, err
+		}
+		event := types.PolicyEvent{ID: rw.ID, PolicyID: rw.PolicyID, TS: rw.TS, Actor: rw.Actor.String, Type: types.PolicyEventType(rw.Type)}
+		if rw.Details.Valid && rw.Details.String != "" && rw.Details.String != "null" {
+			_ = json.Unmarshal([]byte(rw.Details.String), &event.Details)
+		}
+		result = append(result, event)
+	}
+	return result, rows.Err()
 }

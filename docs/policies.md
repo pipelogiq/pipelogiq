@@ -141,7 +141,7 @@ All policy endpoints are on the internal API (`:8080`, requires JWT auth):
 
 ## Current Limitations
 
-- **File-backed storage** — policies are stored in `./data/policies.json` rather than the database. Migration to DB-backed storage is planned.
+- **Single API instance** — policies live in the `policy` and `policy_event` tables, but each API instance keeps its own in-memory index and reloads it at startup. With more than one API replica, a change made through one replica is visible to the others after they restart; multi-instance coherence is the `ha.multi-instance` feature gate.
 - **Partial runtime enforcement** — timeout, rate-limit, and circuit-breaker logic now feed stage dispatch and timeout watching, but retry/runtime behavior is not fully enforced yet.
 - **Explainability is stage-scoped** — effective resolution is currently exposed per stage and not yet as a general-purpose policy simulator for arbitrary payloads.
 

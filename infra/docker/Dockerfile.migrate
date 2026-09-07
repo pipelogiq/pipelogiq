@@ -1,0 +1,9 @@
+# Applies the Liquibase changelog and exits. Runs before pipelogiq-app starts
+# (Compose: depends_on service_completed_successfully; Kubernetes: a Job), so a
+# failed migration stops the rollout instead of restarting the API in a loop.
+FROM liquibase/liquibase:4.25
+# The changelog keeps its historical path so changeset identities match
+# databases migrated by earlier releases (see logicalFilePath in the file).
+COPY database /liquibase/database
+ENTRYPOINT ["/liquibase/docker-entrypoint.sh"]
+CMD ["--searchPath=/liquibase", "--changeLogFile=database/changelog.xml", "update"]

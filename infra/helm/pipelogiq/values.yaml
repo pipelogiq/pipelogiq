@@ -1,0 +1,50 @@
+# Image tags default to appVersion; override to pin.
+image:
+  registry: ghcr.io/pipelogiq
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# The API, dashboard and worker read the same secret. Create it out of band:
+#   kubectl create secret generic pipelogiq --from-literal=JWT_SECRET=... \
+#     --from-literal=DATABASE_URL=... --from-literal=RABBITMQ_URL=... \
+#     --from-literal=SECRETS_ENCRYPTION_KEY=... --from-literal=POSTGRES_PASSWORD=...
+existingSecret: pipelogiq
+
+app:
+  replicas: 1
+  appId: PipelogiqProd
+  adminEmail: admin@example.com
+  corsAllowedOrigins: https://pipelogiq.example.com
+  # Broker address handed to AMQP workers; leave empty to hand out none.
+  workerRabbitUrl: ""
+  workerBrokerHandout: "true"
+  cookieSecure: auto
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+worker:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+migrate:
+  # jdbc URL for Liquibase; the credentials come from the secret.
+  jdbcUrl: jdbc:postgresql://postgres:5432/pipelogiq
+  username: pipelogiq
+
+ingress:
+  enabled: false
+  className: nginx
+  host: pipelogiq.example.com
+  tls: []
+
+service:
+  dashboardPort: 80
+  externalApiPort: 8081
+
+# Prometheus scrapes these ports on the pods; nothing is exposed publicly.
+metrics:
+  api: 9091
+  worker: 9090

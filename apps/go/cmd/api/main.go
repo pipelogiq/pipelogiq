@@ -98,11 +98,8 @@ func main() {
 	// DB-backed runtime: policies read from PostgreSQL, trigger events persisted to policy_event.
 	st.SetStagePolicyRuntime(api.NewStagePolicyRuntimeWithDB(dbConn, logg))
 
-	policiesRepo := api.NewPolicyRepositoryForRuntime(logg)
 	dbPoliciesRepo := api.NewDBPolicyRepository(dbConn, logg)
-
-	// Seed DB from file store on startup so existing policies are available to the DB runtime.
-	api.SeedDBFromFileStore(policiesRepo, dbPoliciesRepo, logg)
+	policiesRepo := api.NewPolicyRepositoryFromDB(logg, dbPoliciesRepo)
 
 	// Internal API (JWT-protected, for web dashboard)
 	internalServer := api.NewServerWithPoliciesAndDB(cfg, st, mqClient, logg, policiesRepo, dbPoliciesRepo)

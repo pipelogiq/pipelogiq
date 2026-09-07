@@ -1,4 +1,6 @@
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
 ARG PIPELOGIQ_VERSION=dev
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
@@ -22,11 +24,11 @@ RUN set -eux; \
 
 COPY apps/go ./
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags "${GO_BUILD_TAGS}" \
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -tags "${GO_BUILD_TAGS}" \
   -ldflags "-s -w -X pipelogiq/internal/license.PublicKeyBase64=${PIPELOGIQ_LICENSE_PUBKEY} -X pipelogiq/internal/version.Version=${PIPELOGIQ_VERSION} -X pipelogiq/internal/version.Commit=${PIPELOGIQ_COMMIT} -X pipelogiq/internal/version.Date=${PIPELOGIQ_BUILD_DATE}" \
   -o /out/pipelogiq-worker ./cmd/worker
 
-FROM alpine:3.19
+FROM alpine:3.21
 ARG PIPELOGIQ_VERSION=dev
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown

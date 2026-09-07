@@ -28,7 +28,7 @@ import { usePipelineWebSocket } from "@/hooks/use-pipeline-ws";
 // rather than maintaining a second, thinner view of the same thing.
 function PipelineRoute() {
   const { id } = useParams();
-  return <Navigate to={`/pipelines?search=${id}&selected=${id}`} replace />;
+  return <Navigate to={`/pipelines?search=%23${id}&selected=${id}`} replace />;
 }
 
 function PipelineWebSocketProvider({ children }: { children: React.ReactNode }) {

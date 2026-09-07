@@ -15,6 +15,25 @@ networks:
     external: true
 
 services:
+  pipelogiq-migrate:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile.migrate
+    container_name: pipelogiq-migrate
+    command:
+      - --url=${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
+      - --username=${POSTGRES_USER:-pipelogiq}
+      - --password=${POSTGRES_PASSWORD:-pipelogiq}
+      - --searchPath=/liquibase
+      - --changeLogFile=database/changelog.xml
+      - update
+    depends_on:
+      pipelogiq-postgres:
+        condition: service_healthy
+    networks:
+      - pipelogiq
+    restart: "no"
+
   pipelogiq-app:
     build:
       context: ../..
@@ -47,12 +66,11 @@ services:
       SSO_GROUP_CLAIM: ${SSO_GROUP_CLAIM:-}
       SSO_GROUP_ROLE_MAP: ${SSO_GROUP_ROLE_MAP:-}
       AUDIT_EXPORT_SIGNING_KEY: ${AUDIT_EXPORT_SIGNING_KEY:-}
-      LIQUIBASE_ENABLED: ${LIQUIBASE_ENABLED:-false}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env to a unique random value of at least 32 characters}
-      HTTP_ADDR: ":8080"
+      HTTP_ADDR: ":8088"
       EXTERNAL_HTTP_ADDR: ":8081"
       LOG_LEVEL: ${LOG_LEVEL:-info}
       GATEWAY_VISIBILITY_TIMEOUT: ${GATEWAY_VISIBILITY_TIMEOUT:-60s}
@@ -67,7 +85,7 @@ services:
       OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
       OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-1}
     ports:
-      - "3300:80"
+      - "3300:8080"
       - "8081:8081"
     networks:
       - pipelogiq

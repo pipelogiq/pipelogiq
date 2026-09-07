@@ -1,0 +1,7 @@
+Pipelogiq {{ include "pipelogiq.tag" . }} is rolling out.
+
+Before the first sign-in, read the one-time administrator password from the API log:
+  kubectl logs deploy/{{ .Release.Name }}-app -c app | grep 'one-time administrator password'
+
+Dashboard service: {{ .Release.Name }}-dashboard:{{ .Values.service.dashboardPort }}
+External API:      {{ .Release.Name }}-external-api:{{ .Values.service.externalApiPort }}

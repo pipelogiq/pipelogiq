@@ -7,6 +7,53 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+### Breaking changes
+
+- **`DATABASE_URL` is required.** The silent fallback to a SQLite file is gone;
+  `ALLOW_SQLITE_FALLBACK=true` opts back into it for local experiments.
+- **Migrations moved out of the app container** into the `pipelogiq-migrate` image.
+  `LIQUIBASE_ENABLED`, `LIQUIBASE_USERNAME`, `LIQUIBASE_PASSWORD` and
+  `LIQUIBASE_CHANGELOG_FILE` are no longer read by the app. Compose runs the migration
+  service first; the Helm chart runs it as a pre-upgrade job.
+- **The app container runs unprivileged** and nginx listens on `8080` instead of `80`.
+  Compose maps `3300:8080`; a custom deployment must publish the new port.
+- **`GET /rabbitmq/connection` is removed** from the external API and the SDK. AMQP
+  workers receive the broker address at bootstrap; `WORKER_RABBITMQ_URL` sets a
+  least-privilege address for that, and `WORKER_BROKER_HANDOUT=false` hands out none.
+- **The `.NET-compatible` duplicate routes** `/pipelines/stages/{id}` and
+  `/pipelines/context/{id}` and the `APPENV__*` / `CONNECTIONSTRINGS__*` environment
+  aliases are removed.
+- **API keys are stored hashed.** Existing keys keep working; the dashboard shows a
+  prefix instead of the value, and the clear key is shown only when created.
+- **Sessions are revocable.** Logout and a password change end every session of the
+  account; sessions issued before this release are invalid after upgrading.
+
+### Added
+
+- Integration secrets are encrypted at rest under `SECRETS_ENCRYPTION_KEY` and masked
+  in API responses.
+- Sign-in is rate-limited per address and per account.
+- `POST /auth/password` and a password form in Settings.
+- An audit log of sign-ins, password changes and administrative changes, with an
+  Audit page and `GET /audit`.
+- Action policies are stored in the database; the JSON file store is gone.
+- Stage names are validated: unique within a pipeline, no commas or control characters.
+- Every external route is in the OpenAPI contract; CI fails when one is added
+  without documentation.
+- A PostgreSQL integration suite in CI applies the changelog twice and runs the store
+  against the real schema; golangci-lint, govulncheck, `npm audit` and a Trivy image
+  scan gate every push.
+- Images are published for `linux/amd64` and `linux/arm64`; the release build carries
+  the Pro seam and the licence public key.
+- A Helm chart under `infra/helm/pipelogiq`.
+- `docs/operations.md` and `docs/versioning.md`.
+
+### Fixed
+
+- The release workflow built the images without the `pro` tag, so the published
+  image could never verify a licence.
+- The dashboard rendered `401` and `403` responses as empty data.
+
 ## [0.5.0-preview.1] - 2026-09-06
 
 Schedules, and a commercial tier beside the Apache-2.0 core. The minor version

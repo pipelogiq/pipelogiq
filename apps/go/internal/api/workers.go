@@ -65,14 +65,13 @@ func (s *Server) handleGetWorkers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		switch effectiveState {
-		case types.WorkerStateOffline:
+		if workerCountsAsOnline(effectiveState) {
+			onlineCount++
+			if effectiveState == types.WorkerStateDegraded || effectiveState == types.WorkerStateError {
+				degradedCount++
+			}
+		} else {
 			offlineCount++
-		case types.WorkerStateDegraded, types.WorkerStateError:
-			degradedCount++
-			onlineCount++
-		default:
-			onlineCount++
 		}
 
 		filtered = append(filtered, worker)
@@ -86,6 +85,21 @@ func (s *Server) handleGetWorkers(w http.ResponseWriter, r *http.Request) {
 		DegradedCount:   degradedCount,
 		OfflineAfterSec: int64(s.cfg.WorkerOfflineAfter.Seconds()),
 	}, http.StatusOK)
+}
+
+// workerCountsAsOnline reports whether a worker in this effective state is still
+// there to pick up work.
+//
+// Stopped needs naming explicitly: it is resolved ahead of the heartbeat check,
+// so a switch that only knows about "offline" counts an exited process as
+// online. Degraded and draining are still alive and still counted.
+func workerCountsAsOnline(effectiveState string) bool {
+	switch effectiveState {
+	case types.WorkerStateOffline, types.WorkerStateStopped:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Server) handleGetWorkerEvents(w http.ResponseWriter, r *http.Request) {

@@ -81,6 +81,50 @@ jobs:
       - name: Test with the pro tag
         run: go test -tags pro ./...
 
+  postgres:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: plq
+          POSTGRES_PASSWORD: plq
+          POSTGRES_DB: plq
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U plq -d plq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/go/go.mod
+
+      # The schema comes from the same changelog production applies, so a
+      # changeset that only works on SQLite cannot pass here.
+      - name: Apply the Liquibase changelog
+        run: |
+          docker run --rm --network host -v "$PWD/database:/liquibase/database" liquibase/liquibase:4.25 \
+            --url="jdbc:postgresql://localhost:5432/plq" --username=plq --password=plq \
+            --searchPath=/liquibase --changeLogFile=database/changelog.xml update
+
+      - name: Re-apply (idempotency)
+        run: |
+          out=$(docker run --rm --network host -v "$PWD/database:/liquibase/database" liquibase/liquibase:4.25 \
+            --url="jdbc:postgresql://localhost:5432/plq" --username=plq --password=plq \
+            --searchPath=/liquibase --changeLogFile=database/changelog.xml update 2>&1)
+          echo "$out" | grep -E "^Run: +0$" || { echo "$out"; echo "::error::changelog is not idempotent" >&2; exit 1; }
+
+      - name: Store tests against PostgreSQL
+        working-directory: apps/go
+        env:
+          PIPELOGIQ_TEST_DATABASE_URL: postgres://plq:plq@localhost:5432/plq?sslmode=disable
+        run: go test -tags integration ./internal/store/ -run TestPostgres_ -count=1 -v
+
   web:
     name: Web
     runs-on: ubuntu-latest
@@ -115,6 +159,7 @@ jobs:
         dockerfile:
           - infra/docker/Dockerfile.app
           - infra/docker/Dockerfile.worker
+          - infra/docker/Dockerfile.migrate
     steps:
       - uses: actions/checkout@v4
 
