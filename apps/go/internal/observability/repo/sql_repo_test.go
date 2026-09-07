@@ -13,7 +13,7 @@ import (
 
 func TestSQLRepository_UpsertAndGetIntegration(t *testing.T) {
 	db := setupTestDB(t)
-	repository := NewSQLRepository(db)
+	repository := NewSQLRepository(db, nil)
 	ctx := context.Background()
 
 	if err := repository.EnsureIntegrations(ctx, model.SupportedIntegrationTypes); err != nil {
@@ -46,7 +46,7 @@ func TestSQLRepository_UpsertAndGetIntegration(t *testing.T) {
 
 func TestSQLRepository_RecordHealthSuccessAndFailure(t *testing.T) {
 	db := setupTestDB(t)
-	repository := NewSQLRepository(db)
+	repository := NewSQLRepository(db, nil)
 	ctx := context.Background()
 
 	if err := repository.EnsureIntegrations(ctx, []model.IntegrationType{model.IntegrationTypeOpenTelemetry}); err != nil {

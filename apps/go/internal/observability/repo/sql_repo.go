@@ -11,14 +11,18 @@ import (
 	"github.com/jmoiron/sqlx"
 
 	"pipelogiq/internal/observability/model"
+	"pipelogiq/internal/secrets"
 )
 
 type SQLRepository struct {
 	db *sqlx.DB
+	// cipher protects secret configuration values at rest. A nil cipher stores
+	// them as they are and still reads values written before encryption was on.
+	cipher *secrets.Cipher
 }
 
-func NewSQLRepository(db *sqlx.DB) *SQLRepository {
-	return &SQLRepository{db: db}
+func NewSQLRepository(db *sqlx.DB, cipher *secrets.Cipher) *SQLRepository {
+	return &SQLRepository{db: db, cipher: cipher}
 }
 
 func (r *SQLRepository) EnsureIntegrations(ctx context.Context, types []model.IntegrationType) error {
@@ -72,7 +76,7 @@ func (r *SQLRepository) ListIntegrations(ctx context.Context) ([]model.Integrati
 
 	integrations := make([]model.Integration, 0, len(rows))
 	for _, row := range rows {
-		integration, err := toIntegration(row)
+		integration, err := r.toIntegration(row)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +113,7 @@ func (r *SQLRepository) GetIntegration(ctx context.Context, integrationType mode
 		return nil, err
 	}
 
-	integration, err := toIntegration(row)
+	integration, err := r.toIntegration(row)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +127,11 @@ func (r *SQLRepository) UpsertIntegrationConfig(
 	config map[string]any,
 	status model.IntegrationStatus,
 ) error {
-	configJSON, err := json.Marshal(config)
+	sealed, err := r.cipher.EncryptConfig(config)
+	if err != nil {
+		return fmt.Errorf("encrypt integration secrets: %w", err)
+	}
+	configJSON, err := json.Marshal(sealed)
 	if err != nil {
 		return fmt.Errorf("marshal config json: %w", err)
 	}
@@ -411,12 +419,16 @@ type integrationRow struct {
 	DropRate         float64        `db:"drop_rate"`
 }
 
-func toIntegration(row integrationRow) (model.Integration, error) {
+func (r *SQLRepository) toIntegration(row integrationRow) (model.Integration, error) {
 	config := map[string]any{}
 	if strings.TrimSpace(row.ConfigJSON) != "" {
 		if err := json.Unmarshal([]byte(row.ConfigJSON), &config); err != nil {
 			return model.Integration{}, fmt.Errorf("unmarshal config for %s: %w", row.Type, err)
 		}
+	}
+	config, err := r.cipher.DecryptConfig(config)
+	if err != nil {
+		return model.Integration{}, fmt.Errorf("decrypt config for %s: %w", row.Type, err)
 	}
 
 	integrationType, _ := model.ParseIntegrationType(row.Type)

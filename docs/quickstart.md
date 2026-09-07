@@ -324,7 +324,7 @@ The frontend dev server runs at http://localhost:3300 and proxies `/api` and `/w
 
 ### SQLite fallback
 
-If `DATABASE_URL` is not set, the API falls back to a local SQLite database at `apps/go/data/pipelogiq.db`. This is useful for quick experimentation but does not support all features.
+`DATABASE_URL` is required. For quick experimentation set `ALLOW_SQLITE_FALLBACK=true` to use a local SQLite database at `apps/go/data/pipelogiq.db`; it does not support all features and is never appropriate for a shared deployment.
 
 ---
 

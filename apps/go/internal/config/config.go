@@ -16,12 +16,14 @@ const (
 )
 
 type Common struct {
-	AppID        string
-	DatabaseURL  string
-	RabbitURL    string
-	LogLevel     string
-	MetricsAddr  string
-	PublishRetry struct {
+	AppID       string
+	DatabaseURL string
+	RabbitURL   string
+	LogLevel    string
+	MetricsAddr string
+	// SecretsEncryptionKey encrypts integration secrets at rest (base64, 32 bytes).
+	SecretsEncryptionKey string
+	PublishRetry         struct {
 		Base time.Duration
 		Max  time.Duration
 	}
@@ -52,6 +54,12 @@ type APIConfig struct {
 	BootstrapAppName        string
 	BootstrapAppID          string
 	BootstrapAPIKey         string
+	// WorkerRabbitURL is the broker address handed to AMQP workers at bootstrap. It
+	// should carry a least-privilege user, not the server's own credentials.
+	WorkerRabbitURL string
+	// WorkerBrokerHandout controls whether bootstrap includes a connection string at
+	// all. When false, workers must be given PIPELOGIQ_RABBITMQ_URL locally.
+	WorkerBrokerHandout bool
 }
 
 type WorkerConfig struct {
@@ -96,6 +104,8 @@ func LoadAPI() (APIConfig, error) {
 		BootstrapAppName:        strings.TrimSpace(os.Getenv("BOOTSTRAP_APPLICATION_NAME")),
 		BootstrapAppID:          strings.TrimSpace(os.Getenv("BOOTSTRAP_APPLICATION_APP_ID")),
 		BootstrapAPIKey:         strings.TrimSpace(os.Getenv("BOOTSTRAP_API_KEY")),
+		WorkerRabbitURL:         strings.TrimSpace(os.Getenv("WORKER_RABBITMQ_URL")),
+		WorkerBrokerHandout:     getBool("WORKER_BROKER_HANDOUT", true),
 	}
 
 	// Metrics live on their own listener because nginx proxies the whole API surface.
@@ -153,33 +163,20 @@ func isWellKnownJWTSecret(secret string) bool {
 }
 
 func loadCommon() (Common, error) {
-	appID := firstNonEmpty(
-		os.Getenv("APP_ID"),
-		os.Getenv("APP_ENV__APPID"),
-		os.Getenv("APPENV__APPID"),
-		os.Getenv("APPENV_APPID"),
-		os.Getenv("APPENV__APP_ID"),
-		os.Getenv("APPENV_APP_ID"),
-	)
-
-	dbURL := firstNonEmpty(
-		os.Getenv("DATABASE_URL"),
-		os.Getenv("CONNECTIONSTRINGS__DATABASE"),
-		os.Getenv("CONNECTION_STRINGS__DATABASE"),
-	)
-
-	rabbitURL := firstNonEmpty(
-		os.Getenv("RABBITMQ_URL"),
-		os.Getenv("CONNECTIONSTRINGS__MESSAGEBROKER"),
-		os.Getenv("MESSAGE_BROKER_URL"),
-		os.Getenv("MESSAGEBROKER__CONNECTIONSTRING"),
-		os.Getenv("CONNECTIONSTRINGS__MESSAGEBROKER"),
-	)
+	appID := strings.TrimSpace(os.Getenv("APP_ID"))
+	dbURL := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	rabbitURL := strings.TrimSpace(os.Getenv("RABBITMQ_URL"))
 
 	if appID == "" {
 		return Common{}, errors.New("APP_ID is required")
 	}
+	// A missing DATABASE_URL used to fall back to a local SQLite file silently. In a
+	// misconfigured deployment that meant running on a file inside the container and
+	// losing every pipeline on restart. The fallback is now opt-in for development.
 	if dbURL == "" {
+		if !getBool("ALLOW_SQLITE_FALLBACK", false) {
+			return Common{}, errors.New("DATABASE_URL is required (set ALLOW_SQLITE_FALLBACK=true for a local SQLite database)")
+		}
 		dbURL = defaultDevDatabaseURL
 	}
 	if rabbitURL == "" {
@@ -194,6 +191,8 @@ func loadCommon() (Common, error) {
 		RabbitURL:   rabbitURL,
 		LogLevel:    logLevel,
 		MetricsAddr: getEnv("METRICS_ADDR", ""),
+
+		SecretsEncryptionKey: strings.TrimSpace(os.Getenv("SECRETS_ENCRYPTION_KEY")),
 	}
 	common.PublishRetry.Base = getDuration("RABBIT_RETRY_BASE", 500*time.Millisecond)
 	common.PublishRetry.Max = getDuration("RABBIT_RETRY_MAX", 30*time.Second)
@@ -279,13 +278,4 @@ func getCSVEnv(key string, def []string) []string {
 		return append([]string(nil), def...)
 	}
 	return out
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return v
-		}
-	}
-	return ""
 }

@@ -9,6 +9,8 @@ FROM golang:1.24-alpine AS api-builder
 ARG PIPELOGIQ_VERSION=dev
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
+ARG GO_BUILD_TAGS=""
+ARG PIPELOGIQ_LICENSE_PUBKEY=""
 WORKDIR /src
 COPY apps/go/go.mod ./
 COPY apps/go/go.sum ./
@@ -21,8 +23,8 @@ RUN set -eux; \
   done; \
   test "$ok" -eq 1
 COPY apps/go ./
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-s -w -X pipelogiq/internal/version.Version=${PIPELOGIQ_VERSION} -X pipelogiq/internal/version.Commit=${PIPELOGIQ_COMMIT} -X pipelogiq/internal/version.Date=${PIPELOGIQ_BUILD_DATE}" \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags "${GO_BUILD_TAGS}" \
+  -ldflags "-s -w -X pipelogiq/internal/license.PublicKeyBase64=${PIPELOGIQ_LICENSE_PUBKEY} -X pipelogiq/internal/version.Version=${PIPELOGIQ_VERSION} -X pipelogiq/internal/version.Commit=${PIPELOGIQ_COMMIT} -X pipelogiq/internal/version.Date=${PIPELOGIQ_BUILD_DATE}" \
   -o /out/pipelogiq-api ./cmd/api
 
 FROM liquibase/liquibase:4.25 AS liquibase

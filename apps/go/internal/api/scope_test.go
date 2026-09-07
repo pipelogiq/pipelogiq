@@ -34,8 +34,6 @@ func TestApplicationScope_DeniesCrossApplicationPipelineReads(t *testing.T) {
 		fmt.Sprintf("/pipelines/%d", fx.otherPipelineID),
 		fmt.Sprintf("/pipelines/%d/stages", fx.otherPipelineID),
 		fmt.Sprintf("/pipelines/%d/context", fx.otherPipelineID),
-		fmt.Sprintf("/pipelines/stages/%d", fx.otherPipelineID),
-		fmt.Sprintf("/pipelines/context/%d", fx.otherPipelineID),
 		fmt.Sprintf("/pipelines/logs/%d", fx.otherPipelineID),
 	} {
 		recorder := fx.do(t, scopedUserID, http.MethodGet, path, nil)

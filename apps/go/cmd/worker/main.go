@@ -16,6 +16,7 @@ import (
 	"pipelogiq/internal/logger"
 	"pipelogiq/internal/mq"
 	observabilityrepo "pipelogiq/internal/observability/repo"
+	"pipelogiq/internal/secrets"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/telemetry"
 	"pipelogiq/internal/worker"
@@ -57,7 +58,12 @@ func main() {
 
 	store := store.New(dbConn, logg)
 	store.SetStagePolicyRuntime(api.NewStagePolicyRuntimeWithDB(dbConn, logg))
-	alertsNotifier := alerts.New(observabilityrepo.NewSQLRepository(store.DB()), logg)
+	secretsCipher, err := secrets.New(cfg.SecretsEncryptionKey)
+	if err != nil {
+		logg.Error("SECRETS_ENCRYPTION_KEY is invalid", "err", err)
+		os.Exit(1)
+	}
+	alertsNotifier := alerts.New(observabilityrepo.NewSQLRepository(store.DB(), secretsCipher), logg)
 	store.SetAlertSink(alertsNotifier)
 	w := worker.New(cfg, store, mqClient, logg)
 

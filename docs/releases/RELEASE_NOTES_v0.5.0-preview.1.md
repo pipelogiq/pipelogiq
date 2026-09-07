@@ -1,7 +1,7 @@
 # Pipelogiq v0.5.0-preview.1
 
 **Released:** 2026-09-06
-**Pairs with:** `pipelogiq-sdk-net 0.4.0-preview.1` (SDK schedule support follows)
+**Pairs with:** `pipelogiq-sdk-net 0.4.1-preview.1`
 **Images:** `ghcr.io/pipelogiq/pipelogiq-app:v0.5.0-preview.1`, `ghcr.io/pipelogiq/pipelogiq-worker:v0.5.0-preview.1`
 
 Two things arrive together: **schedules**, so a recurring trigger creates

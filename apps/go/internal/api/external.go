@@ -198,7 +198,6 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	router.Post("/workers/heartbeat", s.handleWorkerHeartbeat)
 	router.Post("/workers/events", s.handleWorkerEvents)
 	router.Post("/workers/shutdown", s.handleWorkerShutdown)
-	router.Get("/rabbitmq/connection", s.handleGetRabbitConnection)
 	s.registerScheduleRoutes(router)
 
 	s.server = &http.Server{
@@ -1059,31 +1058,6 @@ func (s *ExternalServer) handleSaveLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, log, http.StatusOK)
 }
 
-func (s *ExternalServer) handleGetRabbitConnection(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	apiKey := extractAPIKey(r)
-	if strings.TrimSpace(apiKey) == "" {
-		http.Error(w, "api key is required", http.StatusUnauthorized)
-		return
-	}
-
-	if _, err := s.store.ValidateAPIKey(ctx, apiKey); err != nil {
-		http.Error(w, "invalid api key", http.StatusUnauthorized)
-		return
-	}
-
-	if strings.TrimSpace(s.cfg.RabbitURL) == "" {
-		http.Error(w, "rabbit connection is not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	writeJSON(w, types.RabbitConnectionResponse{
-		ConnectionString: s.cfg.RabbitURL,
-	}, http.StatusOK)
-}
-
 func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Request) {
 	var req types.WorkerBootstrapRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -1110,7 +1084,8 @@ func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	if strings.TrimSpace(s.cfg.RabbitURL) == "" {
+	brokerURL := s.workerBrokerURL()
+	if s.cfg.WorkerBrokerHandout && brokerURL == "" {
 		http.Error(w, "rabbit connection is not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -1161,7 +1136,7 @@ func (s *ExternalServer) handleWorkerBootstrap(w http.ResponseWriter, r *http.Re
 		},
 		MessageBroker: types.WorkerBrokerInfo{
 			Type:              "rabbitmq",
-			ConnectionString:  s.cfg.RabbitURL,
+			ConnectionString:  brokerURL,
 			Prefetch:          s.cfg.QueuePrefetch,
 			TopologyOwnership: s.cfg.QueueTopologyOwnership,
 			DLQEnabled:        s.cfg.QueueDLQEnabled,
@@ -1976,4 +1951,18 @@ func registerHistogram(histogram *prometheus.Histogram) {
 			}
 		}
 	}
+}
+
+// workerBrokerURL is the broker address bootstrap hands to AMQP workers. It prefers
+// WORKER_RABBITMQ_URL so the server's own credentials are never distributed, falls
+// back to RABBITMQ_URL for single-tenant deployments, and returns nothing when the
+// operator has turned hand-out off — workers then use PIPELOGIQ_RABBITMQ_URL locally.
+func (s *ExternalServer) workerBrokerURL() string {
+	if !s.cfg.WorkerBrokerHandout {
+		return ""
+	}
+	if url := strings.TrimSpace(s.cfg.WorkerRabbitURL); url != "" {
+		return url
+	}
+	return strings.TrimSpace(s.cfg.RabbitURL)
 }

@@ -23,6 +23,7 @@ import (
 	observabilityrepo "pipelogiq/internal/observability/repo"
 	observabilityservice "pipelogiq/internal/observability/service"
 	"pipelogiq/internal/pro"
+	"pipelogiq/internal/secrets"
 	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 	"pipelogiq/internal/version"
@@ -56,7 +57,14 @@ func NewServerWithPolicies(cfg config.APIConfig, st *store.Store, mqClient *mq.C
 }
 
 func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient *mq.Client, logger *slog.Logger, policiesRepo *policyRepository, dbPoliciesRepo *dbPolicyRepository) *Server {
-	observabilityRepo := observabilityrepo.NewSQLRepository(st.DB())
+	secretsCipher, err := secrets.New(cfg.SecretsEncryptionKey)
+	if err != nil {
+		logger.Error("SECRETS_ENCRYPTION_KEY is invalid; integration secrets will be stored unencrypted", "err", err)
+	}
+	if !secretsCipher.Enabled() {
+		logger.Warn("SECRETS_ENCRYPTION_KEY is not set; integration tokens are stored unencrypted")
+	}
+	observabilityRepo := observabilityrepo.NewSQLRepository(st.DB(), secretsCipher)
 	observabilitySvc := observabilityservice.New(observabilityRepo, logger)
 	observabilityHandler := observabilityhttp.NewHandler(observabilitySvc, logger)
 	alertsNotifier := alerts.New(observabilityRepo, logger)
@@ -129,8 +137,6 @@ func (s *Server) routes() http.Handler {
 		r.Post("/pipelines/skipStage", s.handleSkipStage)
 		r.Get("/pipelines/logs/{pipelineId}", s.handleGetPipelineLogs)
 		r.Get("/pipelines/logs/{pipelineId}/{stageId}", s.handleGetPipelineLogs)
-		r.Get("/pipelines/stages/{pipelineId}", s.handleGetPipelineStagesAlt)
-		r.Get("/pipelines/context/{pipelineId}", s.handleGetPipelineContextAlt)
 
 		// Keywords
 		r.Get("/keywords", s.handleGetKeywords)
@@ -340,53 +346,6 @@ func (s *Server) handleGetContext(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if !s.requirePipelineAccess(w, r, ctx, id) {
-		return
-	}
-
-	ctxItems, err := s.store.GetPipelineContext(ctx, id)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	writeJSON(w, types.RedactContextItems(ctxItems), http.StatusOK)
-}
-
-// Alternative routes matching .NET paths
-func (s *Server) handleGetPipelineStagesAlt(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "pipelineId")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
-	if !s.requirePipelineAccess(w, r, ctx, id) {
-		return
-	}
-
-	pipeline, err := s.store.GetPipelineFullDetail(ctx, id)
-	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	writeJSON(w, types.RedactPipelineResponse(pipeline).Stages, http.StatusOK)
-}
-
-func (s *Server) handleGetPipelineContextAlt(w http.ResponseWriter, r *http.Request) {
-	idStr := chi.URLParam(r, "pipelineId")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		http.Error(w, "invalid id", http.StatusBadRequest)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-
 	if !s.requirePipelineAccess(w, r, ctx, id) {
 		return
 	}

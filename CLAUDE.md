@@ -44,7 +44,7 @@ Go 1.22 module named `pipelogiq` with two binaries:
 Key packages under `internal/`:
 - `api/` — HTTP handlers, auth middleware, WebSocket hub
 - `config/` — Config from env vars
-- `db/` — Postgres (production) or SQLite (local dev fallback) with retry
+- `db/` — Postgres (production) or SQLite (opt-in local fallback) with retry
 - `mq/` — RabbitMQ client with OpenTelemetry tracing
 - `store/` — Data access layer (sqlx-based)
 - `worker/` — Stage orchestration, Prometheus metrics
@@ -65,7 +65,7 @@ Path alias: `@/` maps to `apps/web/src/`.
 
 ### Database
 
-PostgreSQL 16 in production; SQLite fallback for local dev (at `apps/go/data/pipelogiq.db` when `DATABASE_URL` is unset). Schema managed by Liquibase (`database/changelog.xml`). Migrations run automatically inside the `pipelogiq-app` container on startup via `pipelogiq-app-entrypoint.sh` (controlled by `LIQUIBASE_ENABLED`).
+PostgreSQL 16 in production. `DATABASE_URL` is required; for quick local experiments `ALLOW_SQLITE_FALLBACK=true` opts into a SQLite file at `apps/go/data/pipelogiq.db`. Schema managed by Liquibase (`database/changelog.xml`). Migrations run automatically inside the `pipelogiq-app` container on startup via `pipelogiq-app-entrypoint.sh` (controlled by `LIQUIBASE_ENABLED`).
 
 ### Infrastructure (`infra/`)
 

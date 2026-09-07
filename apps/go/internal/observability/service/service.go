@@ -18,6 +18,7 @@ import (
 	"pipelogiq/internal/alerts"
 	"pipelogiq/internal/observability/model"
 	"pipelogiq/internal/observability/repo"
+	"pipelogiq/internal/secrets"
 )
 
 const (
@@ -79,7 +80,7 @@ func (s *Service) GetConfig(ctx context.Context) (model.ObservabilityConfigRespo
 	result := model.ObservabilityConfigResponse{Integrations: make([]model.IntegrationConfigDTO, 0, len(integrations))}
 	for _, integration := range integrations {
 		status := computeIntegrationStatus(integration.Type, integration.Config, integration.Health, s.freshnessWindow, time.Now().UTC())
-		config := copyMap(integration.Config)
+		config := secrets.MaskConfig(copyMap(integration.Config))
 		if len(config) == 0 {
 			config = nil
 		}
@@ -129,6 +130,13 @@ func (s *Service) SaveConfig(ctx context.Context, req model.SaveConfigRequest) (
 		return model.ObservabilityConfigResponse{}, err
 	}
 
+	// A form re-saved with masked secrets keeps the stored values.
+	if existing != nil {
+		config = secrets.MergeMasked(config, existing.Config)
+	} else {
+		config = secrets.MergeMasked(config, nil)
+	}
+
 	health := model.IntegrationHealth{Type: integrationType}
 	if existing != nil {
 		health = existing.Health
@@ -139,7 +147,6 @@ func (s *Service) SaveConfig(ctx context.Context, req model.SaveConfigRequest) (
 		return model.ObservabilityConfigResponse{}, err
 	}
 
-	// TODO: avoid storing secrets in plain JSON config; integrate secret storage/env indirection.
 	return s.GetConfig(ctx)
 }
 

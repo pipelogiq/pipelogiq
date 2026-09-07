@@ -10,6 +10,24 @@ permissions:
   contents: read
 
 jobs:
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No local paths or assistant prompts in public docs
+        run: |
+          set -e
+          if grep -rnE "/Users/|/home/[a-z]+/" docs README.md CHANGELOG.md; then
+            echo "::error::local filesystem paths in public documentation" >&2; exit 1
+          fi
+          if grep -rlnE "^# Prompt|Paste everything below the line|Ты senior" docs; then
+            echo "::error::assistant prompt committed under docs/" >&2; exit 1
+          fi
+          if git ls-files | grep -E "(^|/)(obj|bin)/"; then
+            echo "::error::build output tracked in git" >&2; exit 1
+          fi
+
   go:
     name: Go
     runs-on: ubuntu-latest

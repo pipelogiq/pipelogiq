@@ -264,10 +264,6 @@ type DisableApiKeyRequest struct {
 	ApiKeyID int `json:"apiKeyId"`
 }
 
-type RabbitConnectionResponse struct {
-	ConnectionString string `json:"connectionString"`
-}
-
 type WorkerBootstrapRequest struct {
 	WorkerName        string         `json:"workerName"`
 	InstanceID        string         `json:"instanceId,omitempty"`
