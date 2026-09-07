@@ -71,6 +71,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useToast } from '@/hooks/use-toast';
+import { useConfirm } from '@/components/ui/confirm-dialog';
 import {
   useCreatePolicy,
   useDeletePolicy,
@@ -545,6 +546,7 @@ function eventTitle(event: PolicyEvent): string {
 
 export default function Policies() {
   const { toast } = useToast();
+  const confirmDialog = useConfirm();
 
   const [range, setRange] = useState<PolicyRange>('24h');
   const [search, setSearch] = useState('');
@@ -671,8 +673,13 @@ export default function Policies() {
     );
   };
 
-  const runDeletePolicy = (policy: Policy) => {
-    const confirmed = window.confirm(`Delete policy "${policy.name}"? This action cannot be undone.`);
+  const runDeletePolicy = async (policy: Policy) => {
+    const confirmed = await confirmDialog({
+      title: `Delete policy "${policy.name}"?`,
+      description: 'Stages targeted by it fall back to their own options. This cannot be undone.',
+      confirmLabel: 'Delete policy',
+      destructive: true,
+    });
     if (!confirmed) {
       return;
     }

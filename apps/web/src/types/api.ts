@@ -165,7 +165,10 @@ export interface ApiKeyResponse {
   id: number;
   applicationId: number;
   name?: string;
+  /** Present only in the response that created the key. */
   key?: string;
+  /** Recognisable head of the key, safe to display. */
+  keyPrefix?: string;
   createdAt?: string;
   disabledAt?: string;
   expiresAt?: string;
@@ -311,4 +314,21 @@ export function mapStageStatusToUI(status?: StageStatus): UIStatus {
     default:
       return 'waiting';
   }
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface AuditRecord {
+  id: number;
+  ts: string;
+  userId?: number;
+  email?: string;
+  action: string;
+  target?: string;
+  outcome: string;
+  remoteAddr?: string;
+  details?: string;
 }

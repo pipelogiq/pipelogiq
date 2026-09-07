@@ -1,11 +1,14 @@
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+import { RequireAdmin } from "@/components/auth/RequireAdmin";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { ConfirmDialogProvider } from "@/components/ui/confirm-dialog";
+import Audit from "./pages/Audit";
 import { AppLayout } from "@/components/layout/AppLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -45,13 +48,14 @@ const queryClient = new QueryClient({
 const App = () => (
   // attribute="class" matches tailwind's darkMode: ["class"]; defaultTheme
   // "system" means an untouched install follows the operating system.
+  <ErrorBoundary>
   <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <TooltipProvider>
           <Toaster />
-          <Sonner />
-          <BrowserRouter>
+        <ConfirmDialogProvider>
+            <BrowserRouter>
             <Routes>
               <Route path="/login" element={<Login />} />
               <Route
@@ -69,19 +73,22 @@ const App = () => (
                 <Route path="/executions" element={<Executions />} />
                 <Route path="/schedules" element={<Schedules />} />
                 <Route path="/schedules/:id" element={<ScheduleDetail />} />
-                <Route path="/action-policies" element={<Policies />} />
+                <Route path="/action-policies" element={<RequireAdmin what="action policies"><Policies /></RequireAdmin>} />
                 <Route path="/policies" element={<Navigate to="/action-policies" replace />} />
-                <Route path="/observability" element={<Observability />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/settings/api-key/new" element={<ApiKeyCreate />} />
+                <Route path="/observability" element={<RequireAdmin what="observability"><Observability /></RequireAdmin>} />
+                <Route path="/settings" element={<RequireAdmin what="settings"><Settings /></RequireAdmin>} />
+                <Route path="/audit" element={<RequireAdmin what="the audit log"><Audit /></RequireAdmin>} />
+              <Route path="/settings/api-key/new" element={<RequireAdmin what="settings"><ApiKeyCreate /></RequireAdmin>} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
           </BrowserRouter>
+        </ConfirmDialogProvider>
         </TooltipProvider>
       </AuthProvider>
     </QueryClientProvider>
   </ThemeProvider>
+  </ErrorBoundary>
 );
 
 export default App;

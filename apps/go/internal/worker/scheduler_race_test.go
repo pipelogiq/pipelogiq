@@ -19,9 +19,16 @@ import (
 )
 
 // schedulerRaceSchema is the subset of the schema a scheduler pass touches:
-// claim a due schedule, record the run, and create the pipeline through the
-// idempotent creation path.
+// claim a due schedule, record the run, create the pipeline through the
+// idempotent creation path, and check that a worker exists to run it.
 const schedulerRaceSchema = `
+CREATE TABLE worker_client (
+	id TEXT PRIMARY KEY,
+	application_id INTEGER NOT NULL,
+	state TEXT NOT NULL,
+	last_seen_at TIMESTAMP NULL
+);
+
 CREATE TABLE application (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	name TEXT NOT NULL,
@@ -168,6 +175,16 @@ func setupSchedulerRaceStore(t *testing.T) (*store.Store, *sqlx.DB) {
 	if _, err = db.Exec(`INSERT INTO application (id, name) VALUES (1, 'tiqet')`); err != nil {
 		_ = db.Close()
 		t.Fatalf("seed application: %v", err)
+	}
+	// A live worker is the ordinary state of the world. Tests about what the
+	// scheduler does with a tick should not accidentally be testing what it does
+	// when there is nowhere to send one.
+	if _, err = db.Exec(`
+		INSERT INTO worker_client (id, application_id, state, last_seen_at)
+		VALUES ('worker-1', 1, 'ready', $1)
+	`, time.Now().UTC()); err != nil {
+		_ = db.Close()
+		t.Fatalf("seed worker: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -588,4 +605,49 @@ func TestSchedulerAllowsOverlappingRun(t *testing.T) {
 	if stillRunning != 1 {
 		t.Fatalf("Allow disturbed the in-flight pipeline (%d still running, want 1)", stillRunning)
 	}
+}
+
+// TestSchedulerSkipsWhenNoWorkerIsOnline: a pipeline nobody can pick up is not
+// work, it is a backlog. The tick is recorded so the history says why.
+func TestSchedulerSkipsWhenNoWorkerIsOnline(t *testing.T) {
+	t.Parallel()
+
+	st, db := setupSchedulerRaceStore(t)
+	scheduleID := seedRaceSchedule(t, st, time.Now().UTC().Add(-time.Minute))
+	worker := newSchedulerTestWorker(st)
+
+	// The worker is still registered — it simply stopped saying anything, which
+	// is what a crashed process looks like from here.
+	if _, err := db.Exec(`UPDATE worker_client SET last_seen_at = $1`,
+		time.Now().UTC().Add(-10*time.Minute)); err != nil {
+		t.Fatalf("age the worker heartbeat: %v", err)
+	}
+
+	if err := worker.schedulerPass(context.Background(), rand.New(rand.NewSource(1))); err != nil {
+		t.Fatalf("scheduler pass: %v", err)
+	}
+
+	var created int
+	if err := db.Get(&created, `
+		SELECT COUNT(*) FROM pipeline WHERE schedule_id = $1
+	`, scheduleID); err != nil {
+		t.Fatalf("count pipelines: %v", err)
+	}
+	if created != 0 {
+		t.Fatalf("created %d pipelines with no worker online, want 0", created)
+	}
+
+	var skips int
+	if err := db.Get(&skips, `
+		SELECT COUNT(*) FROM schedule_run
+		WHERE schedule_id = $1 AND outcome = $2 AND skip_reason = $3
+	`, scheduleID, types.ScheduleRunOutcomeSkipped, types.ScheduleSkipReasonNoWorker); err != nil {
+		t.Fatalf("count no-worker skips: %v", err)
+	}
+	if skips == 0 {
+		t.Fatalf("nothing recorded the skip, so the history would not explain itself")
+	}
+
+	// The ordinary path — a worker is online and the tick fires — is what every
+	// other test in this file now exercises, since the fixture seeds a live one.
 }

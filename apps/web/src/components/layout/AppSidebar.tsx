@@ -2,6 +2,8 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
+  History,
+  ScrollText,
   LayoutDashboard,
   Workflow,
   CalendarClock,
@@ -17,15 +19,17 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { systemApi } from "@/api/client";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
   { name: "Pipelines", href: "/pipelines", icon: Workflow },
   { name: "Schedules", href: "/schedules", icon: CalendarClock },
-  /*{ name: "Executions", href: "/executions", icon: History },*/
-  { name: "Action Policies", href: "/action-policies", icon: Shield },
-  { name: "Observability", href: "/observability", icon: Activity },
-  { name: "Settings", href: "/settings", icon: Settings },
+  { name: "Executions", href: "/executions", icon: History },
+  { name: "Action Policies", adminOnly: true, href: "/action-policies", icon: Shield },
+  { name: "Observability", adminOnly: true, href: "/observability", icon: Activity },
+  { name: "Settings", adminOnly: true, href: "/settings", icon: Settings },
+  { name: "Audit", adminOnly: true, href: "/audit", icon: ScrollText },
 ];
 
 function resolveEnvironmentName(): string {
@@ -53,6 +57,8 @@ function resolveEnvironmentName(): string {
 
 export function AppSidebar() {
   const location = useLocation();
+  const { isAdmin } = useAuth();
+  const visibleNavigation = navigation.filter((item) => !item.adminOnly || isAdmin);
   const [collapsed, setCollapsed] = useState(true);
   const environmentName = resolveEnvironmentName();
   const { data: versionInfo, isError: versionLoadFailed } = useQuery({
@@ -89,7 +95,7 @@ export function AppSidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 p-2">
-        {navigation.map((item) => {
+        {visibleNavigation.map((item) => {
           const isActive = location.pathname === item.href ||
             (item.href !== "/" && location.pathname.startsWith(item.href));
 

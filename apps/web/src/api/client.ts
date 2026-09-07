@@ -1,6 +1,8 @@
 import type {
   User,
   LoginRequest,
+  ChangePasswordRequest,
+  AuditRecord,
   VersionInfoResponse,
   PipelineResponse,
   StageResponse,
@@ -59,6 +61,9 @@ import type {
 
 const API_BASE = '/api';
 
+/** Dispatched on window when the server answers 401 to an authenticated call. */
+export const SESSION_EXPIRED_EVENT = 'pipelogiq:session-expired';
+
 class ApiError extends Error {
   constructor(
     public status: number,
@@ -67,6 +72,16 @@ class ApiError extends Error {
     super(message);
     this.name = 'ApiError';
   }
+
+  /** The caller is signed in but not allowed to see or do this. */
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+}
+
+/** True when an unknown error is an API 403. */
+export function isForbidden(error: unknown): boolean {
+  return error instanceof ApiError && error.isForbidden;
 }
 
 async function request<T>(
@@ -84,6 +99,11 @@ async function request<T>(
 
   if (!response.ok) {
     const message = await response.text();
+    if (response.status === 401 && !endpoint.startsWith('/auth/login')) {
+      // The session is gone (expired, revoked, or the server restarted with a new
+      // secret). Every screen reacts the same way: back to sign-in.
+      window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+    }
     throw new ApiError(response.status, message || `HTTP ${response.status}`);
   }
 
@@ -103,6 +123,9 @@ async function request<T>(
 
 // Auth API
 export const authApi = {
+  changePassword: (data: ChangePasswordRequest): Promise<void> =>
+    request<void>('/auth/password', { method: 'POST', body: JSON.stringify(data) }),
+
   login: async (data: LoginRequest): Promise<void> => {
     await request<void>('/auth/login', {
       method: 'POST',
@@ -465,4 +488,8 @@ export const licenseApi = {
   get: async (): Promise<LicenseStatus> => {
     return request<LicenseStatus>('/license');
   },
+};
+
+export const auditApi = {
+  list: (limit = 100): Promise<AuditRecord[]> => request<AuditRecord[]>(`/audit?limit=${limit}`),
 };

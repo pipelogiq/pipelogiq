@@ -6,13 +6,15 @@ import {
   useCallback,
   type ReactNode,
 } from 'react';
-import { authApi, ApiError } from '@/api/client';
+import { authApi, ApiError, SESSION_EXPIRED_EVENT } from '@/api/client';
 import type { User, LoginRequest } from '@/types/api';
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
+  /** Admin, Administrator and SuperAdmin roles, case-insensitively. */
+  isAdmin: boolean;
   login: (data: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -44,6 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, [checkAuth]);
 
+  useEffect(() => {
+    const onExpired = () => setUser(null);
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
+
   const login = async (data: LoginRequest) => {
     setIsLoading(true);
     try {
@@ -70,6 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
+        isAdmin: ['admin', 'administrator', 'superadmin'].includes((user?.role ?? '').toLowerCase()),
         login,
         logout,
         checkAuth,
