@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+
 	"pipelogiq/internal/types"
 )
 
@@ -91,7 +93,7 @@ func stageResultBody(stageID, pipelineID int) map[string]any {
 
 func TestPostStageResultEndpoint(t *testing.T) {
 	t.Run("accepted result is published verbatim", func(t *testing.T) {
-		server, db, router := setupExternalEndpointTest(t)
+		server, db, router := setupStageResultEndpointTest(t)
 		recorder := captureStageResults(server, nil)
 		pipelineID := insertPipelineForExternalTest(t, db, "result-ok", types.PipelineStatusRunning, false)
 		stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -149,7 +151,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("result for a terminal stage is still accepted", func(t *testing.T) {
-		server, db, router := setupExternalEndpointTest(t)
+		server, db, router := setupStageResultEndpointTest(t)
 		recorder := captureStageResults(server, nil)
 		pipelineID := insertPipelineForExternalTest(t, db, "result-terminal", types.PipelineStatusCompleted, true)
 		stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusCompleted)
@@ -164,7 +166,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("missing worker session token is unauthorized", func(t *testing.T) {
-		server, db, router := setupExternalEndpointTest(t)
+		server, db, router := setupStageResultEndpointTest(t)
 		recorder := captureStageResults(server, nil)
 		pipelineID := insertPipelineForExternalTest(t, db, "result-nosession", types.PipelineStatusRunning, false)
 		stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -179,7 +181,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("invalid api key is unauthorized", func(t *testing.T) {
-		_, db, router := setupExternalEndpointTest(t)
+		_, db, router := setupStageResultEndpointTest(t)
 		pipelineID := insertPipelineForExternalTest(t, db, "result-nokey", types.PipelineStatusRunning, false)
 		stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
 
@@ -190,7 +192,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("stage of another application is forbidden", func(t *testing.T) {
-		server, db, router := setupExternalEndpointTest(t)
+		server, db, router := setupStageResultEndpointTest(t)
 		recorder := captureStageResults(server, nil)
 
 		var foreignPipelineID int
@@ -214,7 +216,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("unknown stage is not found", func(t *testing.T) {
-		_, _, router := setupExternalEndpointTest(t)
+		_, _, router := setupStageResultEndpointTest(t)
 
 		res := postStageResult(t, router, 987654, stageResultBody(987654, 1), "test-api-key", "session-token")
 		if res.Code != http.StatusNotFound {
@@ -259,7 +261,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
-				server, db, router := setupExternalEndpointTest(t)
+				server, db, router := setupStageResultEndpointTest(t)
 				recorder := captureStageResults(server, nil)
 				pipelineID := insertPipelineForExternalTest(t, db, "result-invalid", types.PipelineStatusRunning, false)
 				stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -290,7 +292,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 	})
 
 	t.Run("broker failure is service unavailable", func(t *testing.T) {
-		server, db, router := setupExternalEndpointTest(t)
+		server, db, router := setupStageResultEndpointTest(t)
 		captureStageResults(server, errBrokerUnavailable)
 		pipelineID := insertPipelineForExternalTest(t, db, "result-broker", types.PipelineStatusRunning, false)
 		stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -317,7 +319,7 @@ func TestPostStageResultEndpoint(t *testing.T) {
 // A strict decoder here would couple every SDK version to a server version and
 // make adding a field to a worker a breaking change for the control plane.
 func TestPostStageResultAcceptsSdkExtraFields(t *testing.T) {
-	server, db, router := setupExternalEndpointTest(t)
+	server, db, router := setupStageResultEndpointTest(t)
 	recorder := captureStageResults(server, nil)
 	pipelineID := insertPipelineForExternalTest(t, db, "result-sdk", types.PipelineStatusRunning, false)
 	stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -381,7 +383,7 @@ func TestPostStageResultRejectsMalformedBodies(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			server, db, router := setupExternalEndpointTest(t)
+			server, db, router := setupStageResultEndpointTest(t)
 			recorder := captureStageResults(server, nil)
 			pipelineID := insertPipelineForExternalTest(t, db, "result-malformed", types.PipelineStatusRunning, false)
 			stageID := insertStageForExternalTest(t, db, pipelineID, "pay", types.StageStatusRunning)
@@ -402,6 +404,44 @@ func TestPostStageResultRejectsMalformedBodies(t *testing.T) {
 			}
 			if recorder.count() != 0 {
 				t.Fatalf("a malformed body must not publish")
+			}
+		})
+	}
+}
+
+// Result submission requires a real application-bound bootstrap session.
+func setupStageResultEndpointTest(t *testing.T) (*ExternalServer, *sqlx.DB, http.Handler) {
+	t.Helper()
+	server, db, router := setupExternalEndpointTest(t)
+	if _, err := db.Exec(`CREATE TABLE worker_client (id TEXT PRIMARY KEY, application_id INTEGER NOT NULL, session_token TEXT NOT NULL, session_expires_at TIMESTAMP NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range []struct {
+		id, token string
+		appID     int
+		expiry    time.Time
+	}{
+		{"active", "session-token", externalTestApplicationID, time.Now().UTC().Add(time.Hour)},
+		{"expired", "expired-session", externalTestApplicationID, time.Now().UTC().Add(-time.Hour)},
+		{"foreign", "foreign-session", externalTestApplicationID + 1, time.Now().UTC().Add(time.Hour)},
+	} {
+		if _, err := db.Exec(`INSERT INTO worker_client (id,application_id,session_token,session_expires_at) VALUES ($1,$2,$3,$4)`, session.id, session.appID, session.token, session.expiry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return server, db, router
+}
+
+func TestPostStageResultRejectsUntrustedWorkerSessions(t *testing.T) {
+	for _, token := range []string{"unknown-session", "expired-session", "foreign-session"} {
+		t.Run(token, func(t *testing.T) {
+			server, db, router := setupStageResultEndpointTest(t)
+			published := captureStageResults(server, nil)
+			pipelineID := insertPipelineForExternalTest(t, db, "session-auth", types.PipelineStatusRunning, false)
+			stageID := insertStageForExternalTest(t, db, pipelineID, "stage", types.StageStatusRunning)
+			response := postStageResult(t, router, stageID, stageResultBody(stageID, pipelineID), "test-api-key", token)
+			if response.Code != http.StatusUnauthorized || published.count() != 0 {
+				t.Fatalf("status=%d published=%d body=%s", response.Code, published.count(), response.Body.String())
 			}
 		})
 	}

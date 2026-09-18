@@ -186,8 +186,8 @@ func TestApplicationScope_BulkActionReportsForeignTargetsAsNotFound(t *testing.T
 func TestHubBroadcast_OnlyReachesClientsScopedToTheApplication(t *testing.T) {
 	hub := NewHub(slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil)), []string{"http://localhost"})
 
-	insider := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{ownApplicationID})}
-	outsider := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{otherApplicationID})}
+	insider := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{ownApplicationID}), expiresAt: time.Now().Add(time.Hour)}
+	outsider := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{otherApplicationID}), expiresAt: time.Now().Add(time.Hour)}
 	hub.clients[insider] = struct{}{}
 	hub.clients[outsider] = struct{}{}
 
@@ -208,7 +208,7 @@ func TestHubBroadcast_OnlyReachesClientsScopedToTheApplication(t *testing.T) {
 
 func TestHubBroadcast_DropsPayloadWithoutApplication(t *testing.T) {
 	hub := NewHub(slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil)), []string{"http://localhost"})
-	client := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{ownApplicationID})}
+	client := &Client{hub: hub, send: make(chan []byte, 1), scope: newApplicationScope([]int{ownApplicationID}), expiresAt: time.Now().Add(time.Hour)}
 	hub.clients[client] = struct{}{}
 
 	hub.Broadcast([]byte(`{"id":7}`))
@@ -284,9 +284,11 @@ func setupScopeTest(t *testing.T) *scopeFixture {
 		email TEXT NOT NULL,
 		password TEXT NOT NULL,
 		role TEXT NOT NULL,
-		created_at TIMESTAMP NULL,
-		token_version INTEGER NOT NULL DEFAULT 0
+		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		token_version INTEGER NOT NULL DEFAULT 0,
+		is_active BOOLEAN NOT NULL DEFAULT 1
 	);
+	CREATE UNIQUE INDEX uq_user_email_normalized ON "user" (lower(trim(email)));
 	CREATE TABLE audit_log (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		ts TIMESTAMP NOT NULL,

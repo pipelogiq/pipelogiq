@@ -8,6 +8,8 @@ import (
 	"pipelogiq/internal/types"
 )
 
+var ErrSessionChanged = errors.New("the user session changed")
+
 func (s *Store) GetUserByEmail(ctx context.Context, email string) (*types.UserResponse, string, error) {
 	var user struct {
 		types.UserResponse
@@ -15,19 +17,20 @@ func (s *Store) GetUserByEmail(ctx context.Context, email string) (*types.UserRe
 	}
 
 	err := s.db.GetContext(ctx, &user, `
-		SELECT id, first_name, last_name, email, password, role, created_at, token_version
+		SELECT id, first_name, last_name, email, password, role, is_active, created_at, token_version
 		FROM "user"
-		WHERE lower(email) = lower($1)
+		WHERE lower(trim(email)) = lower(trim($1))
 		LIMIT 1
 	`, email)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, "", errors.New("user not found")
+			return nil, "", ErrUserNotFound
 		}
 		return nil, "", err
 	}
 
+	user.Role = types.NormalizeUserRole(user.Role)
 	return &user.UserResponse, user.Password, nil
 }
 
@@ -35,18 +38,19 @@ func (s *Store) GetUserByID(ctx context.Context, userID int) (*types.UserRespons
 	var user types.UserResponse
 
 	err := s.db.GetContext(ctx, &user, `
-		SELECT id, first_name, last_name, email, role, created_at, token_version
+		SELECT id, first_name, last_name, email, role, is_active, created_at, token_version
 		FROM "user"
 		WHERE id = $1
 	`, userID)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.New("user not found")
+			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
 
+	user.Role = types.NormalizeUserRole(user.Role)
 	return &user, nil
 }
 
@@ -56,29 +60,38 @@ type UserAccess struct {
 	ApplicationIDs []int
 	TokenVersion   int
 	Role           string
+	IsActive       bool
 }
 
 // GetUserAccess loads application membership and the current token version.
 func (s *Store) GetUserAccess(ctx context.Context, userID int) (UserAccess, error) {
-	var access UserAccess
-	var row struct {
-		TokenVersion int    `db:"token_version"`
-		Role         string `db:"role"`
+	access := UserAccess{ApplicationIDs: []int{}}
+	var rows []struct {
+		TokenVersion  int           `db:"token_version"`
+		Role          string        `db:"role"`
+		IsActive      bool          `db:"is_active"`
+		ApplicationID sql.NullInt64 `db:"application_id"`
 	}
-	if err := s.db.GetContext(ctx, &row, `SELECT token_version, role FROM "user" WHERE id = $1`, userID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return access, errors.New("user not found")
+	// One statement gives a consistent view of permissions and token version
+	// while an administrator is changing the account and its memberships.
+	if err := s.db.SelectContext(ctx, &rows, `
+		SELECT DISTINCT u.token_version, u.role, u.is_active, ua.application_id
+		FROM "user" u LEFT JOIN user_application ua ON ua.user_id = u.id
+		WHERE u.id = $1 ORDER BY ua.application_id
+	`, userID); err != nil {
+		return access, err
+	}
+	if len(rows) == 0 {
+		return access, ErrUserNotFound
+	}
+	access.TokenVersion = rows[0].TokenVersion
+	access.Role = types.NormalizeUserRole(rows[0].Role)
+	access.IsActive = rows[0].IsActive
+	for _, row := range rows {
+		if row.ApplicationID.Valid {
+			access.ApplicationIDs = append(access.ApplicationIDs, int(row.ApplicationID.Int64))
 		}
-		return access, err
 	}
-	access.TokenVersion = row.TokenVersion
-	access.Role = row.Role
-
-	ids, err := s.GetUserApplicationIDs(ctx, userID)
-	if err != nil {
-		return access, err
-	}
-	access.ApplicationIDs = ids
 	return access, nil
 }
 
@@ -99,5 +112,21 @@ func (s *Store) UpdatePassword(ctx context.Context, userID int, hash string) (in
 	err := s.db.QueryRowxContext(ctx, `
 		UPDATE "user" SET password = $2, token_version = token_version + 1 WHERE id = $1 RETURNING token_version
 	`, userID, hash).Scan(&version)
+	return version, err
+}
+
+// ChangeOwnPassword completes password verification atomically with the write.
+// An administrator reset, account update, logout, or another password change
+// must invalidate a request that was already past authentication middleware.
+func (s *Store) ChangeOwnPassword(ctx context.Context, userID, expectedVersion int, verifiedHash, newHash string) (int, error) {
+	var version int
+	err := s.db.QueryRowxContext(ctx, `
+		UPDATE "user" SET password = $4, token_version = token_version + 1
+		WHERE id = $1 AND token_version = $2 AND password = $3 AND is_active = TRUE
+		RETURNING token_version
+	`, userID, expectedVersion, verifiedHash, newHash).Scan(&version)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrSessionChanged
+	}
 	return version, err
 }

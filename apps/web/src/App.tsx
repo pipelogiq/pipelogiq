@@ -2,8 +2,8 @@ import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
-import { AuthProvider } from "@/contexts/AuthContext";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { RequireAdmin } from "@/components/auth/RequireAdmin";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -13,22 +13,23 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Pipelines from "./pages/Pipelines";
-import Executions from "./pages/Executions";
+import PipelineDetail from "./pages/PipelineDetail";
+import ExecutionsRedirect from "./pages/Executions";
 import Schedules from "./pages/Schedules";
 import ScheduleDetail from "./pages/ScheduleDetail";
 import Policies from "./pages/Policies";
 import Observability from "./pages/Observability";
-import Settings from "./pages/Settings";
+import Settings, { LicenceSettings, SecuritySettings } from "./pages/Settings";
+import { ApiKeysSettings } from "@/components/settings/ApiKeysSettings";
+import Users from "./pages/Users";
+import Account from "./pages/Account";
 import ApiKeyCreate from "./pages/ApiKeyCreate";
 import NotFound from "./pages/NotFound";
 import { usePipelineWebSocket } from "@/hooks/use-pipeline-ws";
 
-// There is one pipeline UI: the list with its side panel. This keeps older
-// /pipelines/:id links working by sending them there with the run selected,
-// rather than maintaining a second, thinner view of the same thing.
-function PipelineRoute() {
-  const { id } = useParams();
-  return <Navigate to={`/pipelines?search=%23${id}&selected=${id}`} replace />;
+function HomeRoute() {
+  const { isAdmin } = useAuth();
+  return isAdmin ? <Dashboard /> : <Navigate to="/pipelines" replace />;
 }
 
 function PipelineWebSocketProvider({ children }: { children: React.ReactNode }) {
@@ -67,18 +68,29 @@ const App = () => (
                   </ProtectedRoute>
                 }
               >
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={<HomeRoute />} />
                 <Route path="/pipelines" element={<Pipelines />} />
-                <Route path="/pipelines/:id" element={<PipelineRoute />} />
-                <Route path="/executions" element={<Executions />} />
+                <Route path="/pipelines/:id" element={<PipelineDetail />} />
+                <Route path="/executions" element={<ExecutionsRedirect />} />
                 <Route path="/schedules" element={<Schedules />} />
                 <Route path="/schedules/:id" element={<ScheduleDetail />} />
                 <Route path="/action-policies" element={<RequireAdmin what="action policies"><Policies /></RequireAdmin>} />
                 <Route path="/policies" element={<Navigate to="/action-policies" replace />} />
                 <Route path="/observability" element={<RequireAdmin what="observability"><Observability /></RequireAdmin>} />
-                <Route path="/settings" element={<RequireAdmin what="settings"><Settings /></RequireAdmin>} />
-                <Route path="/audit" element={<RequireAdmin what="the audit log"><Audit /></RequireAdmin>} />
-              <Route path="/settings/api-key/new" element={<RequireAdmin what="settings"><ApiKeyCreate /></RequireAdmin>} />
+                <Route path="/settings" element={<RequireAdmin what="settings"><Settings /></RequireAdmin>}>
+                  <Route index element={<Navigate to="api-keys" replace />} />
+                  <Route path="api-keys" element={<ApiKeysSettings />} />
+                  <Route path="api-keys/new" element={<ApiKeyCreate />} />
+                  <Route path="users" element={<Users />} />
+                  <Route path="audit" element={<Audit />} />
+                  <Route path="licence" element={<LicenceSettings />} />
+                  <Route path="security" element={<SecuritySettings />} />
+                  <Route path="api-key/new" element={<Navigate to="/settings/api-keys/new" replace />} />
+                  <Route path="*" element={<Navigate to="/settings/api-keys" replace />} />
+                </Route>
+                <Route path="/users" element={<Navigate to="/settings/users" replace />} />
+                <Route path="/account" element={<Account />} />
+                <Route path="/audit" element={<Navigate to="/settings/audit" replace />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

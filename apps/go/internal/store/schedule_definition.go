@@ -73,7 +73,7 @@ func DecodeScheduleDefinition(definitionJSON string) (types.PipelineCreateReques
 	if err := json.Unmarshal([]byte(definitionJSON), &req); err != nil {
 		return types.PipelineCreateRequest{}, fmt.Errorf("decode schedule definition: %w", err)
 	}
-	return req, nil
+	return types.SanitizeScheduleDefinition(req), nil
 }
 
 // WithScheduleKeyword appends the schedule keyword the dashboard filters on,

@@ -1,6 +1,8 @@
 import { useState, useMemo, useCallback } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AppHeader } from "@/components/layout/AppHeader";
+import { ReadOnlyNotice } from "@/components/auth/ReadOnlyNotice";
+import { useAuth } from "@/contexts/AuthContext";
 import { PipelineSummaryBar } from "@/components/pipelines/PipelineSummaryBar";
 import { PipelineSearchBar, SearchFilters } from "@/components/pipelines/PipelineSearchBar";
 import { PipelineTable } from "@/components/pipelines/PipelineTable";
@@ -37,6 +39,7 @@ function mapUIStatusToAPI(status: string): string[] {
 }
 
 export default function Pipelines() {
+  const { canOperate } = useAuth();
   // The header's search box navigates here with ?search=, so the query
   // survives a reload and is a link someone can share.
   const [searchParams] = useSearchParams();
@@ -80,10 +83,14 @@ export default function Pipelines() {
       params.search = filters.query;
     }
 
-    // Keywords from tags
+    // Tag values are distinct from the legacy keyword-key filter.
     if (filters.tags.length > 0) {
-      params.keywords = [...(params.keywords as string[] || []), ...filters.tags];
+      params.tags = filters.tags;
     }
+
+    params.contextFilters = filters.contextFilters;
+    if (filters.environment !== "all") params.environment = filters.environment;
+    if (filters.owner !== "all") params.owner = filters.owner;
 
     // Date range filter
     if (filters.dateRange && filters.dateRange !== "all") {
@@ -103,9 +110,9 @@ export default function Pipelines() {
         }
       } else if (filters.dateRange.startsWith("range:")) {
         const rangePart = filters.dateRange.replace("range:", "");
-        const [from, to] = rangePart.split("-").map(s => s.trim()).filter(Boolean);
-        if (from) params.pipelineStartFrom = from;
-        if (to) params.pipelineStartTo = to;
+        const [from, to] = rangePart.split("|");
+        if (from && from !== "?") params.pipelineStartFrom = new Date(from).toISOString();
+        if (to && to !== "?") params.pipelineStartTo = new Date(to).toISOString();
       }
     }
 
@@ -114,44 +121,8 @@ export default function Pipelines() {
 
   const { data, isLoading, error } = usePipelines(apiParams);
 
-  // Client-side filtering for environment and owner (if API doesn't support)
-  const filteredPipelines = useMemo(() => {
-    if (!data?.items) return [];
-
-    return data.items.filter((pipeline) => {
-      if (filters.status !== "all") {
-        const selectedStatuses = filters.status.split(",").map(s => s.trim()).filter(Boolean);
-        if (selectedStatuses.length > 0 && !selectedStatuses.includes(pipeline.status)) {
-          return false;
-        }
-      }
-
-      // Environment filter
-      if (filters.environment !== "all" && pipeline.environment !== filters.environment) {
-        return false;
-      }
-
-      // Owner filter
-      if (filters.owner !== "all" && pipeline.owner !== filters.owner) {
-        return false;
-      }
-
-      // Context key-value filters
-      if (filters.contextFilters.length > 0) {
-        const allContextFiltersMatch = filters.contextFilters.every((cf) => {
-          return pipeline.context.some(
-            (ctx) => ctx.key.toLowerCase() === cf.key.toLowerCase() &&
-              ctx.value.toLowerCase().includes(cf.value.toLowerCase())
-          );
-        });
-        if (!allContextFiltersMatch) {
-          return false;
-        }
-      }
-
-      return true;
-    });
-  }, [data, filters.status, filters.environment, filters.owner, filters.contextFilters]);
+  // All filters run on the server before counting and pagination.
+  const filteredPipelines = useMemo(() => data?.items ?? [], [data]);
 
   // Derive effective selected ID — clears selection when pipeline is no longer in results
   const effectiveSelectedPipelineId = useMemo(() => {
@@ -182,6 +153,7 @@ export default function Pipelines() {
   const someVisibleSelected = filteredPipelines.some((pipeline) => selectedBulkPipelineIds.has(pipeline.id));
 
   const runBulkAction = useCallback(async (action: BulkPipelineAction) => {
+    if (!canOperate) return;
     const isStageAction = action === "rerun" || action === "skip";
     const targetIds = isStageAction ? selectedFailedStageIds : selectedPipelineIds;
     if (targetIds.length === 0) {
@@ -213,7 +185,7 @@ export default function Pipelines() {
         variant: "destructive",
       });
     }
-  }, [bulkAction, selectedFailedStageIds, selectedPipelineIds]);
+  }, [bulkAction, canOperate, selectedFailedStageIds, selectedPipelineIds]);
 
   const toggleBulkSelection = useCallback((pipelineId: string, selected: boolean) => {
     setSelectedBulkPipelineIds((prev) => {
@@ -280,6 +252,7 @@ export default function Pipelines() {
       <AppHeader title="Pipelines" />
 
       <div className="space-y-4 border-b border-border bg-background px-4 py-4">
+        <ReadOnlyNotice />
         <PipelineSummaryBar />
         <PipelineSearchBar
           onFiltersChange={handleFiltersChange}
@@ -297,7 +270,7 @@ export default function Pipelines() {
             </div>
           ) : (
             <>
-              {selectedBulkPipelineIds.size > 0 && (
+              {canOperate && selectedBulkPipelineIds.size > 0 && (
                 <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted px-3 py-2">
                   <span className="mr-1 text-xs font-semibold text-muted-foreground">
                     {selectedBulkPipelineIds.size} selected
@@ -360,8 +333,8 @@ export default function Pipelines() {
                   onSelect={(pipeline) => setSelectedPipelineId(pipeline.id)}
                   isPanelOpen={!!effectiveSelectedPipelineId}
                   selectedBulkIds={selectedBulkPipelineIds}
-                  onToggleBulkSelection={toggleBulkSelection}
-                  onToggleAllBulkSelection={toggleAllBulkSelection}
+                  onToggleBulkSelection={canOperate ? toggleBulkSelection : undefined}
+                  onToggleAllBulkSelection={canOperate ? toggleAllBulkSelection : undefined}
                   allBulkSelected={allVisibleSelected}
                   someBulkSelected={someVisibleSelected}
                 />

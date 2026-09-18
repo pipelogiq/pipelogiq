@@ -60,6 +60,8 @@ type SetStageStatusMessage struct {
 }
 
 type ContextItem struct {
+	// IsDeleted removes Key from the working context. Values are ignored for tombstones.
+	IsDeleted   bool   `json:"isDeleted,omitempty" db:"-"`
 	Key         string `json:"key" db:"key"`
 	Value       string `json:"value" db:"value"`
 	ValueType   string `json:"valueType,omitempty" db:"value_type"`

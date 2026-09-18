@@ -2,7 +2,9 @@ import type {
   User,
   LoginRequest,
   ChangePasswordRequest,
-  AuditRecord,
+  AuditListParams,
+  AuditListResponse,
+  AuditFilterOptions,
   VersionInfoResponse,
   PipelineResponse,
   StageResponse,
@@ -49,6 +51,7 @@ import type {
 } from '@/types/policies';
 
 import type { LicenseStatus } from '@/types/license';
+import type { CreateUserRequest, ManagedUser, UpdateUserRequest, UserApplication, UserRoleDefinition } from '@/types/users';
 import type {
   CatchupPolicy,
   OverlapPolicy,
@@ -150,6 +153,18 @@ export const systemApi = {
   },
 };
 
+export const usersApi = {
+  getAll: (): Promise<ManagedUser[]> => request<ManagedUser[]>('/users'),
+  getApplications: (): Promise<UserApplication[]> => request<UserApplication[]>('/users/applications'),
+  getRoles: (): Promise<UserRoleDefinition[]> => request<UserRoleDefinition[]>('/users/roles'),
+  create: (data: CreateUserRequest): Promise<ManagedUser> =>
+    request<ManagedUser>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: number, data: UpdateUserRequest): Promise<ManagedUser> =>
+    request<ManagedUser>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  resetPassword: (id: number, password: string): Promise<void> =>
+    request<void>(`/users/${id}/password`, { method: 'POST', body: JSON.stringify({ password }) }),
+};
+
 // Pipelines API
 export const pipelinesApi = {
   getAll: async (params?: GetPipelinesParams): Promise<PagedResult<PipelineResponse>> => {
@@ -166,6 +181,11 @@ export const pipelinesApi = {
 
     // Handle array params
     params?.keywords?.forEach(k => searchParams.append('keywords', k));
+    params?.tags?.forEach(tag => searchParams.append('tags', tag));
+    params?.labels?.forEach(label => searchParams.append('labels', JSON.stringify(label)));
+    params?.contextFilters?.forEach(filter => searchParams.append('contextFilters', JSON.stringify(filter)));
+    if (params?.environment) searchParams.set('environment', params.environment);
+    if (params?.owner) searchParams.set('owner', params.owner);
     params?.statuses?.forEach(s => searchParams.append('statuses', s));
 
     const queryString = searchParams.toString();
@@ -291,8 +311,8 @@ export const workersApi = {
 
 // Observability API
 export const observabilityApi = {
-  getConfig: async (): Promise<ObservabilityConfig> => {
-    return request<ObservabilityConfig>('/observability/config');
+  getConfig: async (signal?: AbortSignal): Promise<ObservabilityConfig> => {
+    return request<ObservabilityConfig>('/observability/config', { signal });
   },
 
   saveConfig: async (data: SaveIntegrationConfigRequest): Promise<ObservabilityConfig> => {
@@ -491,5 +511,12 @@ export const licenseApi = {
 };
 
 export const auditApi = {
-  list: (limit = 100): Promise<AuditRecord[]> => request<AuditRecord[]>(`/audit?limit=${limit}`),
+  list: (params: AuditListParams = {}, signal?: AbortSignal): Promise<AuditListResponse> => {
+    const query = new URLSearchParams({ page: String(params.page ?? 1), pageSize: String(params.pageSize ?? 50) });
+    if (params.action) query.set('action', params.action);
+    if (params.userId !== undefined) query.set('userId', String(params.userId));
+    if (params.outcome) query.set('outcome', params.outcome);
+    return request<AuditListResponse>(`/audit?${query}`, { signal });
+  },
+  options: (signal?: AbortSignal): Promise<AuditFilterOptions> => request<AuditFilterOptions>('/audit/options', { signal }),
 };

@@ -7,7 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="../../../../pipelogiq-sdk-net/src/PipelogiqSDK.csproj" />
+    <ProjectReference Include="../../../../pipelogiq-sdk-net/src/Pipelogiq.Sdk/PipelogiqSDK.csproj" />
   </ItemGroup>
 
   <ItemGroup>

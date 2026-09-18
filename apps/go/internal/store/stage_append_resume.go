@@ -291,6 +291,7 @@ func (s *Store) resumeStageApprovalOnce(
 		ID                      int            `db:"id"`
 		PipelineID              int            `db:"pipeline_id"`
 		Status                  sql.NullString `db:"status"`
+		Handler                 sql.NullString `db:"stage_handler_name"`
 		ApprovalDecision        sql.NullBool   `db:"approval_decision"`
 		ApprovalRejectionReason sql.NullString `db:"approval_rejection_reason"`
 	}
@@ -304,6 +305,7 @@ func (s *Store) resumeStageApprovalOnce(
 				s.id,
 				s.pipeline_id,
 				s.status,
+				s.stage_handler_name,
 				s.approval_decision,
 				s.approval_rejection_reason
 			FROM stage s
@@ -317,6 +319,7 @@ func (s *Store) resumeStageApprovalOnce(
 				id,
 				pipeline_id,
 				status,
+				stage_handler_name,
 				approval_decision,
 				approval_rejection_reason
 			FROM stage
@@ -353,6 +356,14 @@ func (s *Store) resumeStageApprovalOnce(
 	newStatus := types.StageStatusCompleted
 	if !req.Approved {
 		newStatus = types.StageStatusFailed
+		if stage.Handler.String == "AgentConfirmationHandler" {
+			// A declined agent action is skipped, not a failed execution. This lets
+			// the dedicated rejection continuation respond without allowing tools.
+			if err = s.prepareAgentRejectionTx(ctx, tx, stage.PipelineID, stageID, requestReason); err != nil {
+				return err
+			}
+			newStatus = types.StageStatusSkipped
+		}
 	}
 
 	var rejectionReason *string
@@ -364,6 +375,7 @@ func (s *Store) resumeStageApprovalOnce(
 		UPDATE stage
 		SET
 			status = $1,
+			is_skipped = CASE WHEN $8 THEN true ELSE is_skipped END,
 			finished_at = $2,
 			next_retry_at = NULL,
 			approval_decision = $3,
@@ -379,6 +391,7 @@ func (s *Store) resumeStageApprovalOnce(
 		now,
 		nullableString(strings.TrimSpace(actor)),
 		stageID,
+		newStatus == types.StageStatusSkipped,
 	); err != nil {
 		return fmt.Errorf("update stage on resume: %w", err)
 	}
@@ -412,6 +425,22 @@ func (s *Store) resumeStageApprovalOnce(
 
 	pausedPipeline := isPausedPipelineStatus(pipelineStatusRow.String)
 	pipelineStatus := computePipelineStatus(statuses)
+	hasFailedStage := false
+	for _, status := range statuses {
+		hasFailedStage = hasFailedStage || status == types.StageStatusFailed
+	}
+	if hasFailedStage {
+		// A declined generic gate is terminal when its failure blocks all remaining
+		// work. Keep explicit failure continuations and independent branches alive;
+		// approving the last independent gate must also finalize an earlier failure.
+		hasWork, workErr := s.hasExecutableOrInFlightStageTx(ctx, tx, stage.PipelineID)
+		if workErr != nil {
+			return workErr
+		}
+		if !hasWork {
+			pipelineStatus = types.PipelineStatusFailed
+		}
+	}
 	if isPipelineTerminalStatus(pipelineStatus, false) {
 		if _, err = tx.ExecContext(ctx, `
 			UPDATE pipeline
@@ -474,6 +503,44 @@ func (s *Store) resumeStageApprovalOnce(
 	}
 
 	return nil
+}
+
+// hasExecutableOrInFlightStageTx mirrors scheduler dependency eligibility while
+// also counting dispatched/waiting/retry work. Looking merely for an unfinished
+// stage (or any later run_next_if_failed option) keeps permanently blocked chains
+// pending; stopping on the first failure fences out unrelated parallel branches.
+func (s *Store) hasExecutableOrInFlightStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int) (bool, error) {
+	var exists bool
+	err := tx.GetContext(ctx, &exists, `
+		SELECT EXISTS (
+			SELECT 1 FROM stage s
+			LEFT JOIN stage_options so ON so.id = (
+				SELECT MAX(latest.id) FROM stage_options latest WHERE latest.stage_id = s.id
+			)
+			WHERE s.pipeline_id = $1
+			  AND COALESCE(s.is_skipped, false) = false
+			  AND (
+				s.status IN ($2, $3, $4, $5, $6)
+				OR (s.status = $7 AND NOT EXISTS (
+					SELECT 1 FROM stage predecessor
+					WHERE predecessor.pipeline_id = s.pipeline_id
+					  AND (CASE WHEN COALESCE(so.depends_on, '') != ''
+						THEN ',' || so.depends_on || ',' LIKE '%,' || predecessor.name || ',%'
+						ELSE predecessor.id < s.id END)
+					  AND NOT (
+						predecessor.status IN ($8, $9)
+						OR (predecessor.status = $10 AND COALESCE(so.run_next_if_failed, false))
+					  )
+				))
+			  )
+		)
+	`, pipelineID, types.StageStatusPending, types.StageStatusRunning,
+		types.StageStatusWaitingApproval, types.StageStatusRetryScheduled, types.StageStatusThrottled,
+		types.StageStatusNotStarted, types.StageStatusCompleted, types.StageStatusSkipped, types.StageStatusFailed)
+	if err != nil {
+		return false, fmt.Errorf("check remaining pipeline work: %w", err)
+	}
+	return exists, nil
 }
 
 func (s *Store) withSQLiteLockRetry(ctx context.Context, operation func() error) error {
@@ -697,4 +764,51 @@ func randomHex(size int) string {
 		return hex.EncodeToString(buf)
 	}
 	return hex.EncodeToString([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
+}
+
+// prepareAgentRejectionTx supports both SDK agent shapes. ReAct has a think
+// continuation; a preplanned run has tools followed by a responder. Only the
+// known, not-yet-started agent plan is skipped. Unknown/custom stages are never
+// granted a failure bypass by an approval decision.
+func (s *Store) prepareAgentRejectionTx(ctx context.Context, tx *sqlx.Tx, pipelineID, stageID int, reason string) error {
+	var following []struct {
+		ID      int    `db:"id"`
+		Handler string `db:"handler"`
+		Status  string `db:"status"`
+	}
+	if err := tx.SelectContext(ctx, &following, fmt.Sprintf(`
+		SELECT id, COALESCE(stage_handler_name, '') AS handler, COALESCE(status, '') AS status
+		FROM stage WHERE pipeline_id=$1 AND id>$2
+		ORDER BY id%s
+	`, s.forUpdateClause()), pipelineID, stageID); err != nil {
+		return err
+	}
+	foundContinuation := false
+	for _, next := range following {
+		if next.Handler == "AgentThinkHandler" || next.Handler == "AgentResponderHandler" {
+			if next.Status != types.StageStatusNotStarted {
+				return fmt.Errorf("agent approval continuation already started: %w", ErrStageResumeConflict)
+			}
+			foundContinuation = true
+			break
+		}
+		if next.Handler != "AgentToolHandler" && next.Handler != "AgentConfirmationHandler" {
+			return fmt.Errorf("agent approval continuation contains unexpected handler: %w", ErrStageResumeConflict)
+		}
+		if next.Status != types.StageStatusNotStarted && next.Status != types.StageStatusSkipped {
+			return fmt.Errorf("agent approval continuation already started: %w", ErrStageResumeConflict)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE stage SET status=$1, is_skipped=true,
+			finished_at=CURRENT_TIMESTAMP WHERE id=$2`, types.StageStatusSkipped, next.ID); err != nil {
+			return err
+		}
+	}
+	if !foundContinuation {
+		return fmt.Errorf("agent approval has no safe continuation: %w", ErrStageResumeConflict)
+	}
+	if reason == "" {
+		reason = "The action was cancelled by the user."
+	}
+	encoded, _ := json.Marshal(reason)
+	return upsertPipelineContextItem(ctx, tx, pipelineID, "agent:directAnswer", string(encoded))
 }

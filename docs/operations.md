@@ -11,7 +11,8 @@ upgrade and roll back, how to rotate secrets, and what to watch.
 | Dashboard + API | `pipelogiq-app` | `nginx` (uid 101), unprivileged | `8080` dashboard and internal API, `8081` external API, `9091` metrics |
 | Worker | `pipelogiq-worker` | `nobody` | `9090` metrics |
 
-All three are published for `linux/amd64` and `linux/arm64`.
+The release workflow targets `linux/amd64` and `linux/arm64` for all three images.
+Verify the tagged artifacts exist before deploying a newly prepared release.
 
 The app image runs nginx and the API under supervisord in one container. nginx
 proxies `/api/` and `/ws` to the API on the loopback port `8088`; nothing but
@@ -37,9 +38,11 @@ Liquibase changelog and exits; Compose starts the app only after it succeeds
 with the error in the migration container's log, instead of restarting the API in
 a loop.
 
-The changelog is additive and re-runnable: index and table changesets carry
-`preConditions`, so applying the same version twice is a no-op, and applying it
-to a database that already has some objects marks them as run.
+The changelog is cumulative and re-runnable. Liquibase records completed
+changesets; guarded index/table changes can adopt existing objects. Some
+migrations also transform data or add constraints, including the 0.5.0 role,
+credential and account changes. Reapplying a completed version is a no-op, but
+a failed precondition must be resolved before continuing.
 
 The changelog declares `logicalFilePath="database/changelog.xml"`. Do not change
 it: Liquibase identifies a changeset by id, author and this path, and a different
@@ -49,7 +52,7 @@ To run migrations by hand:
 
 ```bash
 docker run --rm --network pipelogiq \
-  ghcr.io/pipelogiq/pipelogiq-migrate:v0.6.0-preview.1 \
+  ghcr.io/pipelogiq/pipelogiq-migrate:v0.5.0 \
   --url=jdbc:postgresql://pipelogiq-postgres:5432/pipelogiq \
   --username=pipelogiq --password="$POSTGRES_PASSWORD" \
   --searchPath=/liquibase --changeLogFile=database/changelog.xml update
@@ -82,7 +85,7 @@ that a newer version already migrated and then start the older version.
 
 ## Upgrade
 
-1. Read the release notes' **Before you upgrade** section.
+1. Read the release notes' [Breaking changes and upgrade requirements](releases/RELEASE_NOTES_v0.5.0.md#breaking-changes-and-upgrade-requirements).
 2. Back up (above).
 3. Pull the new tag and start. Compose:
    ```bash
@@ -101,15 +104,16 @@ that a newer version already migrated and then start the older version.
 5. Upgrade workers and the SDK after the server. A newer SDK against an older
    server fails on the first lease call.
 
-Adjacent versions are tested; skipping versions is expected to work because the
-changelog is cumulative, but is not tested.
+See the release notes and security verification report for the tested upgrade
+baselines. Migrations are cumulative; validate the actual deployment on a backup.
 
 ## Rollback
 
-Pin the previous image tag and restart. The schema stays at the newer version —
-the older code ignores the added columns — so no schema rollback is needed or
-supported. Data written only by the newer version (a schedule, a lease, an audit
-row) stays inert.
+Test the previous images and configuration on a restored backup before rolling
+back. Version 0.5.0 changes roles, account status, credential storage and session
+state; older binaries may not preserve the new access controls. Additive schema
+changes alone do not guarantee safe rollback. No automatic downgrade migration
+is provided.
 
 ## Secrets rotation
 
@@ -118,7 +122,7 @@ row) stays inert.
 | `JWT_SECRET` | Change the variable, restart the app | Every dashboard session ends; users sign in again. |
 | `SECRETS_ENCRYPTION_KEY` | Re-enter every integration secret in the dashboard **after** changing the key | Values encrypted under the old key cannot be read under the new one. Rotate by re-saving, not by editing the database. |
 | API keys | Create a new key in Settings, move the worker to it, disable the old one | Disabled immediately; the worker's next call fails. |
-| Administrator password | Settings → Password | Every other session of the account ends. |
+| Administrator password | Account → Password | Every other session of the account ends. |
 | RabbitMQ worker user | Change `WORKER_RABBITMQ_URL`, restart the app, restart workers | Workers receive the new address at their next bootstrap. |
 
 ## What to watch

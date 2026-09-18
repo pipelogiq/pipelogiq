@@ -197,7 +197,14 @@ func (s *Store) insertKeywords(ctx context.Context, tx *sqlx.Tx, pipelineID int,
 }
 
 func (s *Store) insertContextItems(ctx context.Context, tx *sqlx.Tx, pipelineID int, contextItems []types.ContextItem) error {
+	var secrets []string
 	for _, item := range contextItems {
+		if item.IsDeleted {
+			continue
+		}
+		if item.IsSensitive && item.Value != "" {
+			secrets = append(secrets, item.Value)
+		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO pipeline_context_item (key, value, value_type, is_sensitive, pipeline_id)
 			VALUES ($1, $2, $3, $4, $5)
@@ -205,7 +212,7 @@ func (s *Store) insertContextItems(ctx context.Context, tx *sqlx.Tx, pipelineID 
 			return fmt.Errorf("insert context item %s: %w", item.Key, err)
 		}
 	}
-	return nil
+	return rememberSensitiveValuesTx(ctx, tx, pipelineID, secrets)
 }
 
 func (s *Store) insertStages(ctx context.Context, tx *sqlx.Tx, pipelineID int, stages []types.StageCreate) error {
@@ -359,10 +366,15 @@ func (s *Store) GetPipelineWithStages(ctx context.Context, pipelineID int) (*typ
 	}
 	ctxItems, err := s.GetPipelineContext(ctx, pipelineID)
 	if err != nil {
-		s.logger.Error("get pipeline context failed", "pipelineId", pipelineID, "err", err)
+		return nil, fmt.Errorf("load pipeline context for redaction: %w", err)
 	} else {
 		pipeline.PipelineContext = ctxItems
 	}
+	history, err := s.getRedactionHistory(ctx, []int{pipelineID})
+	if err != nil {
+		return nil, err
+	}
+	pipeline.RedactionContext = history[pipelineID]
 	return pipeline, nil
 }
 
@@ -732,6 +744,7 @@ func (s *Store) GetContextForPipelines(ctx context.Context, pipelineIDs []int) (
 }
 
 // GetStageToExecute picks the next stage atomically and marks it Pending.
+// Event stages use the same durable dispatch, dependency and lease path as actions.
 func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage, error) {
 	tx, err := s.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -760,11 +773,9 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 					OR (s.status = $3 AND s.next_retry_at IS NOT NULL AND s.next_retry_at <= CURRENT_TIMESTAMP)
 				  )
 				  AND COALESCE(s.is_skipped,false) = false
-				  AND COALESCE(s.is_event,false) = false
 			  AND NOT EXISTS (
 				SELECT 1 FROM stage sb
 				WHERE sb.pipeline_id = p.id
-				  AND COALESCE(sb.is_event,false) = false
 				  AND (
 					CASE
 					  WHEN COALESCE(so_self.depends_on, '') != ''
@@ -978,7 +989,7 @@ func (s *Store) GetStageToExecute(ctx context.Context) (*types.StageNextMessage,
 func (s *Store) getContextItemsTx(ctx context.Context, tx *sqlx.Tx, pipelineID int) ([]types.ContextItem, error) {
 	items := []types.ContextItem{}
 	if err := tx.SelectContext(ctx, &items, `
-		SELECT key, value, value_type, COALESCE(is_sensitive, false) AS is_sensitive
+		SELECT key, COALESCE(value, '') AS value, COALESCE(value_type, '') AS value_type, COALESCE(is_sensitive, false) AS is_sensitive
 		FROM pipeline_context_item WHERE pipeline_id=$1
 	`, pipelineID); err != nil {
 		return nil, err
@@ -1416,7 +1427,15 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		}
 		return s.GetPipelineWithStages(ctx, stage.PipelineID)
 	}
-	if strings.TrimSpace(msg.ExecutionID) != "" &&
+	// Lease expiry makes an execution eligible for recovery; it does not revoke
+	// its result while that execution is still current. A confirmed result can
+	// wait in the broker beyond the lease deadline. The stage row lock orders
+	// result processing against recovery: recovery clears the execution token
+	// and active status, so a recovered/replaced execution remains fenced out.
+	// No producer-supplied timestamp is used to decide which execution wins.
+	// Legacy results lacking either fence retain compatibility only while any
+	// attached lease is valid; they cannot prove ownership after its expiry.
+	if (strings.TrimSpace(msg.ExecutionID) == "" || msg.Attempt <= 0) &&
 		stage.LeaseExpiresAt.Valid &&
 		!stage.LeaseExpiresAt.Time.After(time.Now().UTC()) {
 		err = tx.Commit()
@@ -1563,7 +1582,16 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 		}
 	}
 
+	if err := rememberSensitiveValuesTx(ctx, tx, stage.PipelineID, sensitiveValues); err != nil {
+		return nil, err
+	}
 	for _, item := range msg.ContextItems {
+		if item.IsDeleted {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM pipeline_context_item WHERE pipeline_id=$1 AND key=$2`, stage.PipelineID, item.Key); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		valueType := valueTypeOrDefault(item.ValueType)
 		res, errExec := tx.ExecContext(ctx, `
 			UPDATE pipeline_context_item
@@ -1631,32 +1659,36 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 			return nil, err
 		}
 	} else {
-		// Mark pipeline completed when failed or when this is last stage.
-		var lastStageID int
-		if err = tx.GetContext(ctx, &lastStageID, `SELECT MAX(id) FROM stage WHERE pipeline_id=$1`, stage.PipelineID); err != nil {
+		// Creation order is not completion order when dependencies permit parallel
+		// branches. A successful highest-ID stage must not fence out another active
+		// event/action branch by prematurely completing their shared pipeline.
+		var stageStatuses []string
+		if err = sqlx.SelectContext(ctx, tx, &stageStatuses, `SELECT status FROM stage WHERE pipeline_id=$1 ORDER BY id`, stage.PipelineID); err != nil {
 			return nil, err
 		}
+		allFinished, hasFailedStage := true, false
+		for _, status := range stageStatuses {
+			switch status {
+			case types.StageStatusCompleted, types.StageStatusSkipped:
+			case types.StageStatusFailed:
+				hasFailedStage = true
+			default:
+				allFinished = false
+			}
+		}
 
-		hasFailureContinuation := false
-		if !msg.IsSuccess {
-			hasFailureContinuation, err = s.hasFailureContinuationStageTx(ctx, tx, stage.PipelineID, msg.StageID)
+		hasRemainingWork := false
+		if hasFailedStage {
+			hasRemainingWork, err = s.hasExecutableOrInFlightStageTx(ctx, tx, stage.PipelineID)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		hasEarlierFailure := false
-		if msg.IsSuccess && msg.StageID == lastStageID {
-			hasEarlierFailure, err = s.hasPriorFailedStageTx(ctx, tx, stage.PipelineID, msg.StageID)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		completePipeline := ((!msg.IsSuccess && !hasFailureContinuation) || msg.StageID == lastStageID) && !msg.IsWaitingForApproval
+		completePipeline := ((hasFailedStage && !hasRemainingWork) || allFinished) && !msg.IsWaitingForApproval
 		if completePipeline {
 			pStatus := types.PipelineStatusCompleted
-			if !msg.IsSuccess || hasEarlierFailure {
+			if !msg.IsSuccess || hasFailedStage {
 				pStatus = types.PipelineStatusFailed
 			}
 			if _, err = tx.ExecContext(ctx, `
@@ -1665,14 +1697,10 @@ func (s *Store) UpdateStageResult(ctx context.Context, msg types.StageResultMess
 				return nil, err
 			}
 		} else {
-			nextPipelineStatus := types.PipelineStatusPending
+			var nextPipelineStatus string
 			if pausedPipeline {
 				nextPipelineStatus = types.PipelineStatusPaused
 			} else {
-				var stageStatuses []string
-				if err = sqlx.SelectContext(ctx, tx, &stageStatuses, `SELECT status FROM stage WHERE pipeline_id=$1 ORDER BY id`, stage.PipelineID); err != nil {
-					return nil, err
-				}
 				nextPipelineStatus = computePipelineStatus(stageStatuses)
 				if nextPipelineStatus == types.PipelineStatusRunning {
 					nextPipelineStatus = types.PipelineStatusPending
@@ -1761,11 +1789,20 @@ func loadSensitiveValuesTx(
 		WHERE pipeline_id = $1
 		  AND COALESCE(is_sensitive, false) = true
 		  AND value <> ''
+		UNION SELECT value FROM pipeline_redaction_secret WHERE pipeline_id=$1
 	`, pipelineID); err != nil {
 		return nil, err
 	}
+	var sensitiveKeys []string
+	if err := tx.SelectContext(ctx, &sensitiveKeys, `SELECT key FROM pipeline_context_item WHERE pipeline_id=$1 AND COALESCE(is_sensitive,false)=true`, pipelineID); err != nil {
+		return nil, err
+	}
+	keySet := make(map[string]bool, len(sensitiveKeys))
+	for _, key := range sensitiveKeys {
+		keySet[key] = true
+	}
 	for _, item := range incoming {
-		if item.IsSensitive && item.Value != "" {
+		if !item.IsDeleted && (item.IsSensitive || keySet[item.Key]) && item.Value != "" {
 			values = append(values, item.Value)
 		}
 	}
@@ -1773,63 +1810,7 @@ func loadSensitiveValuesTx(
 }
 
 func redactKnownValues(value string, secrets []string) string {
-	for _, secret := range secrets {
-		for _, candidate := range sensitiveValueCandidates(secret) {
-			value = strings.ReplaceAll(value, candidate, types.RedactedContextValue)
-		}
-	}
-	return value
-}
-
-func sensitiveValueCandidates(secret string) []string {
-	if secret == "" {
-		return nil
-	}
-	candidates := []string{secret}
-	var decoded string
-	if json.Unmarshal([]byte(secret), &decoded) == nil && decoded != "" && decoded != secret {
-		candidates = append(candidates, decoded)
-	}
-	return candidates
-}
-
-func (s *Store) hasFailureContinuationStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, failedStageID int) (bool, error) {
-	var exists bool
-	if err := tx.GetContext(ctx, &exists, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM stage s
-			LEFT JOIN stage_options so ON so.stage_id = s.id
-			WHERE s.pipeline_id = $1
-			  AND s.id > $2
-			  AND COALESCE(s.is_event, false) = false
-			  AND COALESCE(s.is_skipped, false) = false
-			  AND COALESCE(so.run_next_if_failed, false)
-		)
-	`, pipelineID, failedStageID); err != nil {
-		return false, err
-	}
-
-	return exists, nil
-}
-
-func (s *Store) hasPriorFailedStageTx(ctx context.Context, tx *sqlx.Tx, pipelineID int, currentStageID int) (bool, error) {
-	var exists bool
-	if err := tx.GetContext(ctx, &exists, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM stage s
-			WHERE s.pipeline_id = $1
-			  AND s.id < $2
-			  AND COALESCE(s.is_event, false) = false
-			  AND COALESCE(s.is_skipped, false) = false
-			  AND s.status = $3
-		)
-	`, pipelineID, currentStageID, types.StageStatusFailed); err != nil {
-		return false, err
-	}
-
-	return exists, nil
+	return types.RedactKnownValues(value, secrets)
 }
 
 func pickStageResultLogLevel(isSuccess bool, isWaitingForApproval bool) string {
@@ -1945,7 +1926,7 @@ func (s *Store) UpdateStageStatus(ctx context.Context, msg types.SetStageStatusM
 	}
 
 	if !isPipelineTerminalStatus(pipeline.Status.String, pipeline.IsCompleted) {
-		nextPipelineStatus := nullableStatus(&msg.Status)
+		var nextPipelineStatus string
 		switch msg.Status {
 		case types.StageStatusRunning:
 			nextPipelineStatus = types.PipelineStatusRunning

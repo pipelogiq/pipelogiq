@@ -2,9 +2,10 @@
 
 [![CI](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml/badge.svg)](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Status: Preview v0.6.0-preview.1](https://img.shields.io/badge/status-Preview%20v0.6.0--preview.1-orange)](CHANGELOG.md)
+[![Version: v0.5.0](https://img.shields.io/badge/version-v0.5.0-blue)](docs/releases/RELEASE_NOTES_v0.5.0.md)
 
-> **Preview (v0.6.0-preview.1).** Breaking changes may occur before v1.0.
+> **Version 0.5.0.** Server, .NET SDK and Java SDK share this release version.
+> Breaking changes may occur between minor versions before v1.0.
 
 Execution control plane for distributed, event-driven workflows.
 
@@ -29,7 +30,7 @@ Requires Docker and Docker Compose.
 
 ### Option A — pre-built images (fastest)
 
-No local build required. Pulls the latest images from GitHub Container Registry.
+No local build required. Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.0` images have been published; until then, build from source.
 
 ```bash
 docker network create pipelogiq 2>/dev/null || true
@@ -40,7 +41,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.6.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.5.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source
@@ -138,7 +139,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ## Compatibility
 
-Server and SDKs are versioned independently. The external API (`:8081`) provides the integration contract. See [releases](https://github.com/pipelogiq/pipelogiq/releases) for version history.
+Server and SDKs use separate repositories; the coordinated release target is `0.5.0` for all three. The external API (`:8081`) provides the integration contract. See [releases](https://github.com/pipelogiq/pipelogiq/releases) for version history.
 
 ## Documentation
 
@@ -147,6 +148,8 @@ Server and SDKs are versioned independently. The external API (`:8081`) provides
 - [Reliable Execution](docs/reliable-execution.md) — idempotent creation, retries, leases, fencing, cancellation, and upgrade guidance
 - [HTTP Workers](docs/http-workers.md) — pull, lease, and report stage results over HTTP without a broker connection
 - [Schedules](docs/schedules.md) — cron, interval, and one-shot triggers, overlap and catch-up policies, DST behaviour
+- [Users and Access](docs/user-management.md) — account management, roles, application access, and upgrade steps
+- [User Activity Audit](docs/audit.md) — recorded operations, actor/action filters, bulk outcomes, pagination, and upgrade steps
 - [Licensing](docs/licensing.md) — what is free, what is Pro, and the three guarantees a licence carries
 - [Insurance Workflow Capability Audit](docs/insurance-workflow-capability-audit.md) — critical-workflow guarantees, gaps, and consumer obligations
 - [External OpenAPI](docs/openapi.external.yaml) — SDK-facing API contract
@@ -163,7 +166,7 @@ temporary PostgreSQL instance with
 
 ## Releases
 
-This project uses [Semantic Versioning](https://semver.org/). Preview releases (v0.x) may include breaking changes between minor versions.
+This project uses [Semantic Versioning](https://semver.org/). Releases before v1.0 may include breaking changes between minor versions. Only versions with a suffix such as `-preview.N` or `-rc.N` are prereleases.
 
 See [CHANGELOG.md](CHANGELOG.md) for version history and [RELEASE.md](RELEASE.md) for the release process.
 

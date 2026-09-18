@@ -1,6 +1,7 @@
 package api
 
 import (
+	"net"
 	"sync"
 	"time"
 )
@@ -24,6 +25,14 @@ func newLoginLimiter(window time.Duration, perIP, perEmail int) *loginLimiter {
 // allow records an attempt and reports whether it may proceed. When refused, the
 // second value is how long the caller should wait.
 func (l *loginLimiter) allow(ip, email string) (bool, time.Duration) {
+	// net/http includes the source port in RemoteAddr. A new TCP connection
+	// must not create a fresh budget for the same client address.
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	if parsed := net.ParseIP(ip); parsed != nil {
+		ip = parsed.String()
+	}
 	now := time.Now()
 	l.mu.Lock()
 	defer l.mu.Unlock()

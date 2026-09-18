@@ -611,7 +611,8 @@ func setupStageOpsTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		created_at TIMESTAMP NULL,
 		stage_id INTEGER NOT NULL
 	);
-	CREATE TABLE pipeline_context_item (
+	CREATE TABLE pipeline_redaction_secret (pipeline_id INTEGER NOT NULL, value TEXT NOT NULL);
+CREATE TABLE pipeline_context_item (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		key TEXT NOT NULL,
 		value TEXT NOT NULL,
@@ -701,5 +702,136 @@ func insertStageRetryOptions(t *testing.T, db *sqlx.DB, stageID int, maxRetries 
 		VALUES ($1, $2, $3)
 	`, stageID, maxRetries, retryIntervalSeconds); err != nil {
 		t.Fatalf("insert retry stage option: %v", err)
+	}
+}
+
+func TestResumeAgentApproval_RejectionMakesSafeContinuationRunnable(t *testing.T) {
+	for _, mode := range []string{"react", "plan"} {
+		t.Run(mode, func(t *testing.T) {
+			st, db := setupStageOpsTestStore(t)
+			pipelineID := insertPipelineRow(t, db, "reject-"+mode, types.PipelineStatusRunning, false)
+			confirmation := insertStageRow(t, db, pipelineID, "agent:confirmation", types.StageStatusWaitingApproval)
+			if _, err := db.Exec(`UPDATE stage SET stage_handler_name='AgentConfirmationHandler' WHERE id=$1`, confirmation); err != nil {
+				t.Fatal(err)
+			}
+			var skipped []int
+			if mode == "plan" {
+				for i := 0; i < 2; i++ {
+					id := insertStageRow(t, db, pipelineID, "agent:tool:write", types.StageStatusNotStarted)
+					if _, err := db.Exec(`UPDATE stage SET stage_handler_name='AgentToolHandler' WHERE id=$1`, id); err != nil {
+						t.Fatal(err)
+					}
+					skipped = append(skipped, id)
+				}
+			}
+			handler := "AgentThinkHandler"
+			if mode == "plan" {
+				handler = "AgentResponderHandler"
+			}
+			next := insertStageRow(t, db, pipelineID, "agent:continuation", types.StageStatusNotStarted)
+			if _, err := db.Exec(`UPDATE stage SET stage_handler_name=$1 WHERE id=$2`, handler, next); err != nil {
+				t.Fatal(err)
+			}
+			reason := "Denied by owner"
+			request := types.ResumeStageRequest{Approved: false, RejectionReason: &reason}
+			if err := st.ResumeStageApproval(context.Background(), confirmation, request, "test"); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.ResumeStageApproval(context.Background(), confirmation, request, "test"); err != nil {
+				t.Fatalf("idempotent retry: %v", err)
+			}
+			if err := st.ResumeStageApproval(context.Background(), confirmation, types.ResumeStageRequest{Approved: true}, "test"); !errors.Is(err, ErrStageResumeConflict) {
+				t.Fatalf("opposite decision must conflict: %v", err)
+			}
+			var markedSkipped bool
+			if err := db.Get(&markedSkipped, `SELECT is_skipped FROM stage WHERE id=$1`, confirmation); err != nil || !markedSkipped {
+				t.Fatalf("confirmation skip flag: %v, %v", markedSkipped, err)
+			}
+			for _, id := range append(skipped, confirmation) {
+				var status string
+				if err := db.Get(&status, `SELECT status FROM stage WHERE id=$1`, id); err != nil {
+					t.Fatal(err)
+				}
+				if status != types.StageStatusSkipped {
+					t.Fatalf("stage %d = %s", id, status)
+				}
+			}
+			work, err := st.GetStageToExecute(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if work == nil || work.StageID != next {
+				t.Fatalf("safe continuation not runnable: %#v", work)
+			}
+			var response string
+			if err := db.Get(&response, `SELECT value FROM pipeline_context_item WHERE pipeline_id=$1 AND key='agent:directAnswer'`, pipelineID); err != nil {
+				t.Fatal(err)
+			}
+			if response != `"Denied by owner"` {
+				t.Fatalf("response = %s", response)
+			}
+		})
+	}
+}
+
+func TestResumeAgentApproval_UnsafeContinuationsRollbackEntireDecision(t *testing.T) {
+	for _, scenario := range []string{"custom", "custom-event", "started-tool", "started-responder", "missing"} {
+		t.Run(scenario, func(t *testing.T) {
+			st, db := setupStageOpsTestStore(t)
+			pipelineID := insertPipelineRow(t, db, "reject-unsafe-"+scenario, types.PipelineStatusRunning, false)
+			confirmation := insertStageRow(t, db, pipelineID, "agent:confirmation", types.StageStatusWaitingApproval)
+			if _, err := db.Exec(`UPDATE stage SET stage_handler_name='AgentConfirmationHandler' WHERE id=$1`, confirmation); err != nil {
+				t.Fatal(err)
+			}
+			firstTool := insertStageRow(t, db, pipelineID, "agent:tool:first", types.StageStatusNotStarted)
+			if _, err := db.Exec(`UPDATE stage SET stage_handler_name='AgentToolHandler' WHERE id=$1`, firstTool); err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "missing" {
+				handler, status := "CustomHandler", types.StageStatusNotStarted
+				if scenario == "started-tool" {
+					handler, status = "AgentToolHandler", types.StageStatusRunning
+				}
+				if scenario == "started-responder" {
+					handler, status = "AgentResponderHandler", types.StageStatusCompleted
+				}
+				next := insertStageRow(t, db, pipelineID, "next", status)
+				if _, err := db.Exec(`UPDATE stage SET stage_handler_name=$1 WHERE id=$2`, handler, next); err != nil {
+					t.Fatal(err)
+				}
+				if scenario == "custom-event" {
+					if _, err := db.Exec(`UPDATE stage SET is_event=true WHERE id=$1`, next); err != nil {
+						t.Fatal(err)
+					}
+					responder := insertStageRow(t, db, pipelineID, "responder", types.StageStatusNotStarted)
+					if _, err := db.Exec(`UPDATE stage SET stage_handler_name='AgentResponderHandler' WHERE id=$1`, responder); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if err := st.ResumeStageApproval(context.Background(), confirmation, types.ResumeStageRequest{Approved: false}, "test"); !errors.Is(err, ErrStageResumeConflict) {
+				t.Fatalf("expected conflict, got %v", err)
+			}
+			var status string
+			if err := db.Get(&status, `SELECT status FROM stage WHERE id=$1`, confirmation); err != nil {
+				t.Fatal(err)
+			}
+			if status != types.StageStatusWaitingApproval {
+				t.Fatalf("confirmation changed despite rollback: %s", status)
+			}
+			if err := db.Get(&status, `SELECT status FROM stage WHERE id=$1`, firstTool); err != nil {
+				t.Fatal(err)
+			}
+			if status != types.StageStatusNotStarted {
+				t.Fatalf("tool skip did not roll back: %s", status)
+			}
+			var contexts int
+			if err := db.Get(&contexts, `SELECT COUNT(*) FROM pipeline_context_item WHERE pipeline_id=$1`, pipelineID); err != nil {
+				t.Fatal(err)
+			}
+			if contexts != 0 {
+				t.Fatalf("context changed despite rollback: %d", contexts)
+			}
+		})
 	}
 }

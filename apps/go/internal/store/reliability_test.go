@@ -570,23 +570,24 @@ func TestReliabilityStageLeaseFencesWorkersAndCanRecoverAfterExpiry(t *testing.T
 		t.Fatalf("expired execution was reacquired before recovery: %+v", expiredLease)
 	}
 
-	if _, err = st.UpdateStageResult(ctx, reliabilitySuccessResult(firstExecution, "expired-result")); err != nil {
-		t.Fatalf("result after lease expiry: %v", err)
-	}
-	var expiredStatus string
-	if err = db.Get(&expiredStatus, `SELECT status FROM stage WHERE id=$1`, stageID); err != nil {
-		t.Fatalf("load expired stage status: %v", err)
-	}
-	if expiredStatus != types.StageStatusRunning || reliabilityStageOutput(t, db, stageID) != "" {
-		t.Fatalf("expired result was accepted: status=%q", expiredStatus)
-	}
-
 	recovered, err := st.RecoverExpiredStageLeases(ctx)
 	if err != nil {
 		t.Fatalf("RecoverExpiredStageLeases: %v", err)
 	}
 	if recovered != 1 {
 		t.Fatalf("expired leases recovered = %d, want 1", recovered)
+	}
+	// Recovery wins the race with result consumption. Even before another
+	// attempt is dispatched, the old execution must no longer write a result.
+	response, err := st.UpdateStageResult(ctx, reliabilitySuccessResult(firstExecution, "recovered-result"))
+	if err != nil {
+		t.Fatalf("result after recovery: %v", err)
+	}
+	if got := reliabilityOnlyStage(t, response).Status; got != types.StageStatusNotStarted {
+		t.Fatalf("recovered result changed status to %q", got)
+	}
+	if got := reliabilityStageOutput(t, db, stageID); got != "" {
+		t.Fatalf("recovered result wrote output %q", got)
 	}
 
 	secondExecution := reliabilitySchedule(t, st)
@@ -620,6 +621,9 @@ func TestReliabilityStageLeaseFencesWorkersAndCanRecoverAfterExpiry(t *testing.T
 	}
 	if status != types.StageStatusRunning {
 		t.Fatalf("late expired result changed status to %q", status)
+	}
+	if got := reliabilityStageOutput(t, db, stageID); got != "" {
+		t.Fatalf("late expired result wrote output %q", got)
 	}
 
 	if _, err = st.UpdateStageResult(ctx, reliabilitySuccessResult(secondExecution, "confirmed")); err != nil {

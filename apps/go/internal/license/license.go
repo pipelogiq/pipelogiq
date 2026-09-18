@@ -176,7 +176,7 @@ func Verify(token string, now time.Time) (Status, error) {
 		return Community("licence has no expiry"), ErrInvalidToken
 	}
 
-	expiresAt := parsed.ExpiresAt.Time.UTC()
+	expiresAt := parsed.ExpiresAt.UTC()
 	status := Status{
 		Tier:      tier,
 		Licensed:  true,
@@ -186,7 +186,7 @@ func Verify(token string, now time.Time) (Status, error) {
 		ExpiresAt: &expiresAt,
 	}
 	if parsed.IssuedAt != nil {
-		issuedAt := parsed.IssuedAt.Time.UTC()
+		issuedAt := parsed.IssuedAt.UTC()
 		status.IssuedAt = &issuedAt
 	}
 	if status.Features == nil {

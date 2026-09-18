@@ -480,9 +480,10 @@ func (s *Store) UpdateWorkerHeartbeat(ctx context.Context, token string, req typ
 	statusChanged := strings.TrimSpace(snapshot.StatusReason.String) != statusReason || strings.TrimSpace(snapshot.LastError.String) != lastError
 	if stateChanged {
 		level := "INFO"
-		if nextState == types.WorkerStateDegraded {
+		switch nextState {
+		case types.WorkerStateDegraded:
 			level = "WARN"
-		} else if nextState == types.WorkerStateError {
+		case types.WorkerStateError:
 			level = "ERROR"
 		}
 		if err = insertWorkerEventTx(ctx, tx, workerID, now, level, "worker.state_changed",
@@ -525,9 +526,10 @@ func (s *Store) UpdateWorkerHeartbeat(ctx context.Context, token string, req typ
 	}
 	if stateChanged {
 		level := "INFO"
-		if nextState == types.WorkerStateDegraded {
+		switch nextState {
+		case types.WorkerStateDegraded:
 			level = "WARN"
-		} else if nextState == types.WorkerStateError {
+		case types.WorkerStateError:
 			level = "ERROR"
 		}
 		s.emitWorkerAlert(WorkerAlertEvent{
@@ -745,23 +747,23 @@ func (s *Store) ListWorkers(ctx context.Context, req types.WorkerListRequest) ([
 	queryBuilder.WriteString(applicationScopeClause("wc.application_id", req.ApplicationIDs, &args))
 	if req.ApplicationID != nil && *req.ApplicationID > 0 {
 		args = append(args, *req.ApplicationID)
-		queryBuilder.WriteString(fmt.Sprintf(" AND wc.application_id = $%d", len(args)))
+		fmt.Fprintf(&queryBuilder, " AND wc.application_id = $%d", len(args))
 	}
 	if req.State != nil && strings.TrimSpace(*req.State) != "" {
 		args = append(args, strings.TrimSpace(*req.State))
-		queryBuilder.WriteString(fmt.Sprintf(" AND wc.state = $%d", len(args)))
+		fmt.Fprintf(&queryBuilder, " AND wc.state = $%d", len(args))
 	}
 	if req.Search != nil && strings.TrimSpace(*req.Search) != "" {
 		search := "%" + strings.ToLower(strings.TrimSpace(*req.Search)) + "%"
 		args = append(args, search)
-		queryBuilder.WriteString(fmt.Sprintf(
+		fmt.Fprintf(&queryBuilder,
 			" AND (LOWER(wc.worker_name) LIKE $%d OR LOWER(wc.instance_id) LIKE $%d OR LOWER(COALESCE(wc.host_name, '')) LIKE $%d)",
 			len(args), len(args), len(args),
-		))
+		)
 	}
 
 	args = append(args, limit)
-	queryBuilder.WriteString(fmt.Sprintf(" ORDER BY wc.last_seen_at DESC LIMIT $%d", len(args)))
+	fmt.Fprintf(&queryBuilder, " ORDER BY wc.last_seen_at DESC LIMIT $%d", len(args))
 
 	rows := []workerClientSnapshot{}
 	if err := s.db.SelectContext(ctx, &rows, queryBuilder.String(), args...); err != nil {
@@ -811,15 +813,15 @@ func (s *Store) ListWorkerEvents(ctx context.Context, req types.WorkerEventListR
 	args := make([]any, 0, 3)
 	if req.WorkerID != nil && strings.TrimSpace(*req.WorkerID) != "" {
 		args = append(args, strings.TrimSpace(*req.WorkerID))
-		queryBuilder.WriteString(fmt.Sprintf(" AND we.worker_id = $%d", len(args)))
+		fmt.Fprintf(&queryBuilder, " AND we.worker_id = $%d", len(args))
 	}
 	queryBuilder.WriteString(applicationScopeClause("wc.application_id", req.ApplicationIDs, &args))
 	if req.ApplicationID != nil && *req.ApplicationID > 0 {
 		args = append(args, *req.ApplicationID)
-		queryBuilder.WriteString(fmt.Sprintf(" AND wc.application_id = $%d", len(args)))
+		fmt.Fprintf(&queryBuilder, " AND wc.application_id = $%d", len(args))
 	}
 	args = append(args, limit)
-	queryBuilder.WriteString(fmt.Sprintf(" ORDER BY we.ts DESC LIMIT $%d", len(args)))
+	fmt.Fprintf(&queryBuilder, " ORDER BY we.ts DESC LIMIT $%d", len(args))
 
 	type workerEventRow struct {
 		ID              int64     `db:"id"`

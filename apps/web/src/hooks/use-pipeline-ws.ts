@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { PipelineResponse } from '@/types/api';
 import type { ObservabilityConfig } from '@/types/observability';
 import type { PipelineExecution } from '@/components/pipelines/PipelineDetailPanel';
+import { useAuth } from '@/contexts/AuthContext';
 import {
   mapPipelineToExecution,
   getTraceLinkTemplateFromConfig,
@@ -34,6 +35,7 @@ const LIST_REFETCH_MIN_MS = 1000;
 
 export function usePipelineWebSocket() {
   const queryClient = useQueryClient();
+  const { isAdmin, user } = useAuth();
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelay = useRef(RECONNECT_BASE_MS);
@@ -43,12 +45,14 @@ export function usePipelineWebSocket() {
 
   useEffect(() => {
     let unmounted = false;
-    const cachedConfig = queryClient.getQueryData<ObservabilityConfig>(['observability', 'config']);
+    const cachedConfig = isAdmin
+      ? queryClient.getQueryData<ObservabilityConfig>(['observability', 'config'])
+      : undefined;
     linkTemplatesRef.current = {
       traceLinkTemplate: getTraceLinkTemplateFromConfig(cachedConfig),
       logsLinkTemplate: getLogsLinkTemplateFromConfig(cachedConfig),
     };
-    void resolveObservabilityConfig(queryClient).then((config) => {
+    if (isAdmin) void resolveObservabilityConfig(queryClient).then((config) => {
       if (!unmounted) {
         linkTemplatesRef.current = {
           traceLinkTemplate: getTraceLinkTemplateFromConfig(config),
@@ -69,6 +73,7 @@ export function usePipelineWebSocket() {
       };
 
       ws.onmessage = (event) => {
+        if (unmounted) return;
         try {
           const parsed = JSON.parse(event.data) as unknown;
 
@@ -92,10 +97,10 @@ export function usePipelineWebSocket() {
 
           const execution = mapPipelineToExecution(raw, linkTemplatesRef.current);
           const previousDetail = queryClient.getQueryData<PipelineExecution>(['pipeline', pipelineId]);
-          if (!execution.traceUrl && previousDetail?.traceUrl) {
+          if (isAdmin && !execution.traceUrl && previousDetail?.traceUrl) {
             execution.traceUrl = previousDetail.traceUrl;
           }
-          if (!execution.logTraceUrl && previousDetail?.logTraceUrl) {
+          if (isAdmin && !execution.logTraceUrl && previousDetail?.logTraceUrl) {
             execution.logTraceUrl = previousDetail.logTraceUrl;
           }
 
@@ -116,8 +121,8 @@ export function usePipelineWebSocket() {
               const previousListItem = old.items[idx];
               items[idx] = {
                 ...execution,
-                traceUrl: execution.traceUrl || previousListItem?.traceUrl || '',
-                logTraceUrl: execution.logTraceUrl || previousListItem?.logTraceUrl || '',
+                traceUrl: execution.traceUrl || (isAdmin && previousListItem?.traceUrl) || '',
+                logTraceUrl: execution.logTraceUrl || (isAdmin && previousListItem?.logTraceUrl) || '',
               };
               return { ...old, items };
             },
@@ -173,5 +178,5 @@ export function usePipelineWebSocket() {
         wsRef.current.close();
       }
     };
-  }, [queryClient]);
+  }, [isAdmin, user?.id, queryClient]);
 }

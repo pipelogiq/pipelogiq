@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -93,6 +92,11 @@ func (s *ExternalServer) handleUpsertSchedule(w http.ResponseWriter, r *http.Req
 	}
 
 	stored, created, err := s.store.UpsertSchedule(ctx, appID, upsert)
+	if errors.Is(err, store.ErrScheduleRedactedDefinition) {
+		writeProblemJSON(w, r, http.StatusBadRequest, problemTypeValidation,
+			"Validation failed", "Cannot apply redacted schedule values", map[string][]string{"definition": {err.Error()}})
+		return
+	}
 	if err != nil {
 		s.logger.Error("upsert schedule failed", "applicationId", appID, "name", name, "err", err)
 		writeProblemJSON(w, r, http.StatusInternalServerError, problemTypeInternal,
@@ -443,7 +447,7 @@ func buildScheduleUpsert(
 		return store.ScheduleUpsert{}, fieldErrors
 	}
 
-	definitionJSON, err := json.Marshal(req.Definition)
+	definitionJSON, err := types.MarshalScheduleDefinition(req.Definition)
 	if err != nil {
 		addValidationError(fieldErrors, "definition", "definition could not be serialised")
 		return store.ScheduleUpsert{}, fieldErrors

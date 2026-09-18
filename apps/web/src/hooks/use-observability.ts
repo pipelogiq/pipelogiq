@@ -28,8 +28,8 @@ const SUPPORTED_INTEGRATION_TYPES = new Set(Object.keys(INTEGRATION_META));
 export function useObservabilityConfig() {
   return useQuery({
     queryKey: ['observability', 'config'],
-    queryFn: async (): Promise<ObservabilityConfig> => {
-      const config = await observabilityApi.getConfig();
+    queryFn: async ({ signal }): Promise<ObservabilityConfig> => {
+      const config = await observabilityApi.getConfig(signal);
       // Backend DTO omits name/description/icon — merge static metadata in
       return {
         ...config,

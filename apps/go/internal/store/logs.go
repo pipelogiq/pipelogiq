@@ -44,7 +44,15 @@ func (s *Store) GetStageLogs(ctx context.Context, pipelineID int, stageID *int) 
 		return nil, err
 	}
 
-	return logs, nil
+	items, err := s.GetPipelineContext(ctx, pipelineID)
+	if err != nil {
+		return nil, err
+	}
+	history, err := s.getRedactionHistory(ctx, []int{pipelineID})
+	if err != nil {
+		return nil, err
+	}
+	return types.RedactStageLogs(logs, append(items, history[pipelineID]...)), nil
 }
 
 func (s *Store) SaveLog(ctx context.Context, req types.LogRequest) (*types.LogResponse, error) {
@@ -205,19 +213,30 @@ func (s *Store) GetLogsByAppID(ctx context.Context, appID int) ([]types.LogRespo
 	return logs, nil
 }
 
-func (s *Store) GetKeywords(ctx context.Context, search *string) ([]string, error) {
-	var keywords []string
-	var query string
-	var args []interface{}
-
-	if search != nil && *search != "" {
-		query = `SELECT DISTINCT key FROM keyword WHERE key ILIKE $1 ORDER BY key LIMIT 100`
-		args = []interface{}{"%" + *search + "%"}
-	} else {
-		query = `SELECT DISTINCT key FROM keyword ORDER BY key LIMIT 100`
+func (s *Store) GetKeywords(ctx context.Context, applicationIDs []int, search *string) ([]string, error) {
+	keywords := []string{}
+	if len(applicationIDs) == 0 {
+		return keywords, nil
 	}
-
-	err := s.db.SelectContext(ctx, &keywords, query, args...)
+	// Keyword rows are shared globally; only suggest keys actually linked to
+	// a pipeline or application log within the caller's membership.
+	query := `SELECT DISTINCT k.key FROM keyword k WHERE (
+		EXISTS (SELECT 1 FROM pipeline_keyword pk JOIN pipeline p ON p.id=pk.pipeline_id
+			WHERE pk.keyword_id=k.id AND p.application_id IN (?))
+		OR EXISTS (SELECT 1 FROM log_keyword lk JOIN log l ON l.id=lk.log_id
+			WHERE lk.keyword_id=k.id AND l.application_id IN (?))
+	)`
+	args := []any{applicationIDs, applicationIDs}
+	if search != nil && *search != "" {
+		query += ` AND LOWER(k.key) LIKE LOWER(?)`
+		args = append(args, "%"+*search+"%")
+	}
+	query += ` ORDER BY k.key LIMIT 100`
+	query, args, err := sqlx.In(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	err = s.db.SelectContext(ctx, &keywords, s.db.Rebind(query), args...)
 	if err != nil {
 		return nil, err
 	}

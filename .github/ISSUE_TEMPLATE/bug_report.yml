@@ -7,7 +7,7 @@ body:
     attributes:
       label: Version
       description: "Pipelogiq version (run `curl localhost:8080/version` or check git tag)"
-      placeholder: "v0.1.0"
+      placeholder: "v0.5.0"
     validations:
       required: true
 

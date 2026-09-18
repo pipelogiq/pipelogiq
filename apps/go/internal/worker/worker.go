@@ -187,12 +187,18 @@ func (w *Worker) withRecover(ctx context.Context, name string, fn func(context.C
 
 func (w *Worker) runMetricsServer(ctx context.Context) {
 	srv := &http.Server{
-		Addr:    w.cfg.MetricsAddr,
-		Handler: promhttp.Handler(),
+		Addr:              w.cfg.MetricsAddr,
+		Handler:           promhttp.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			w.logger.Warn("metrics server graceful shutdown failed", "err", err)
+			_ = srv.Close()
+		}
 	}()
 	w.logger.Info("metrics server listening", "addr", w.cfg.MetricsAddr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

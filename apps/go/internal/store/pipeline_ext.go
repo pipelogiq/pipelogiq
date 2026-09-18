@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -30,6 +31,9 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		pageSize = *req.PageSize
 	}
 
+	if pageSize > 1000 {
+		pageSize = 1000
+	}
 	offset := (pageNumber - 1) * pageSize
 
 	// Build WHERE clause
@@ -174,6 +178,36 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		`, strings.Join(keywordPlaceholders, ",")))
 	}
 
+	// Tag values retain legacy policy semantics; labels select an exact key/value pair.
+	for _, tag := range req.Tags {
+		conditions = append(conditions, fmt.Sprintf(`EXISTS (SELECT 1 FROM pipeline_keyword pk JOIN keyword k ON k.id=pk.keyword_id WHERE pk.pipeline_id=p.id AND LOWER(k.value)=LOWER($%d))`, argNum))
+		args = append(args, tag)
+		argNum++
+	}
+	for _, label := range req.Labels {
+		conditions = append(conditions, fmt.Sprintf(`EXISTS (SELECT 1 FROM pipeline_keyword pk JOIN keyword k ON k.id=pk.keyword_id WHERE pk.pipeline_id=p.id AND LOWER(k.key)=LOWER($%d) AND LOWER(k.value)=LOWER($%d))`, argNum, argNum+1))
+		args = append(args, label.Key, label.Value)
+		argNum += 2
+	}
+	for _, filter := range req.ContextFilters {
+		conditions = append(conditions, fmt.Sprintf(`EXISTS (SELECT 1 FROM pipeline_context_item pci WHERE pci.pipeline_id=p.id AND LOWER(pci.key)=LOWER($%d) AND COALESCE(pci.is_sensitive,false)=false AND LOWER(pci.value) LIKE LOWER($%d) ESCAPE '\')`, argNum, argNum+1))
+		pattern := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(filter.Value)
+		args = append(args, filter.Key, "%"+pattern+"%")
+		argNum += 2
+	}
+	for _, filter := range []struct {
+		Keys  string
+		Value *string
+	}{{"'environment','env'", req.Environment}, {"'owner'", req.Owner}} {
+		if filter.Value == nil {
+			continue
+		}
+		encoded, _ := json.Marshal(*filter.Value)
+		conditions = append(conditions, fmt.Sprintf(`EXISTS (SELECT 1 FROM pipeline_context_item pci WHERE pci.pipeline_id=p.id AND LOWER(pci.key) IN (%s) AND COALESCE(pci.is_sensitive,false)=false AND LOWER(pci.value) IN (LOWER($%d),LOWER($%d)))`, filter.Keys, argNum, argNum+1))
+		args = append(args, *filter.Value, string(encoded))
+		argNum += 2
+	}
+
 	withClause := ""
 	if len(ctes) > 0 {
 		withClause = "WITH " + strings.Join(ctes, ",\n") + "\n"
@@ -203,7 +237,7 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		       COALESCE(p.idempotency_key, '') AS idempotency_key, %s
 		FROM pipeline p
 		WHERE %s
-		ORDER BY p.created_at DESC
+		ORDER BY p.created_at DESC, p.id DESC
 		LIMIT $%d OFFSET $%d
 	`, withClause, totalCountSelect, whereClause, argNum, argNum+1)
 
@@ -276,7 +310,12 @@ func (s *Store) GetPipelines(ctx context.Context, req types.GetPipelinesRequest)
 		if err != nil {
 			return nil, fmt.Errorf("load pipeline keywords: %w", err)
 		}
+		history, err := s.getRedactionHistory(ctx, pipelineIDs)
+		if err != nil {
+			return nil, err
+		}
 		for i := range pipelines {
+			pipelines[i].RedactionContext = history[pipelines[i].ID]
 			stages := stagesByPipeline[pipelines[i].ID]
 			if stages == nil {
 				stages = []types.StageResponse{}
@@ -561,16 +600,6 @@ func (s *Store) GetStagesForPipelines(ctx context.Context, pipelineIDs []int) (m
 	}
 
 	return result, nil
-}
-
-func parseQueryInt(value string) *int {
-	if value == "" {
-		return nil
-	}
-	if i, err := strconv.Atoi(value); err == nil {
-		return &i
-	}
-	return nil
 }
 
 func (s *Store) PausePipeline(ctx context.Context, pipelineID int) error {

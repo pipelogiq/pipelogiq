@@ -29,6 +29,8 @@ func (h *Handler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	success := false
+	defer func() { h.observeAudit(r, AuditActionConfigure, request.Type, success) }()
 
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -38,6 +40,7 @@ func (h *Handler) SaveConfig(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	success = true
 
 	writeJSON(w, response, http.StatusOK)
 }
@@ -48,6 +51,8 @@ func (h *Handler) DeleteConfig(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, &service.AppError{Code: "invalid_payload", Message: "Integration type is required"})
 		return
 	}
+	success := false
+	defer func() { h.observeAudit(r, AuditActionDelete, integrationType, success) }()
 
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
 	defer cancel()
@@ -56,6 +61,7 @@ func (h *Handler) DeleteConfig(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	success = true
 
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -194,7 +194,8 @@ func setupStageTimeoutTestStore(t *testing.T) (*Store, *sqlx.DB) {
 		created_at TIMESTAMP NULL,
 		stage_id INTEGER NOT NULL
 	);
-	CREATE TABLE pipeline_context_item (
+	CREATE TABLE pipeline_redaction_secret (pipeline_id INTEGER NOT NULL, value TEXT NOT NULL);
+CREATE TABLE pipeline_context_item (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		key TEXT NOT NULL,
 		value TEXT NOT NULL,

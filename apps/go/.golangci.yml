@@ -1,16 +1,17 @@
 # A deliberately small, high-signal set. Broaden it once the baseline is green
 # rather than starting with a wall of findings nobody reads.
+version: "2"
+
 run:
   timeout: 5m
   build-tags:
     - pro
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - govet
     - staticcheck
-    - gosimple
     - unused
     - ineffassign
     - errcheck
@@ -18,25 +19,37 @@ linters:
     - bodyclose
     - misspell
 
-linters-settings:
-  errcheck:
-    # Deliberate fire-and-forget writes are annotated with `_ =` in this codebase;
-    # these are the few calls where an unchecked error is conventional.
-    exclude-functions:
-      - (net/http.ResponseWriter).Write
-      - (*database/sql.Tx).Rollback
-      - (*github.com/jmoiron/sqlx.Tx).Rollback
-  gosec:
-    excludes:
-      - G404 # math/rand for jitter is fine; crypto/rand is used for secrets
-      - G115 # integer conversions are bounds-checked where they matter
+  settings:
+    errcheck:
+      # Deliberate fire-and-forget writes are annotated with `_ =` in this codebase;
+      # these are the few calls where an unchecked error is conventional.
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*database/sql.Tx).Rollback
+        - (*github.com/jmoiron/sqlx.Tx).Rollback
+    gosec:
+      excludes:
+        - G404 # math/rand for jitter is fine; crypto/rand is used for secrets
+        - G115 # integer conversions are bounds-checked where they matter
+  exclusions:
+    # Preserve the generated-code and default exclusions used by v1.
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+          - gosec
+          - bodyclose
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 
 issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
-        - bodyclose
   max-issues-per-linter: 0
   max-same-issues: 0

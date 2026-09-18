@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
   pull_request:
@@ -14,7 +15,18 @@ jobs:
     name: Repository hygiene
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Reject credentials, binaries and generated source
+        run: python3 scripts/check-repository.py
+      - name: Security guard regressions
+        run: python3 -m unittest discover -s scripts -p 'test_repository_guards.py' -v
+      - name: Scan source and Git history for secrets
+        run: |
+          python3 scripts/check-secrets.py
+          python3 scripts/check-secrets.py --history
       - name: No local paths or assistant prompts in public docs
         run: |
           set -e
@@ -31,6 +43,16 @@ jobs:
         run: ./scripts/check-openapi-routes.sh
       - name: Version references agree
         run: ./scripts/check-versions.sh
+      - name: Version guard regressions
+        run: python3 -m unittest discover -s scripts -p 'test_check_versions.py' -v
+      - name: Validate deployment configurations
+        env:
+          JWT_SECRET: ci-validation-secret-not-used-for-deployment
+        run: |
+          set -euo pipefail
+          for variant in registry build app worker; do
+            docker compose --env-file /dev/null -f "infra/compose/docker-compose.${variant}.yml" config --quiet
+          done
 
   go:
     name: Go
@@ -39,11 +61,12 @@ jobs:
       run:
         working-directory: apps/go
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: apps/go/go.mod
+          cache-dependency-path: apps/go/go.sum
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
@@ -55,9 +78,9 @@ jobs:
         run: go test -race ./...
 
       - name: Static analysis
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v1.61
+          version: v2.13.2
           working-directory: apps/go
           args: --timeout=5m
 
@@ -65,6 +88,7 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@latest
           govulncheck ./...
+          govulncheck -tags pro ./...
 
       # The open repository must build and pass its tests with no private code
       # present. This is the build anyone cloning the repository gets, and the
@@ -98,23 +122,27 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: apps/go/go.mod
+          cache-dependency-path: apps/go/go.sum
 
       # The schema comes from the same changelog production applies, so a
       # changeset that only works on SQLite cannot pass here.
+      - name: Build the release migration image
+        run: docker build -f infra/docker/Dockerfile.migrate -t pipelogiq-migrate-test .
+
       - name: Apply the Liquibase changelog
         run: |
-          docker run --rm --network host -v "$PWD/database:/liquibase/database" liquibase/liquibase:4.25 \
+          docker run --rm --network host pipelogiq-migrate-test \
             --url="jdbc:postgresql://localhost:5432/plq" --username=plq --password=plq \
             --searchPath=/liquibase --changeLogFile=database/changelog.xml update
 
       - name: Re-apply (idempotency)
         run: |
-          out=$(docker run --rm --network host -v "$PWD/database:/liquibase/database" liquibase/liquibase:4.25 \
+          out=$(docker run --rm --network host pipelogiq-migrate-test \
             --url="jdbc:postgresql://localhost:5432/plq" --username=plq --password=plq \
             --searchPath=/liquibase --changeLogFile=database/changelog.xml update 2>&1)
           echo "$out" | grep -E "^Run: +0$" || { echo "$out"; echo "::error::changelog is not idempotent" >&2; exit 1; }
@@ -123,7 +151,17 @@ jobs:
         working-directory: apps/go
         env:
           PIPELOGIQ_TEST_DATABASE_URL: postgres://plq:plq@localhost:5432/plq?sslmode=disable
-        run: go test -tags integration ./internal/store/ -run TestPostgres_ -count=1 -v
+        run: go test -race -tags integration ./internal/store/ -run Postgres -count=1 -v
+
+      - name: User management upgrade regression
+        env:
+          LIQUIBASE_IMAGE: pipelogiq-migrate-test
+        run: sh database/test-user-management-upgrade.sh
+
+      - name: Reliability upgrade regression
+        env:
+          LIQUIBASE_IMAGE: pipelogiq-migrate-test
+        run: sh database/test-reliability-upgrade.sh
 
   web:
     name: Web
@@ -132,18 +170,18 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
       - run: npm ci
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
 
       - name: Lint
         run: npm run lint
@@ -164,14 +202,15 @@ jobs:
           - infra/docker/Dockerfile.worker
           - infra/docker/Dockerfile.migrate
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build image
         run: docker build -f ${{ matrix.dockerfile }} -t pipelogiq-ci:${{ strategy.job-index }} .
 
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
+          version: v0.74.0
           image-ref: pipelogiq-ci:${{ strategy.job-index }}
           severity: CRITICAL,HIGH
           exit-code: "1"

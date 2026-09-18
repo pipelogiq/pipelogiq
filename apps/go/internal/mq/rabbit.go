@@ -44,6 +44,15 @@ type Client struct {
 	conn                       *amqp.Connection
 	topologyBypass             sync.Map
 	retryPublishChannelFactory func(context.Context) (confirmPublishingChannel, error)
+	consumeChannelFactory      func(context.Context, string, QueueOptions) (consumingChannel, error)
+}
+
+type consumingChannel interface {
+	Qos(prefetchCount, prefetchSize int, global bool) error
+	Consume(queue, consumer string, autoAck, exclusive, noLocal, noWait bool, args amqp.Table) (<-chan amqp.Delivery, error)
+	NotifyClose(chan *amqp.Error) chan *amqp.Error
+	Cancel(consumer string, noWait bool) error
+	Close() error
 }
 
 type confirmPublishingChannel interface {
@@ -141,7 +150,7 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 			return ctx.Err()
 		}
 
-		ch, err := c.channelForQueue(ctx, queue, opts.QueueOptions)
+		ch, err := c.openConsumerChannel(ctx, queue, opts.QueueOptions)
 		if err != nil {
 			c.logger.Error("rabbitmq: failed to open channel", "err", err)
 			time.Sleep(time.Second)
@@ -154,7 +163,8 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 			}
 		}
 
-		deliveries, err := ch.Consume(queue, "", false, false, false, false, nil)
+		consumerTag := uuid.NewString()
+		deliveries, err := ch.Consume(queue, consumerTag, false, false, false, false, nil)
 		if err != nil {
 			ch.Close()
 			c.logger.Error("rabbitmq: consume failed", "queue", queue, "err", err)
@@ -219,7 +229,9 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 				goto reconnect
 			case <-ctx.Done():
 				c.logger.Info("rabbitmq: stopping consumer", "queue", queue)
-				ch.Cancel("", false)
+				if err := ch.Cancel(consumerTag, false); err != nil && !errors.Is(err, amqp.ErrClosed) {
+					c.logger.Warn("rabbitmq: cancel consumer failed", "queue", queue, "err", err)
+				}
 				ch.Close()
 				return ctx.Err()
 			}
@@ -229,6 +241,13 @@ func (c *Client) Consume(ctx context.Context, queue string, opts ConsumeOptions,
 		ch.Close()
 		time.Sleep(time.Second)
 	}
+}
+
+func (c *Client) openConsumerChannel(ctx context.Context, queue string, opts QueueOptions) (consumingChannel, error) {
+	if c.consumeChannelFactory != nil {
+		return c.consumeChannelFactory(ctx, queue, opts)
+	}
+	return c.channelForQueue(ctx, queue, opts)
 }
 
 func drainDeliveries(deliveries <-chan amqp.Delivery) {
@@ -599,11 +618,12 @@ func declareRawQueue(ch *amqp.Channel, name string, durable, autoDelete bool, ar
 }
 
 func inspectQueueTopology(ch *amqp.Channel, name string, opts QueueOptions) error {
-	if _, err := ch.QueueInspect(name); err != nil {
+	// Match QueueInspect's wire flags: verify existence without asserting queue properties.
+	if _, err := ch.QueueDeclarePassive(name, false, false, false, false, nil); err != nil {
 		return err
 	}
 	if opts.DLQEnabled {
-		if _, err := ch.QueueInspect(retryQueueName(name)); err != nil {
+		if _, err := ch.QueueDeclarePassive(retryQueueName(name), false, false, false, false, nil); err != nil {
 			return err
 		}
 	}

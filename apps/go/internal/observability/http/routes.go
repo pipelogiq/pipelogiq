@@ -21,9 +21,28 @@ const (
 )
 
 type Handler struct {
-	service service.Interface
-	logger  *slog.Logger
+	service       service.Interface
+	logger        *slog.Logger
+	auditObserver AuditObserver
 }
+
+type AuditAction string
+
+const (
+	AuditActionConfigure AuditAction = "observability.configure"
+	AuditActionDelete    AuditAction = "observability.delete"
+	AuditActionTest      AuditAction = "observability.test"
+)
+
+// AuditEvent deliberately excludes configuration, connection messages, and
+// backend errors, any of which may contain credentials.
+type AuditEvent struct {
+	Action          AuditAction
+	IntegrationType model.IntegrationType
+	Success         bool
+}
+
+type AuditObserver func(*http.Request, AuditEvent)
 
 func NewHandler(observabilityService service.Interface, logger *slog.Logger) *Handler {
 	if logger == nil {
@@ -34,6 +53,22 @@ func NewHandler(observabilityService service.Interface, logger *slog.Logger) *Ha
 		service: observabilityService,
 		logger:  logger,
 	}
+}
+
+// SetAuditObserver configures the operation observer before serving requests.
+func (h *Handler) SetAuditObserver(observer AuditObserver) {
+	h.auditObserver = observer
+}
+
+func (h *Handler) observeAudit(r *http.Request, action AuditAction, rawType string, success bool) {
+	if h.auditObserver == nil {
+		return
+	}
+	integrationType, valid := model.ParseIntegrationType(rawType)
+	if !valid {
+		return
+	}
+	h.auditObserver(r, AuditEvent{Action: action, IntegrationType: integrationType, Success: success})
 }
 
 func RegisterRoutes(r chi.Router, handler *Handler) {

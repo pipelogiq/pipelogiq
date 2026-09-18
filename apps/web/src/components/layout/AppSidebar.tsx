@@ -2,8 +2,6 @@ import { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
-  History,
-  ScrollText,
   LayoutDashboard,
   Workflow,
   CalendarClock,
@@ -22,14 +20,12 @@ import { systemApi } from "@/api/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navigation = [
-  { name: "Dashboard", href: "/", icon: LayoutDashboard },
+  { name: "Dashboard", adminOnly: true, href: "/", icon: LayoutDashboard },
   { name: "Pipelines", href: "/pipelines", icon: Workflow },
   { name: "Schedules", href: "/schedules", icon: CalendarClock },
-  { name: "Executions", href: "/executions", icon: History },
   { name: "Action Policies", adminOnly: true, href: "/action-policies", icon: Shield },
   { name: "Observability", adminOnly: true, href: "/observability", icon: Activity },
   { name: "Settings", adminOnly: true, href: "/settings", icon: Settings },
-  { name: "Audit", adminOnly: true, href: "/audit", icon: ScrollText },
 ];
 
 function resolveEnvironmentName(): string {
@@ -103,6 +99,7 @@ export function AppSidebar() {
             <NavLink
               key={item.name}
               to={item.href}
+              aria-label={item.name}
               className={cn(
                 "group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all",
                 isActive

@@ -146,10 +146,10 @@ func TestAdminMutationsAreAudited(t *testing.T) {
 		Action  string `db:"action"`
 		Outcome string `db:"outcome"`
 	}
-	if err := fx.db.Select(&rows, `SELECT action, outcome FROM audit_log WHERE action LIKE 'POST %'`); err != nil {
+	if err := fx.db.Select(&rows, `SELECT action, outcome FROM audit_log`); err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || !strings.Contains(rows[0].Action, "/applications") {
+	if len(rows) != 1 || rows[0].Action != "application.create" {
 		t.Fatalf("audit rows = %+v", rows)
 	}
 	_ = fmt.Sprintf

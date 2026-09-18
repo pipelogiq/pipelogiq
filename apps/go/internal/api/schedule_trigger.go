@@ -32,7 +32,7 @@ func triggerScheduleRun(
 		return 0, 0, err
 	}
 
-	definition, err := store.DecodeScheduleDefinition(string(stored.Definition))
+	definition, err := st.GetScheduleDefinitionForExecution(ctx, appID, stored.ID, stored.DefinitionVersion)
 	if err != nil {
 		_ = st.FailScheduleRun(ctx, runID, err.Error())
 		return 0, 0, err

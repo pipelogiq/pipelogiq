@@ -10,9 +10,13 @@ import (
 
 // Set via ldflags at build time:
 //
-//	-X pipelogiq/internal/version.Version=v0.4.0-preview.1
+//	-X pipelogiq/internal/version.Version=v0.5.0
 //	-X pipelogiq/internal/version.Commit=abc1234
 //	-X pipelogiq/internal/version.Date=2025-01-01T00:00:00Z
+//
+// DefaultVersion identifies this source tree; release builds override Version via ldflags.
+const DefaultVersion = "v0.5.0"
+
 var (
 	Version = "dev"
 	Commit  = "unknown"
@@ -37,6 +41,9 @@ func Get() Info {
 	}
 
 	version := resolvedBuildField(Version, "APP_VERSION", "dev")
+	if version == "dev" {
+		version = DefaultVersion
+	}
 	commit := resolvedBuildField(Commit, "APP_COMMIT", "unknown")
 	buildDate := resolvedBuildField(Date, "APP_BUILD_DATE", "unknown")
 

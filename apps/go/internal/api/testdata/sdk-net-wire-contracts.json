@@ -1,0 +1,493 @@
+[
+  {
+    "Method": "POST",
+    "Path": "/pipelines",
+    "Body": {
+      "ApiKey": "key-A",
+      "idempotencyKey": "once",
+      "Name": "wire-test",
+      "Stages": [
+        {
+          "StageName": "work",
+          "StageHandlerName": "Handler",
+          "Input": "{\u0022amount\u0022:42}",
+          "Options": {
+            "RunNextIfFailed": false,
+            "RetryInterval": null,
+            "TimeOut": null,
+            "MaxRetries": 2,
+            "retryOnErrorCodes": [
+              "TIMEOUT"
+            ],
+            "backoff": null,
+            "maxRetryInterval": null,
+            "jitter": false,
+            "DependsOn": null,
+            "RunInParallelWith": null,
+            "FailIfOutputEmpty": null,
+            "NotifyOnFailure": null,
+            "RunAsUser": null
+          },
+          "IsEvent": null
+        }
+      ],
+      "PipelineKeywords": null,
+      "PipelineContextItems": [
+        {
+          "Key": "private",
+          "Value": "\u0022secret\u0022",
+          "ValueType": "System.String",
+          "isSensitive": true,
+          "isDeleted": false
+        }
+      ]
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/pipelines/idempotent",
+    "Body": {
+      "idempotencyKey": "once",
+      "Name": "wire-test",
+      "Stages": [
+        {
+          "StageName": "work",
+          "StageHandlerName": "Handler",
+          "Input": "{\u0022amount\u0022:42}",
+          "Options": {
+            "RunNextIfFailed": false,
+            "RetryInterval": null,
+            "TimeOut": null,
+            "MaxRetries": 2,
+            "retryOnErrorCodes": [
+              "TIMEOUT"
+            ],
+            "backoff": null,
+            "maxRetryInterval": null,
+            "jitter": false,
+            "DependsOn": null,
+            "RunInParallelWith": null,
+            "FailIfOutputEmpty": null,
+            "NotifyOnFailure": null,
+            "RunAsUser": null
+          },
+          "IsEvent": null
+        }
+      ],
+      "PipelineKeywords": null,
+      "PipelineContextItems": [
+        {
+          "Key": "private",
+          "Value": "\u0022secret\u0022",
+          "ValueType": "System.String",
+          "isSensitive": true,
+          "isDeleted": false
+        }
+      ]
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/pipelines",
+    "Body": {
+      "ApiKey": "key-A",
+      "idempotencyKey": "once",
+      "Name": "wire-test",
+      "Stages": [
+        {
+          "StageName": "work",
+          "StageHandlerName": "Handler",
+          "Input": "{\u0022amount\u0022:42}",
+          "Options": {
+            "RunNextIfFailed": false,
+            "RetryInterval": null,
+            "TimeOut": null,
+            "MaxRetries": 2,
+            "retryOnErrorCodes": [
+              "TIMEOUT"
+            ],
+            "backoff": null,
+            "maxRetryInterval": null,
+            "jitter": false,
+            "DependsOn": null,
+            "RunInParallelWith": null,
+            "FailIfOutputEmpty": null,
+            "NotifyOnFailure": null,
+            "RunAsUser": null
+          },
+          "IsEvent": null
+        }
+      ],
+      "PipelineKeywords": null,
+      "PipelineContextItems": [
+        {
+          "Key": "private",
+          "Value": "\u0022secret\u0022",
+          "ValueType": "System.String",
+          "isSensitive": true,
+          "isDeleted": false
+        }
+      ]
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/logs",
+    "Body": {
+      "ApiKey": "key-A",
+      "Created": null,
+      "Message": "hello",
+      "LogLevel": "Information",
+      "Keywords": null
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/workers/bootstrap",
+    "Body": {
+      "workerName": "worker",
+      "instanceId": null,
+      "workerVersion": null,
+      "sdkVersion": null,
+      "environment": null,
+      "hostName": null,
+      "pid": 0,
+      "supportedHandlers": [
+        "Handler"
+      ],
+      "capabilities": null,
+      "metadata": null
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer key-A"
+  },
+  {
+    "Method": "POST",
+    "Path": "/workers/heartbeat",
+    "Body": {
+      "workerId": "worker",
+      "state": "ready",
+      "uptimeSec": 0,
+      "brokerConnected": false,
+      "inFlightJobs": 0,
+      "jobsProcessed": 0,
+      "jobsFailed": 0,
+      "queueLag": 0,
+      "cpuPercent": 0.0,
+      "memoryMb": 0.0,
+      "lastError": null,
+      "message": null,
+      "metadata": null
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer session"
+  },
+  {
+    "Method": "POST",
+    "Path": "/workers/events",
+    "Body": {
+      "workerId": "worker",
+      "events": [
+        {
+          "ts": null,
+          "level": "INFO",
+          "eventType": "ready",
+          "message": "ready",
+          "details": null
+        }
+      ]
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer session"
+  },
+  {
+    "Method": "POST",
+    "Path": "/workers/shutdown",
+    "Body": {
+      "workerId": "worker",
+      "reason": "stopping"
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer session"
+  },
+  {
+    "Method": "POST",
+    "Path": "/pipelines/1/stages",
+    "Body": {
+      "Stages": [
+        {
+          "StageId": 8,
+          "PipelineId": 7,
+          "StageName": "work",
+          "StageHandlerName": "Handler",
+          "Input": {
+            "amount": 42
+          },
+          "Options": {
+            "RunNextIfFailed": false,
+            "RetryInterval": null,
+            "TimeOut": null,
+            "MaxRetries": 2,
+            "retryOnErrorCodes": [
+              "TIMEOUT"
+            ],
+            "backoff": null,
+            "maxRetryInterval": null,
+            "jitter": false,
+            "DependsOn": null,
+            "RunInParallelWith": null,
+            "FailIfOutputEmpty": null,
+            "NotifyOnFailure": null,
+            "RunAsUser": null
+          },
+          "IsEvent": null
+        }
+      ]
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "GET",
+    "Path": "/pipelines/1",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/pipelines/by-idempotency-key",
+    "Body": {
+      "idempotencyKey": "once"
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/pipelines/1/cancel",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/stages/1/lease/acquire",
+    "Body": {
+      "ExecutionId": "execution",
+      "WorkerId": "worker"
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer session"
+  },
+  {
+    "Method": "POST",
+    "Path": "/stages/1/lease/renew",
+    "Body": {
+      "ExecutionId": "execution",
+      "WorkerId": "worker"
+    },
+    "ApiKey": "key-A",
+    "Authorization": "Bearer session"
+  },
+  {
+    "Method": "POST",
+    "Path": "/stages/1/resume",
+    "Body": {
+      "Approved": false,
+      "RejectionReason": "denied"
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/jobs/pull",
+    "Body": {
+      "Queue": "app_1_Handler_StageNext",
+      "WaitSeconds": 20
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/jobs/ack",
+    "Body": {
+      "Token": "delivery",
+      "Requeue": false
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/stages/1/result",
+    "Body": {
+      "PipelineId": null,
+      "StageId": 1,
+      "Result": "",
+      "IsSuccess": true,
+      "ErrorCode": null,
+      "retryable": null,
+      "NextStageId": null,
+      "RunNextIfCurrentFailed": false,
+      "IsWaitingForApproval": false,
+      "Logs": null,
+      "ContextItems": null,
+      "AppendedStages": [
+        {
+          "StageId": 8,
+          "PipelineId": 7,
+          "StageName": "work",
+          "StageHandlerName": "Handler",
+          "Input": "{\u0022amount\u0022:42}",
+          "Options": {
+            "RunNextIfFailed": false,
+            "RetryInterval": null,
+            "TimeOut": null,
+            "MaxRetries": 2,
+            "retryOnErrorCodes": [
+              "TIMEOUT"
+            ],
+            "backoff": null,
+            "maxRetryInterval": null,
+            "jitter": false,
+            "DependsOn": null,
+            "RunInParallelWith": null,
+            "FailIfOutputEmpty": null,
+            "NotifyOnFailure": null,
+            "RunAsUser": null
+          },
+          "IsEvent": null
+        }
+      ],
+      "ExecutionId": "execution",
+      "Attempt": 1,
+      "IdempotencyKey": null,
+      "TimeoutSeconds": null,
+      "Traceparent": null,
+      "Tracestate": null,
+      "TraceId": null,
+      "SpanId": null
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "PUT",
+    "Path": "/schedules/daily",
+    "Body": {
+      "Kind": "Cron",
+      "CronExpression": "@daily",
+      "TimeZone": null,
+      "IntervalSeconds": null,
+      "RunAt": null,
+      "OverlapPolicy": null,
+      "CatchupPolicy": null,
+      "CatchupMax": null,
+      "JitterSeconds": null,
+      "Definition": {
+        "Name": "wire-test",
+        "Stages": [
+          {
+            "StageName": "work",
+            "StageHandlerName": "Handler",
+            "Input": "{\u0022amount\u0022:42}",
+            "Options": {
+              "RunNextIfFailed": false,
+              "RetryInterval": null,
+              "TimeOut": null,
+              "MaxRetries": 2,
+              "retryOnErrorCodes": [
+                "TIMEOUT"
+              ],
+              "backoff": null,
+              "maxRetryInterval": null,
+              "jitter": false,
+              "DependsOn": null,
+              "RunInParallelWith": null,
+              "FailIfOutputEmpty": null,
+              "NotifyOnFailure": null,
+              "RunAsUser": null
+            },
+            "IsEvent": null
+          }
+        ],
+        "PipelineKeywords": null,
+        "PipelineContextItems": [
+          {
+            "Key": "private",
+            "Value": "\u0022secret\u0022",
+            "ValueType": "System.String",
+            "isSensitive": true,
+            "isDeleted": false
+          }
+        ]
+      }
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "GET",
+    "Path": "/schedules/daily",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "GET",
+    "Path": "/schedules?status=Active\u0026cursor=cursor\u0026limit=10",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "GET",
+    "Path": "/schedules/daily/runs?cursor=cursor\u0026limit=10",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/schedules/daily/pause",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/schedules/daily/resume",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/schedules/daily/archive",
+    "Body": {},
+    "ApiKey": "key-A",
+    "Authorization": null
+  },
+  {
+    "Method": "POST",
+    "Path": "/schedules/daily/trigger",
+    "Body": {
+      "Input": {
+        "amount": 42
+      }
+    },
+    "ApiKey": "key-A",
+    "Authorization": null
+  }
+]

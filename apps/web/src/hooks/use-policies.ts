@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { policiesApi } from '@/api/client';
 import type {
   ListPoliciesParams,
@@ -12,6 +12,33 @@ import type {
 } from '@/types/policies';
 
 export type PolicyStatusAction = 'enable' | 'disable' | 'pause' | 'resume';
+
+function snapshotPolicyLists(queryClient: QueryClient) {
+  return queryClient.getQueryCache().findAll({ queryKey: ['policies'] }).map(query => ({
+    query,
+    data: query.state.data as PolicyListResponse | undefined,
+  }));
+}
+
+type PolicyListSnapshots = ReturnType<typeof snapshotPolicyLists>;
+
+function updatePolicyLists(
+  queryClient: QueryClient,
+  snapshots: PolicyListSnapshots | undefined,
+  update: (old: PolicyListResponse | undefined) => PolicyListResponse | undefined,
+) {
+  snapshots?.forEach(({ query }) => {
+    // Logout removes these query objects. A late mutation must not write data
+    // into another account's cache, even when its query keys are identical.
+    if (queryClient.getQueryCache().get(query.queryHash) === query) {
+      queryClient.setQueryData<PolicyListResponse>(query.queryKey, update);
+    }
+  });
+}
+
+function restorePolicyLists(queryClient: QueryClient, snapshots: PolicyListSnapshots | undefined) {
+  snapshots?.forEach(snapshot => updatePolicyLists(queryClient, [snapshot], () => snapshot.data));
+}
 
 export function usePolicies(params?: ListPoliciesParams) {
   return useQuery({
@@ -108,8 +135,9 @@ export function usePromotePolicy() {
 
   return useMutation({
     mutationFn: (id: string) => policiesApi.promote(id),
-    onSuccess: (policy: Policy) => {
-      queryClient.setQueriesData<PolicyListResponse>({ queryKey: ['policies'] }, old => {
+    onMutate: () => snapshotPolicyLists(queryClient),
+    onSuccess: (policy: Policy, _id, snapshots) => {
+      updatePolicyLists(queryClient, snapshots, old => {
         if (!old) return old;
         return { ...old, items: old.items.map(item => (item.id === policy.id ? { ...item, ...policy } : item)) };
       });
@@ -127,10 +155,10 @@ export function useDeletePolicy() {
   return useMutation({
     mutationFn: (id: string) => policiesApi.delete(id),
     onMutate: async (id: string) => {
+      const previous = snapshotPolicyLists(queryClient);
       await queryClient.cancelQueries({ queryKey: ['policies'] });
-      const previous = queryClient.getQueriesData<PolicyListResponse>({ queryKey: ['policies'] });
 
-      queryClient.setQueriesData<PolicyListResponse>({ queryKey: ['policies'] }, old => {
+      updatePolicyLists(queryClient, previous, old => {
         if (!old) return old;
         return {
           ...old,
@@ -142,9 +170,7 @@ export function useDeletePolicy() {
       return { previous };
     },
     onError: (_error, _id, context) => {
-      context?.previous.forEach(([queryKey, data]) => {
-        queryClient.setQueryData(queryKey, data);
-      });
+      restorePolicyLists(queryClient, context?.previous);
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['policies'] });
@@ -172,9 +198,8 @@ export function usePolicyStatusAction() {
       }
     },
     onMutate: async ({ id, action }) => {
+      const previous = snapshotPolicyLists(queryClient);
       await queryClient.cancelQueries({ queryKey: ['policies'] });
-
-      const previous = queryClient.getQueriesData<PolicyListResponse>({ queryKey: ['policies'] });
 
       const nextStatus =
         action === 'enable' || action === 'resume'
@@ -183,7 +208,7 @@ export function usePolicyStatusAction() {
             ? 'paused'
             : 'disabled';
 
-      queryClient.setQueriesData<PolicyListResponse>({ queryKey: ['policies'] }, old => {
+      updatePolicyLists(queryClient, previous, old => {
         if (!old) return old;
 
         return {
@@ -203,12 +228,10 @@ export function usePolicyStatusAction() {
       return { previous };
     },
     onError: (_error, _vars, context) => {
-      context?.previous.forEach(([queryKey, data]) => {
-        queryClient.setQueryData(queryKey, data);
-      });
+      restorePolicyLists(queryClient, context?.previous);
     },
-    onSuccess: (policy: Policy) => {
-      queryClient.setQueriesData<PolicyListResponse>({ queryKey: ['policies'] }, old => {
+    onSuccess: (policy: Policy, _vars, context) => {
+      updatePolicyLists(queryClient, context?.previous, old => {
         if (!old) return old;
 
         return {

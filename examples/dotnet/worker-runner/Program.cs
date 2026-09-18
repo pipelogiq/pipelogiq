@@ -35,12 +35,14 @@ using var host = Host.CreateDefaultBuilder(args)
         services.AddPipelogiq(options);
         services.AddTransient<ValidateOrderHandler>();
         services.AddTransient<ChargeCardHandler>();
+        services.AddTransient<UserCreatedHandler>();
     })
     .Build();
 
 var runner = host.Services.GetRequiredService<PipelineRunner>();
 runner.RegisterHandler<ValidateOrderHandler>(nameof(ValidateOrderHandler));
 runner.RegisterHandler<ChargeCardHandler>(nameof(ChargeCardHandler));
+runner.RegisterHandler<UserCreatedHandler>(nameof(UserCreatedHandler));
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, eventArgs) =>
@@ -55,7 +57,7 @@ await runner.StartAsync(cts.Token);
 public record ValidateOrderInput(string OrderId, decimal Amount, string Currency, string CustomerEmail);
 public record ChargeCardInput(string OrderId, string PaymentMethod);
 
-public sealed class ValidateOrderHandler : IStageHandler<ValidateOrderInput>, IStageHandler
+public sealed class ValidateOrderHandler : IStageHandler<ValidateOrderInput>
 {
     public Task<IStageResult> ExecuteAsync(ValidateOrderInput input, IStageContext? context = null)
     {
@@ -69,19 +71,15 @@ public sealed class ValidateOrderHandler : IStageHandler<ValidateOrderInput>, IS
 
         if (input.Amount <= 0)
         {
-            return Task.FromResult<IStageResult>(StageResult.Error("Order amount must be greater than zero."));
+            return Task.FromResult<IStageResult>(StageResult.ValidationError("Order amount must be greater than zero."));
         }
 
         return Task.FromResult<IStageResult>(StageResult.Success($"Order {input.OrderId} validated."));
     }
 
-    public Task<IStageResult> ExecuteAsync(IStageContext? context = null)
-    {
-        return ExecuteAsync(new ValidateOrderInput("unknown", 0, "USD", "unknown@example.com"), context);
-    }
 }
 
-public sealed class ChargeCardHandler : IStageHandler<ChargeCardInput>, IStageHandler
+public sealed class ChargeCardHandler : IStageHandler<ChargeCardInput>
 {
     public Task<IStageResult> ExecuteAsync(ChargeCardInput input, IStageContext? context = null)
     {
@@ -96,8 +94,13 @@ public sealed class ChargeCardHandler : IStageHandler<ChargeCardInput>, IStageHa
         return Task.FromResult<IStageResult>(StageResult.Success($"Payment processed for order {input.OrderId}."));
     }
 
+}
+
+public sealed class UserCreatedHandler : IStageHandler
+{
     public Task<IStageResult> ExecuteAsync(IStageContext? context = null)
     {
-        return ExecuteAsync(new ChargeCardInput("unknown", "card"), context);
+        context.AddItem("userCreatedHandledAt", DateTime.UtcNow);
+        return Task.FromResult<IStageResult>(StageResult.Success("User-created event handled."));
     }
 }

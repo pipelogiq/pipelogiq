@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 )
 
@@ -42,7 +43,8 @@ func RedactPipelineResponse(source *PipelineResponse) *PipelineResponse {
 	result.PipelineContext = RedactContextItems(source.PipelineContext)
 	result.Stages = append([]StageResponse(nil), source.Stages...)
 
-	secrets := sensitiveContextValues(source.PipelineContext)
+	secrets := append(sensitiveContextValues(source.PipelineContext), sensitiveContextValues(source.RedactionContext)...)
+	result.RedactionContext = nil
 
 	for i := range result.Stages {
 		stage := &result.Stages[i]
@@ -74,12 +76,21 @@ func sensitiveContextValues(contextItems []ContextItem) []string {
 }
 
 func redactKnownValues(value string, secrets []string) string {
+	return RedactKnownValues(value, secrets)
+}
+
+// RedactKnownValues masks longer values first so overlapping secrets cannot leave suffixes exposed.
+func RedactKnownValues(value string, secrets []string) string {
+	var candidates []string
 	for _, secret := range secrets {
-		for _, candidate := range redactionCandidates(secret) {
-			value = strings.ReplaceAll(value, candidate, RedactedContextValue)
-		}
+		candidates = append(candidates, redactionCandidates(secret)...)
 	}
-	return value
+	sort.SliceStable(candidates, func(i, j int) bool { return len(candidates[i]) > len(candidates[j]) })
+	pairs := make([]string, 0, len(candidates)*2)
+	for _, candidate := range candidates {
+		pairs = append(pairs, candidate, RedactedContextValue)
+	}
+	return strings.NewReplacer(pairs...).Replace(value)
 }
 
 func redactionCandidates(secret string) []string {

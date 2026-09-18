@@ -1,7 +1,44 @@
 # Applies the Liquibase changelog and exits. Runs before pipelogiq-app starts
 # (Compose: depends_on service_completed_successfully; Kubernetes: a Job), so a
 # failed migration stops the rollout instead of restarting the API in a loop.
-FROM liquibase/liquibase:4.25
+# Stay on the Apache-licensed Liquibase 4 OSS line. Refresh its bundled JRE
+# independently because the original 4.33 image contains an older Java runtime.
+FROM eclipse-temurin:21-jre-jammy AS java-runtime
+FROM liquibase/liquibase:4.33
+ARG PIPELOGIQ_VERSION=v0.5.0
+ARG PIPELOGIQ_COMMIT=unknown
+ARG PIPELOGIQ_BUILD_DATE=unknown
+LABEL org.opencontainers.image.version="${PIPELOGIQ_VERSION}"
+LABEL org.opencontainers.image.revision="${PIPELOGIQ_COMMIT}"
+LABEL org.opencontainers.image.created="${PIPELOGIQ_BUILD_DATE}"
+
+USER root
+# This migration image only targets PostgreSQL. Keep the OSS CLI and its core
+# dependencies, without commercial extensions, other JDBC drivers, or the LPM
+# package manager. Apply OS security updates and pin the PostgreSQL driver bytes.
+RUN apt-get update \
+  && apt-get upgrade -y \
+  && curl --fail --show-error --location \
+    https://repo.maven.apache.org/maven2/org/postgresql/postgresql/42.7.12/postgresql-42.7.12.jar \
+    --output /tmp/postgresql.jar \
+  && echo '31fbf6f06b2217fb51d5100cee51b22625cc81640da0679b47914e54c1e6377c  /tmp/postgresql.jar' | sha256sum --check - \
+  && mv /tmp/postgresql.jar /liquibase/internal/lib/postgresql.jar \
+  && rm -f /liquibase/bin/lpm \
+    /liquibase/internal/lib/liquibase-commercial.jar \
+    /liquibase/internal/lib/h2.jar \
+    /liquibase/internal/lib/hsqldb.jar \
+    /liquibase/internal/lib/jaybird.jar \
+    /liquibase/internal/lib/jcc.jar \
+    /liquibase/internal/lib/mariadb-java-client.jar \
+    /liquibase/internal/lib/mssql-jdbc.jar \
+    /liquibase/internal/lib/ojdbc8.jar \
+    /liquibase/internal/lib/snowflake-jdbc.jar \
+    /liquibase/internal/lib/sqlite-jdbc.jar \
+  && rm -rf /liquibase/internal/extensions /var/lib/apt/lists/* /opt/java/openjdk
+COPY --from=java-runtime /opt/java/openjdk /opt/java/openjdk
+USER liquibase
+ENV LIQUIBASE_ANALYTICS_ENABLED=false
+
 # The changelog keeps its historical path so changeset identities match
 # databases migrated by earlier releases (see logicalFilePath in the file).
 COPY database /liquibase/database

@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,8 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+
+	"pipelogiq/internal/types"
 )
 
 // auditExport streams the audit trail as NDJSON and signs it.
@@ -180,7 +183,18 @@ func (a *auditExport) streamStageAudit(
 	req AuditExportRequest,
 	emit func(auditRecord) error,
 ) error {
-	rows, err := a.db.QueryxContext(ctx, `
+	// The redaction values and exported logs must share a snapshot. A new SDK
+	// update between these reads must not add a message absent from the mask set.
+	tx, err := a.db.BeginTxx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
+	if err != nil {
+		return fmt.Errorf("begin stage audit snapshot: %w", err)
+	}
+	defer tx.Rollback()
+	secrets, err := a.stageAuditSecrets(ctx, tx, req)
+	if err != nil {
+		return err
+	}
+	rows, err := tx.QueryxContext(ctx, `
 		SELECT l.id, l.created_at, COALESCE(l.log, ''), s.id, p.id
 		FROM stage_log l
 		JOIN stage s ON s.id = l.stage_id
@@ -205,7 +219,7 @@ func (a *auditExport) streamStageAudit(
 			return fmt.Errorf("scan stage audit: %w", err)
 		}
 		details, _ := json.Marshal(map[string]any{
-			"message":    message,
+			"message":    types.RedactKnownValues(message, secrets[pipelineID]),
 			"stageId":    stageID,
 			"pipelineId": pipelineID,
 		})
@@ -221,5 +235,48 @@ func (a *auditExport) streamStageAudit(
 			return err
 		}
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// Resolve masking values before opening the streaming cursor, so exports work
+// with one database connection and never emit raw stage messages on lookup errors.
+func (a *auditExport) stageAuditSecrets(ctx context.Context, tx *sqlx.Tx, req AuditExportRequest) (map[int64][]string, error) {
+	rows, err := tx.QueryxContext(ctx, `
+		WITH exported_pipelines AS (
+			SELECT DISTINCT p.id FROM pipeline p
+			JOIN stage s ON s.pipeline_id = p.id
+			JOIN stage_log l ON l.stage_id = s.id
+			WHERE p.application_id = $1 AND l.created_at >= $2 AND l.created_at < $3
+			  AND l.log_level = 'AUDIT'
+		)
+		SELECT c.pipeline_id, c.value FROM pipeline_context_item c
+		JOIN exported_pipelines p ON p.id = c.pipeline_id
+		WHERE c.is_sensitive = true AND c.value IS NOT NULL
+		UNION
+		SELECT h.pipeline_id, h.value FROM pipeline_redaction_secret h
+		JOIN exported_pipelines p ON p.id = h.pipeline_id
+	`, req.ApplicationID, req.From.UTC(), req.To.UTC())
+	if err != nil {
+		return nil, fmt.Errorf("read audit redaction values: %w", err)
+	}
+	defer rows.Close()
+	secrets := make(map[int64][]string)
+	for rows.Next() {
+		var pipelineID int64
+		var value string
+		if err := rows.Scan(&pipelineID, &value); err != nil {
+			return nil, fmt.Errorf("scan audit redaction value: %w", err)
+		}
+		secrets[pipelineID] = append(secrets[pipelineID], value)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read audit redaction values: %w", err)
+	}
+	return secrets, nil
 }

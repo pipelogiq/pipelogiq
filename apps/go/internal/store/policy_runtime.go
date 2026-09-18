@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -445,7 +446,12 @@ func (s *Store) loadPolicyRuntimeScopeTx(ctx context.Context, tx *sqlx.Tx, stage
 		value := int(row.ApplicationID.Int64)
 		scope.ApplicationID = &value
 	}
-	if env := strings.TrimSpace(row.Environment.String); env != "" {
+	env := row.Environment.String
+	var decodedEnv string
+	if json.Unmarshal([]byte(env), &decodedEnv) == nil {
+		env = decodedEnv
+	}
+	if env = strings.ToLower(strings.TrimSpace(env)); env != "" {
 		scope.Environment = types.PolicyEnvironment(env)
 	}
 	if row.TimeoutSeconds.Valid && row.TimeoutSeconds.Int64 > 0 {
@@ -453,27 +459,6 @@ func (s *Store) loadPolicyRuntimeScopeTx(ctx context.Context, tx *sqlx.Tx, stage
 		scope.BaseTimeoutSeconds = &timeout
 	}
 	return scope, nil
-}
-
-func effectiveTimeoutForScope(scope types.PolicyRuntimeScope, matched []types.Policy) *int {
-	var effective *int
-	if scope.BaseTimeoutSeconds != nil && *scope.BaseTimeoutSeconds > 0 {
-		ms := *scope.BaseTimeoutSeconds * 1000
-		effective = &ms
-	}
-	for _, policy := range matched {
-		if policy.Type != types.PolicyTypeTimeout || policy.Rule.TimeoutMs == nil || *policy.Rule.TimeoutMs <= 0 {
-			continue
-		}
-		if policy.Rule.AppliesTo != nil && strings.TrimSpace(*policy.Rule.AppliesTo) != "" && *policy.Rule.AppliesTo != "step" {
-			continue
-		}
-		if effective == nil || *policy.Rule.TimeoutMs < *effective {
-			value := *policy.Rule.TimeoutMs
-			effective = &value
-		}
-	}
-	return effective
 }
 
 func policySpecificityScore(policy types.Policy) int {
@@ -551,7 +536,6 @@ func (s *Store) evaluateRateLimitTx(ctx context.Context, tx *sqlx.Tx, scope type
 		WHERE s.id <> $1
 		  AND s.started_at IS NOT NULL
 		  AND s.started_at >= $2
-		  AND COALESCE(s.is_event,false) = false
 	`
 	args := []any{scope.StageID, windowStart}
 	switch keyBy {
@@ -599,7 +583,6 @@ func (s *Store) evaluateCircuitBreakerTx(ctx context.Context, tx *sqlx.Tx, scope
 		WHERE s.id <> $1
 		  AND s.status = $2
 		  AND LOWER(COALESCE(s.stage_handler_name, '')) = $3
-		  AND COALESCE(s.is_event,false) = false
 	`, scope.StageID, types.StageStatusFailed, strings.ToLower(scope.StageHandlerName)); err != nil {
 		return false, "", nil, err
 	}

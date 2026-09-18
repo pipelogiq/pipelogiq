@@ -16,12 +16,12 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.worker
       args:
-        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-dev}
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
         PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-worker
     environment:
-      APP_VERSION: ${PIPELOGIQ_VERSION:-dev}
+      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
       APP_ID: ${APP_ID:-PipelogiqTest}

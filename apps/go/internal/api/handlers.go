@@ -30,11 +30,52 @@ func (s *Server) handleGetPipelines(w http.ResponseWriter, r *http.Request) {
 		ApplicationID:     parseQueryIntPtr(r.URL.Query().Get("applicationId")),
 		Search:            parseQueryStringPtr(r.URL.Query().Get("search")),
 		Keywords:          r.URL.Query()["keywords"],
+		Tags:              r.URL.Query()["tags"],
+		Environment:       parseQueryStringPtr(r.URL.Query().Get("environment")),
+		Owner:             parseQueryStringPtr(r.URL.Query().Get("owner")),
 		Statuses:          r.URL.Query()["statuses"],
 		PipelineStartFrom: parseQueryStringPtr(r.URL.Query().Get("pipelineStartFrom")),
 		PipelineStartTo:   parseQueryStringPtr(r.URL.Query().Get("pipelineStartTo")),
 		PipelineEndFrom:   parseQueryStringPtr(r.URL.Query().Get("pipelineEndFrom")),
 		PipelineEndTo:     parseQueryStringPtr(r.URL.Query().Get("pipelineEndTo")),
+	}
+
+	for _, parameter := range []string{"pageNumber", "pageSize"} {
+		if raw := r.URL.Query().Get(parameter); raw != "" {
+			if value, err := strconv.Atoi(raw); err != nil || value < 1 {
+				writeJSONError(w, parameter+" must be a positive integer", http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	effectivePageSize := 10
+	if req.PageSize != nil {
+		effectivePageSize = min(*req.PageSize, 1000)
+	}
+	if req.PageNumber != nil && *req.PageNumber-1 > int(^uint(0)>>1)/effectivePageSize {
+		writeJSONError(w, "pageNumber is too large", http.StatusBadRequest)
+		return
+	}
+
+	for _, raw := range r.URL.Query()["contextFilters"] {
+		key, value, ok := parsePipelineKeyValueFilter(raw)
+		if !ok {
+			writeJSONError(w, "contextFilters must contain JSON objects with a non-empty key and a value", http.StatusBadRequest)
+			return
+		}
+		req.ContextFilters = append(req.ContextFilters, types.ContextFilter{Key: key, Value: value})
+	}
+	for _, raw := range r.URL.Query()["labels"] {
+		key, value, ok := parsePipelineKeyValueFilter(raw)
+		if !ok {
+			writeJSONError(w, "labels must contain JSON objects with a non-empty key and a value", http.StatusBadRequest)
+			return
+		}
+		req.Labels = append(req.Labels, types.PipelineKeyword{Key: key, Value: value})
+	}
+	if len(req.ContextFilters)+len(req.Labels)+len(req.Tags)+len(req.Keywords) > 100 {
+		writeJSONError(w, "too many filters", http.StatusBadRequest)
+		return
 	}
 
 	if req.ApplicationID != nil && !scope.allows(*req.ApplicationID) {
@@ -61,12 +102,28 @@ func (s *Server) handleGetPipelines(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, result, http.StatusOK)
 }
 
+// A missing/null value must not silently become an empty substring filter.
+// An explicit empty string is a valid value, including for an empty label.
+func parsePipelineKeyValueFilter(raw string) (key, value string, ok bool) {
+	var filter struct {
+		Key   *string `json:"key"`
+		Value *string `json:"value"`
+	}
+	if err := json.Unmarshal([]byte(raw), &filter); err != nil || filter.Key == nil || strings.TrimSpace(*filter.Key) == "" || filter.Value == nil {
+		return "", "", false
+	}
+	return *filter.Key, *filter.Value, true
+}
+
 func (s *Server) handleRerunStage(w http.ResponseWriter, r *http.Request) {
 	var req types.RerunStageRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
+	annotateAudit(r, "stage.rerun", "stage:"+strconv.Itoa(req.StageID), map[string]any{
+		"stageId": req.StageID, "rerunAllNextStages": req.RerunAllNextStages,
+	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -90,6 +147,7 @@ func (s *Server) handlePausePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid pipeline id", http.StatusBadRequest)
 		return
 	}
+	annotateAudit(r, "pipeline.pause", "pipeline:"+strconv.Itoa(pipelineID), map[string]any{"pipelineId": pipelineID})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -120,6 +178,7 @@ func (s *Server) handleResumePipeline(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid pipeline id", http.StatusBadRequest)
 		return
 	}
+	annotateAudit(r, "pipeline.resume", "pipeline:"+strconv.Itoa(pipelineID), map[string]any{"pipelineId": pipelineID})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -152,6 +211,7 @@ func (s *Server) handleSkipStage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
+	annotateAudit(r, "stage.skip", "stage:"+strconv.Itoa(req.StageID), map[string]any{"stageId": req.StageID})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -205,6 +265,11 @@ func (s *Server) handleBulkPipelineAction(w http.ResponseWriter, r *http.Request
 		http.Error(w, "unsupported bulk action", http.StatusBadRequest)
 		return
 	}
+	auditDetails := map[string]any{scope + "Ids": ids}
+	if req.Action == types.BulkPipelineActionRerun {
+		auditDetails["rerunAllNextStages"] = req.RerunAllNextStages
+	}
+	annotateAudit(r, scope+".bulk_"+string(req.Action), scope+"s", auditDetails)
 
 	if len(ids) == 0 {
 		http.Error(w, "bulk action requires at least one target id", http.StatusBadRequest)
@@ -249,6 +314,25 @@ func (s *Server) handleBulkPipelineAction(w http.ResponseWriter, r *http.Request
 			resp.Succeeded++
 		}
 		resp.Results = append(resp.Results, result)
+	}
+	// Store only identifiers and outcomes: backend error strings can contain
+	// database values or other sensitive data unrelated to the operation.
+	auditResults := make([]map[string]any, 0, len(resp.Results))
+	for _, result := range resp.Results {
+		auditResults = append(auditResults, map[string]any{
+			"id": result.ID, "scope": result.Scope, "success": result.Success,
+		})
+	}
+	annotateAudit(r, "", "", map[string]any{
+		"requested": resp.Requested, "succeeded": resp.Succeeded,
+		"failed": resp.Failed, "results": auditResults,
+	})
+	if resp.Failed > 0 {
+		outcome := "failed"
+		if resp.Succeeded > 0 {
+			outcome = "partial"
+		}
+		annotateAuditOutcome(r, outcome)
 	}
 
 	writeJSON(w, resp, http.StatusOK)
@@ -344,6 +428,14 @@ func (s *Server) handleSaveApplication(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
+	if req.ID != nil && *req.ID > 0 {
+		annotateAudit(r, "application.update", "application:"+strconv.Itoa(*req.ID), map[string]any{"applicationId": *req.ID})
+		if !s.requireApplicationAccess(w, r, *req.ID) {
+			return
+		}
+	} else {
+		annotateAudit(r, "application.create", "applications", nil)
+	}
 
 	if strings.TrimSpace(req.Name) == "" {
 		http.Error(w, "name is required", http.StatusBadRequest)
@@ -380,6 +472,9 @@ func (s *Server) handleGenerateApiKey(w http.ResponseWriter, r *http.Request) {
 
 	hasExistingApplication := req.ApplicationID != nil && *req.ApplicationID > 0
 	hasNewApplication := req.NewApplication != nil
+	if hasExistingApplication {
+		annotateAudit(r, "api_key.create", "application:"+strconv.Itoa(*req.ApplicationID), map[string]any{"applicationId": *req.ApplicationID})
+	}
 
 	if hasExistingApplication && hasNewApplication {
 		http.Error(w, "provide either applicationId or newApplication", http.StatusBadRequest)
@@ -417,6 +512,9 @@ func (s *Server) handleGenerateApiKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	annotateAudit(r, "api_key.create", "api_key:"+strconv.Itoa(key.ID), map[string]any{
+		"apiKeyId": key.ID, "applicationId": key.ApplicationID, "createdApplication": hasNewApplication,
+	})
 	writeJSON(w, key, http.StatusOK)
 }
 
@@ -451,6 +549,7 @@ func (s *Server) handleDisableApiKey(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
+	annotateAudit(r, "api_key.disable", "api_key:"+strconv.Itoa(req.ApiKeyID), map[string]any{"apiKeyId": req.ApiKeyID})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -466,6 +565,7 @@ func (s *Server) handleDisableApiKey(w http.ResponseWriter, r *http.Request) {
 	if !s.requireApplicationAccess(w, r, appID) {
 		return
 	}
+	annotateAudit(r, "", "", map[string]any{"applicationId": appID})
 
 	if err := s.store.DisableApiKey(ctx, req.ApiKeyID); err != nil {
 		s.logger.Error("disable api key failed", "err", err)
@@ -484,7 +584,7 @@ func (s *Server) handleGetKeywords(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	keywords, err := s.store.GetKeywords(ctx, search)
+	keywords, err := s.store.GetKeywords(ctx, scopeFromContext(r.Context()).applicationIDs(), search)
 	if err != nil {
 		s.logger.Error("get keywords failed", "err", err)
 		http.Error(w, "failed to get keywords", http.StatusInternalServerError)

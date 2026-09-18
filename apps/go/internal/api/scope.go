@@ -58,21 +58,27 @@ func (s *Server) applicationScopeMiddleware(next http.Handler) http.Handler {
 
 		access, err := s.store.GetUserAccess(ctx, userID)
 		if err != nil {
+			if errors.Is(err, store.ErrUserNotFound) {
+				writeJSONError(w, "session expired", http.StatusUnauthorized)
+				return
+			}
 			s.logger.Error("resolve application scope failed", "userId", userID, "err", err)
 			writeJSONError(w, "failed to resolve access scope", http.StatusInternalServerError)
 			return
 		}
 
 		// A token minted before the last logout or password change is dead.
-		if claimed, _ := r.Context().Value(tokenVersionKey).(int); claimed != access.TokenVersion {
-			http.SetCookie(w, &http.Cookie{Name: authCookieName, Value: "", Path: "/", MaxAge: -1})
+		if claimed, _ := r.Context().Value(tokenVersionKey).(int); claimed != access.TokenVersion || !access.IsActive {
+			s.clearSessionCookie(w, r)
 			writeJSONError(w, "session expired", http.StatusUnauthorized)
 			return
 		}
 
-		next.ServeHTTP(w, r.WithContext(
-			context.WithValue(r.Context(), applicationScopeKey, newApplicationScope(access.ApplicationIDs)),
-		))
+		// The database is authoritative: a role embedded in an older JWT must
+		// never grant privileges after the account's role changes.
+		requestCtx := context.WithValue(r.Context(), userRoleKey, normalizeRole(access.Role))
+		requestCtx = context.WithValue(requestCtx, applicationScopeKey, newApplicationScope(access.ApplicationIDs))
+		next.ServeHTTP(w, r.WithContext(requestCtx))
 	})
 }
 

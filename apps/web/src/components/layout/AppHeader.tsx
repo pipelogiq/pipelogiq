@@ -72,7 +72,7 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
         {/* User */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button variant="ghost" size="icon" aria-label="Open account menu">
               <User className="h-4.5 w-4.5" />
             </Button>
           </DropdownMenuTrigger>
@@ -85,9 +85,14 @@ export function AppHeader({ title, subtitle }: AppHeaderProps) {
                 <p className="text-xs leading-none text-muted-foreground">
                   {user?.email}
                 </p>
+                <p className="text-xs leading-none text-muted-foreground">{user?.role}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => navigate('/account')}>
+              <User className="mr-2 h-4 w-4" />
+              <span>My account</span>
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={handleLogout} className="text-destructive focus:text-destructive">
               <LogOut className="mr-2 h-4 w-4" />
               <span>Log out</span>

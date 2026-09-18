@@ -12,10 +12,23 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// legacyDemoEmails are the accounts created by the legacy "seed users and team"
-// changeset. Their bcrypt hashes are published in the repository history, so they
-// must never survive into a running deployment.
-var legacyDemoEmails = []string{"jegor@gmail.com", "leo@gmail.com", "ww@gmail.com"}
+// These exact hashes were published by the historical demo-data migration.
+// Match hashes, not emails: renamed demos remain unsafe; changed passwords do not.
+var legacyDemoPasswordHashes = []string{
+	"$2a$12$7k/eb090r0jNWF3aMgBXw.V9p9U.7x4c2eNNbP0TAYqUEIPMX0nwG",
+	"$2a$12$TGNopcSVE8D6P4GxsPWbneNjP0Iua1ngopHciWaOPYebih8O1myoC",
+	"$2a$12$.dBosWNEr/3HJkA19X885eUk7OiK2CNaRTkAAg/HIPlQEKpCjS1..",
+}
+
+// IsLegacyDemoPasswordHash identifies credentials shipped as public demo data.
+func IsLegacyDemoPasswordHash(hash string) bool {
+	for _, candidate := range legacyDemoPasswordHashes {
+		if hash == candidate {
+			return true
+		}
+	}
+	return false
+}
 
 // AdminBootstrap describes the initial administrator provisioned from environment.
 type AdminBootstrap struct {
@@ -25,14 +38,22 @@ type AdminBootstrap struct {
 	LastName     string
 }
 
-// BootstrapAdmin provisions the administrator account from configuration and removes
-// the legacy demo accounts, transferring their application membership to the admin.
+// BootstrapAdmin provisions the administrator account from configuration and disables
+// unchanged demo credentials, preserving accounts and application membership.
 // It is idempotent and safe to run on every start.
 func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 	email := strings.ToLower(strings.TrimSpace(cfg.Email))
 	hash := strings.TrimSpace(cfg.PasswordHash)
 
+	if hash != "" {
+		if _, err := bcrypt.Cost([]byte(hash)); err != nil || IsLegacyDemoPasswordHash(hash) {
+			return errors.New("ADMIN_PASSWORD_HASH must be a valid bcrypt hash of a new, non-demo password")
+		}
+	}
 	if email == "" {
+		if _, err := disableLegacyDemoUsers(ctx, s.db, 0); err != nil {
+			return err
+		}
 		return s.warnIfNoAdmin(ctx)
 	}
 
@@ -49,7 +70,7 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 
 	var adminID int
 	err = tx.QueryRowContext(ctx, `
-		SELECT id FROM "user" WHERE lower(email) = $1 LIMIT 1
+		SELECT id FROM "user" WHERE lower(trim(email)) = $1 LIMIT 1
 	`, email).Scan(&adminID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("lookup admin user: %w", err)
@@ -75,7 +96,7 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 	case !exists:
 		if err = tx.QueryRowContext(ctx, `
 			INSERT INTO "user" (first_name, last_name, email, password, role)
-			VALUES ($1, $2, $3, $4, 'Admin')
+			VALUES ($1, $2, $3, $4, 'admin')
 			RETURNING id
 		`, firstName, strings.TrimSpace(cfg.LastName), email, hash).Scan(&adminID); err != nil {
 			return fmt.Errorf("create admin user: %w", err)
@@ -86,27 +107,33 @@ func (s *Store) BootstrapAdmin(ctx context.Context, cfg AdminBootstrap) error {
 				"email", email, "password", generatedPassword)
 		}
 	case hash != "":
-		// An explicit hash is authoritative and re-applied on every start.
+		// A replacement hash reactivates the configured administrator and
+		// revokes old sessions. An unchanged restart leaves sessions intact.
 		if _, err = tx.ExecContext(ctx, `
-			UPDATE "user" SET password = $2, role = 'Admin' WHERE id = $1
+            UPDATE "user" SET password = $2, role = 'admin', is_active = TRUE,
+                token_version = token_version + 1
+            WHERE id = $1 AND (password <> $2 OR is_active = FALSE
+                OR lower(trim(role)) NOT IN ('admin','administrator','superadmin'))
 		`, adminID, hash); err != nil {
 			return fmt.Errorf("update admin user: %w", err)
 		}
 	default:
-		// Existing account, no hash supplied: leave the current password alone.
+		// No replacement credential: never reactivate a disabled account.
 		if _, err = tx.ExecContext(ctx, `
-			UPDATE "user" SET role = 'Admin' WHERE id = $1
+            UPDATE "user" SET role = 'admin', token_version = token_version + 1
+            WHERE id = $1 AND is_active = TRUE
+                AND lower(trim(role)) NOT IN ('admin','administrator','superadmin')
 		`, adminID); err != nil {
 			return fmt.Errorf("promote admin user: %w", err)
 		}
 	}
 
-	removed, err := purgeLegacyDemoUsers(ctx, tx, adminID, email)
+	disabled, err := disableLegacyDemoUsers(ctx, tx, adminID)
 	if err != nil {
 		return err
 	}
-	if removed > 0 {
-		s.logger.Warn("bootstrap: removed legacy demo accounts seeded by migration", "count", removed)
+	if disabled > 0 {
+		s.logger.Warn("bootstrap: disabled unchanged demo credentials", "count", disabled)
 	}
 
 	adopted, err := adoptOrphanedApplications(ctx, tx, adminID)
@@ -126,58 +153,35 @@ type execQuerier interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// purgeLegacyDemoUsers moves application membership of the legacy demo accounts to the
-// administrator and deletes those accounts. The administrator's own email is preserved
-// so that reusing a legacy address as ADMIN_EMAIL stays supported.
-func purgeLegacyDemoUsers(ctx context.Context, tx execQuerier, adminID int, adminEmail string) (int64, error) {
-	targets := make([]any, 0, len(legacyDemoEmails))
-	for _, candidate := range legacyDemoEmails {
-		if candidate != adminEmail {
-			targets = append(targets, candidate)
-		}
+// Preserve identity/history and memberships while disabling public credentials.
+// Only the configured administrator inherits access owned by unchanged demos.
+func disableLegacyDemoUsers(ctx context.Context, tx execQuerier, adminID int) (int64, error) {
+	hashes := make([]any, 0, len(legacyDemoPasswordHashes))
+	for _, hash := range legacyDemoPasswordHashes {
+		hashes = append(hashes, hash)
 	}
-	if len(targets) == 0 {
-		return 0, nil
-	}
-
-	// $1 is reserved for adminID in the transfer statement, so demo emails start at $2.
-	transferArgs := append([]any{adminID}, targets...)
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO user_application (user_id, application_id)
-		SELECT $1, ua.application_id
-		FROM user_application ua
-		JOIN "user" u ON u.id = ua.user_id
-		WHERE lower(u.email) IN (%s)
-		  AND NOT EXISTS (
-			SELECT 1 FROM user_application existing
-			WHERE existing.user_id = $1 AND existing.application_id = ua.application_id
-		  )
-	`, placeholders(len(targets), 2)), transferArgs...); err != nil {
-		return 0, fmt.Errorf("transfer application membership: %w", err)
-	}
-
-	list := placeholders(len(targets), 1)
-	for _, table := range []string{"user_application", "user_team"} {
+	if adminID > 0 {
+		args := append([]any{adminID}, hashes...)
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-			DELETE FROM %s
-			WHERE user_id IN (SELECT id FROM "user" WHERE lower(email) IN (%s))
-		`, table, list), targets...); err != nil {
-			return 0, fmt.Errorf("clear %s for demo users: %w", table, err)
+            INSERT INTO user_application (user_id, application_id)
+            SELECT DISTINCT $1, ua.application_id FROM user_application ua
+            JOIN "user" u ON u.id = ua.user_id
+            WHERE u.password IN (%s) AND NOT EXISTS (
+                SELECT 1 FROM user_application existing
+                WHERE existing.user_id = $1 AND existing.application_id = ua.application_id
+            )
+        `, placeholders(len(hashes), 2)), args...); err != nil {
+			return 0, fmt.Errorf("adopt demo application access: %w", err)
 		}
 	}
-
-	res, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		DELETE FROM "user" WHERE lower(email) IN (%s)
-	`, list), targets...)
+	result, err := tx.ExecContext(ctx, fmt.Sprintf(`
+        UPDATE "user" SET is_active = FALSE, token_version = token_version + 1
+        WHERE password IN (%s) AND is_active = TRUE
+    `, placeholders(len(hashes), 1)), hashes...)
 	if err != nil {
-		return 0, fmt.Errorf("delete demo users: %w", err)
+		return 0, fmt.Errorf("disable demo credentials: %w", err)
 	}
-
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return 0, nil
-	}
-	return affected, nil
+	return result.RowsAffected()
 }
 
 // placeholders renders "$start, $start+1, ..." for count bind parameters.
@@ -224,7 +228,7 @@ func generatePassword() (string, error) {
 func (s *Store) warnIfNoAdmin(ctx context.Context) error {
 	var admins int
 	if err := s.db.QueryRowxContext(ctx, `
-		SELECT count(*) FROM "user" WHERE lower(role) IN ('admin', 'administrator', 'superadmin')
+		SELECT count(*) FROM "user" WHERE is_active = TRUE AND lower(trim(role)) IN ('admin', 'administrator', 'superadmin')
 	`).Scan(&admins); err != nil {
 		return fmt.Errorf("count administrators: %w", err)
 	}

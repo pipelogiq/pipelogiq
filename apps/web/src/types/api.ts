@@ -6,6 +6,7 @@ export interface User {
   email: string;
   role: string;
   createdAt: string;
+  isActive?: boolean;
 }
 
 export interface LoginRequest {
@@ -34,6 +35,9 @@ export interface PipelineResponse {
   pipelineContextItems?: ContextItem[];
   pipelineKeywords?: PipelineKeyword[];
   isEvent?: boolean;
+  idempotencyKey?: string;
+  isTerminal?: boolean;
+  wasExisting?: boolean;
 }
 
 export interface StageResponse {
@@ -58,6 +62,11 @@ export interface StageResponse {
   failureCount?: number;
   lastFailedAt?: string;
   hasFailureHistory?: boolean;
+  attempt?: number;
+  retryAttempt?: number;
+  lastErrorCode?: string;
+  failureDisposition?: string;
+  isTerminal?: boolean;
 }
 
 export interface StageLog {
@@ -73,6 +82,10 @@ export interface StageOptions {
   retryInterval?: number;
   timeOut?: number;
   maxRetries?: number;
+  retryOnErrorCodes?: string[];
+  backoff?: string;
+  maxRetryInterval?: number;
+  jitter?: boolean;
   dependsOn?: string[];
   runInParallelWith?: string[];
   failIfOutputEmpty?: boolean;
@@ -84,6 +97,8 @@ export interface ContextItem {
   key: string;
   value: string;
   valueType?: string;
+  isSensitive?: boolean;
+  isDeleted?: boolean;
 }
 
 export interface PipelineKeyword {
@@ -100,6 +115,11 @@ export interface PagedResult<T> {
 }
 
 export interface GetPipelinesParams {
+  tags?: string[];
+  labels?: { key: string; value: string }[];
+  contextFilters?: { key: string; value: string }[];
+  environment?: string;
+  owner?: string;
   pageNumber?: number;
   pageSize?: number;
   applicationId?: number;
@@ -266,7 +286,8 @@ export type StageStatus =
   | 'WaitingForApproval'
   | 'Completed'
   | 'Failed'
-  | 'Skipped';
+  | 'Skipped'
+  | 'Cancelled';
 
 // UI status mapping (map backend status to UI status)
 export type UIStatus = 'success' | 'error' | 'running' | 'waiting' | 'rescheduled' | 'throttled' | 'paused' | 'queued' | 'skipped';
@@ -331,4 +352,27 @@ export interface AuditRecord {
   outcome: string;
   remoteAddr?: string;
   details?: string;
+}
+
+export type AuditOutcome = 'ok' | 'failed' | 'partial' | 'denied' | 'rate_limited';
+
+export interface AuditListParams {
+  action?: string;
+  userId?: number;
+  outcome?: AuditOutcome;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AuditListResponse {
+  items: AuditRecord[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface AuditFilterOptions {
+  actions: string[];
+  users: { id: number; email: string }[];
 }

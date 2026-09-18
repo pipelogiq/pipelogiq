@@ -1,6 +1,7 @@
 # .NET SDK Examples
 
-These examples use the local SDK source at `../pipelogiq-sdk-net/src` via project references.
+These examples target Pipelogiq server `0.5.0` and .NET SDK `0.5.0`.
+They use the sibling checkout at `../pipelogiq-sdk-net/src/Pipelogiq.Sdk` via project references.
 
 ## Structure
 
@@ -37,5 +38,8 @@ DOTNET_CLI_UI_LANGUAGE=en dotnet run
 ## Notes
 
 - The worker sample runs until stopped (`Ctrl+C`).
-- Handler names used in sender sample (`ValidateOrderHandler`, `ChargeCardHandler`) match the worker sample.
-- If you want to consume the published NuGet package instead of local source, replace each `ProjectReference` with a `PackageReference` to `PipelogiqSDK`.
+- The worker handles all three names used by the sender: `ValidateOrderHandler`, `ChargeCardHandler`, and `UserCreatedHandler`. The payment stage is a simulated operation.
+- The sender uses `AddLabel`; deprecated `AddKeyword` aliases are unnecessary for new code.
+- The lifecycle sample sends `WorkerEventRequest.Events` entries and shuts down with `WorkerShutdownRequest.Reason`. It exercises control-plane calls only and does not connect to RabbitMQ.
+- Broker configuration arrives in the bootstrap response. Connection strings and worker session tokens contain credentials and are never printed by these samples.
+- If you want to consume the published NuGet package instead of local source, replace each `ProjectReference` with a `PackageReference` to `PipelogiqSDK` with `Version="0.5.0"` once that package is published.

@@ -20,7 +20,9 @@ Booking cancelled or payer changed
 
 The audit baseline was server `v0.3.2-preview.6` with
 `pipelogiq-sdk-net 0.3.2-preview.5`. The reliability additions described in
-this document ship in server `v0.4.0-preview.1` and SDK `0.4.0-preview.1`.
+this document first shipped in server `v0.4.0-preview.1` and SDK `0.4.0-preview.1`.
+The current coordinated release target is server `v0.5.0` and .NET SDK `0.5.0`;
+the earlier versions above identify the historical audit baseline.
 
 ## Verdict
 
@@ -118,13 +120,18 @@ an old attempt, and a result arriving after terminal pipeline state as a safe
 no-op
 ([`store.go`](../apps/go/internal/store/store.go#L1365-L1396)).
 
-This stronger path applies to normal, non-event stages. The compatibility
-single-stage `isEvent` auto-publish path does not allocate execution metadata
-or a lease
-([`external.go`](../apps/go/internal/api/external.go#L461-L495)), and event
-stages are excluded from the normal scheduler
-([`store.go`](../apps/go/internal/store/store.go#L738-L781)). Do not use
-`isEvent` for insurance claim or cancellation side effects.
+The SDK Lab acceptance run found that the old single-stage `isEvent`
+direct-publish path could not execute with fenced workers: it omitted execution
+metadata and left the database stage `NotStarted`. Event stages now use
+the regular scheduler, which allocates the execution ID/attempt and supports
+lease acquisition, retries and dispatch recovery. The API only persists the
+event. This applies to both ordinary and idempotent creation.
+
+Mixed `AsEvent` stages are also executable in normal dependency order, including
+retry and failure continuation. All branches must finish before successful
+pipeline completion. Existing unfinished mixed pipelines should be reviewed
+before production rollout because previously excluded events can now execute.
+Neither event nor action delivery provides exactly-once external side effects.
 
 ### Failure classification
 

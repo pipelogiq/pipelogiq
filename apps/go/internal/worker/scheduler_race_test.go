@@ -151,6 +151,7 @@ CREATE TABLE pipeline_keyword (
 	pipeline_id INTEGER NOT NULL,
 	keyword_id INTEGER NOT NULL
 );
+CREATE TABLE pipeline_redaction_secret (pipeline_id INTEGER NOT NULL, value TEXT NOT NULL);
 CREATE TABLE pipeline_context_item (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	pipeline_id INTEGER NOT NULL,

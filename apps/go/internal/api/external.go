@@ -163,7 +163,7 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
+	router.Use(loopbackProxyIP)
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
 	router.Use(otelhttp.NewMiddleware("pipelogiq-api-external"))
@@ -201,8 +201,9 @@ func (s *ExternalServer) Run(ctx context.Context) error {
 	s.registerScheduleRoutes(router)
 
 	s.server = &http.Server{
-		Addr:    s.cfg.ExternalHTTPAddr,
-		Handler: router,
+		Addr:              s.cfg.ExternalHTTPAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go s.cleanupExpired(ctx)
@@ -273,31 +274,8 @@ func (s *ExternalServer) handleCreatePipeline(w http.ResponseWriter, r *http.Req
 
 	s.metrics.pipelinesCreated.Inc()
 
-	// Auto-fire event pipelines (single stage marked as event)
-	if pipeline.IsEvent != nil && *pipeline.IsEvent && len(pipeline.Stages) == 1 {
-		stage := pipeline.Stages[0]
-		msg := types.StageNextMessage{
-			AppID:            appID,
-			PipelineID:       &pipeline.ID,
-			StageID:          stage.ID,
-			TraceID:          pipeline.TraceID,
-			SpanID:           stage.SpanID,
-			StageHandlerName: stage.StageHandlerName,
-			Input:            deref(stage.Input),
-			ContextItems:     pipeline.PipelineContext,
-		}
-		body, _ := json.Marshal(msg)
-		opts := mq.QueueOptions{
-			Durable:     true,
-			DLQEnabled:  s.cfg.QueueDLQEnabled,
-			DLQTTL:      s.cfg.QueueDLQMessageTTL,
-			ContentType: "application/json",
-		}
-		queue := constants.StageNextQueueName(constants.ApplicationQueueID(appID), stage.StageHandlerName)
-		if err := s.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
-			s.logger.Error("failed to publish event stage", "err", err, "queue", queue)
-		}
-	}
+	// Events remain durable NotStarted rows until the regular scheduler claims
+	// them. Direct API publication bypassed execution IDs, leases and recovery.
 
 	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
 }
@@ -335,7 +313,7 @@ func (s *ExternalServer) handleCreatePipelineIdempotent(w http.ResponseWriter, r
 	}
 
 	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
-	req.PipelineCreateRequest.ApiKey = ""
+	req.ApiKey = ""
 	validationErrors := validateIdempotentPipelineCreateRequest(req)
 	if len(validationErrors) > 0 {
 		writeProblemJSON(
@@ -391,7 +369,6 @@ func (s *ExternalServer) handleCreatePipelineIdempotent(w http.ResponseWriter, r
 			s.logger.Error("import inline policies failed", "pipelineId", pipeline.ID, "err", err)
 		}
 		s.metrics.pipelinesCreated.Inc()
-		s.publishCreatedEventPipeline(ctx, appID, pipeline)
 	}
 
 	status := http.StatusOK
@@ -478,43 +455,6 @@ func (s *ExternalServer) handleGetPipelineByIdempotencyKey(w http.ResponseWriter
 	}
 
 	writeJSON(w, types.RedactPipelineResponse(pipeline), http.StatusOK)
-}
-
-func (s *ExternalServer) publishCreatedEventPipeline(
-	ctx context.Context,
-	appID int,
-	pipeline *types.PipelineResponse,
-) {
-	if pipeline == nil || pipeline.IsEvent == nil || !*pipeline.IsEvent || len(pipeline.Stages) != 1 {
-		return
-	}
-	if s.mq == nil {
-		s.logger.Error("cannot publish event stage because message broker is unavailable", "pipelineId", pipeline.ID)
-		return
-	}
-
-	stage := pipeline.Stages[0]
-	msg := types.StageNextMessage{
-		AppID:            appID,
-		PipelineID:       &pipeline.ID,
-		StageID:          stage.ID,
-		TraceID:          pipeline.TraceID,
-		SpanID:           stage.SpanID,
-		StageHandlerName: stage.StageHandlerName,
-		Input:            deref(stage.Input),
-		ContextItems:     pipeline.PipelineContext,
-	}
-	body, _ := json.Marshal(msg)
-	opts := mq.QueueOptions{
-		Durable:     true,
-		DLQEnabled:  s.cfg.QueueDLQEnabled,
-		DLQTTL:      s.cfg.QueueDLQMessageTTL,
-		ContentType: "application/json",
-	}
-	queue := constants.StageNextQueueName(constants.ApplicationQueueID(appID), stage.StageHandlerName)
-	if err := s.mq.PublishWithRetry(ctx, queue, body, opts, nil); err != nil {
-		s.logger.Error("failed to publish event stage", "pipelineId", pipeline.ID, "err", err, "queue", queue)
-	}
 }
 
 func (s *ExternalServer) handleGetPipeline(w http.ResponseWriter, r *http.Request) {
@@ -1334,13 +1274,6 @@ func (s *ExternalServer) sweepExpiredPending(now time.Time) int {
 		s.logger.Warn("requeued expired in-flight message", "queue", msg.queue)
 	}
 	return len(expired)
-}
-
-func deref(v *string) string {
-	if v == nil {
-		return ""
-	}
-	return *v
 }
 
 func extractAPIKey(r *http.Request) string {

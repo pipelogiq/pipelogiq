@@ -7,6 +7,14 @@ import type { PipelineExecution, PipelineAction } from '@/components/pipelines/P
 import { mapPipelineStatusToUI, mapStageStatusToUI } from '@/types/api';
 import { formatDistanceToNow, format } from 'date-fns';
 import { buildTraceLink, buildLogsLink } from './use-observability';
+import { useAuth } from '@/contexts/AuthContext';
+
+// SDK context values are JSON-encoded; older clients can still send plain text.
+export function contextDisplayValue(value?: string): string | undefined {
+  if (value === undefined) return undefined;
+  try { const decoded: unknown = JSON.parse(value); return typeof decoded === 'string' ? decoded : value; }
+  catch { return value; }
+}
 
 function formatDuration(startDate?: string, endDate?: string): string {
   if (!startDate) return '';
@@ -117,9 +125,11 @@ export async function resolveObservabilityConfig(queryClient: QueryClient): Prom
   if (cached) return cached;
 
   try {
-    const config = await observabilityApi.getConfig();
-    queryClient.setQueryData(key, config);
-    return config;
+    return await queryClient.fetchQuery({
+      queryKey: key,
+      queryFn: ({ signal }) => observabilityApi.getConfig(signal),
+      retry: false,
+    });
   } catch {
     return undefined;
   }
@@ -169,19 +179,19 @@ export function mapPipelineToExecution(
 
   // Find owner from context or use default
   const ownerContext = pipeline.pipelineContextItems?.find(ctx => ctx.key.toLowerCase() === 'owner');
-  const owner = ownerContext?.value || 'system';
+  const owner = contextDisplayValue(ownerContext?.value) || 'system';
 
   // Find environment from context or use default
   const envContext = pipeline.pipelineContextItems?.find(ctx =>
     ctx.key.toLowerCase() === 'environment' || ctx.key.toLowerCase() === 'env'
   );
-  const environment = envContext?.value || 'production';
+  const environment = contextDisplayValue(envContext?.value) || 'production';
 
   // Find correlation ID from context
   const corrContext = pipeline.pipelineContextItems?.find(ctx =>
     ctx.key.toLowerCase() === 'correlationid' || ctx.key.toLowerCase() === 'correlation_id'
   );
-  const correlationId = corrContext?.value || `corr-${pipeline.id}`;
+  const correlationId = contextDisplayValue(corrContext?.value) || `corr-${pipeline.id}`;
 
   const traceId = pipeline.traceId || '';
   const traceUrl = traceId ? (buildTraceLink(linkTemplates?.traceLinkTemplate, traceId) || '') : '';
@@ -237,10 +247,11 @@ export function mapPipelineToExecution(
 
 export function usePipelines(params?: GetPipelinesParams) {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   return useQuery({
     queryKey: ['pipelines', params],
     queryFn: async () => {
-      const config = await resolveObservabilityConfig(queryClient);
+      const config = isAdmin ? await resolveObservabilityConfig(queryClient) : undefined;
       const linkTemplates: PipelineLinkTemplates = {
         traceLinkTemplate: getTraceLinkTemplateFromConfig(config),
         logsLinkTemplate: getLogsLinkTemplateFromConfig(config),
@@ -270,10 +281,11 @@ export function usePipelines(params?: GetPipelinesParams) {
 
 export function usePipeline(id: number) {
   const queryClient = useQueryClient();
+  const { isAdmin } = useAuth();
   return useQuery({
     queryKey: ['pipeline', id],
     queryFn: async () => {
-      const config = await resolveObservabilityConfig(queryClient);
+      const config = isAdmin ? await resolveObservabilityConfig(queryClient) : undefined;
       const linkTemplates: PipelineLinkTemplates = {
         traceLinkTemplate: getTraceLinkTemplateFromConfig(config),
         logsLinkTemplate: getLogsLinkTemplateFromConfig(config),

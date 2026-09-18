@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { X, Clock, ChevronDown, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
+import { Link } from "react-router-dom";
+import { X, Clock, Copy, ArrowRight, ChevronDown, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Pause, Circle, Loader2, RotateCcw, ExternalLink, SkipForward, Ban, PlayCircle } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { tabsTriggerVariants } from "@/components/ui/tabs-variants";
@@ -12,6 +13,8 @@ import {
 import { usePipeline, useRerunStage, useSkipStage, usePausePipeline, useResumePipeline } from "@/hooks/use-pipelines";
 import { Button } from "@/components/ui/button";
 import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
+import { useAuth } from "@/contexts/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 
 interface PipelineSidePanelProps {
   pipelineId: number;
@@ -59,6 +62,8 @@ type StageUsageEntry = {
 };
 
 export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProps) {
+  const { canOperate } = useAuth();
+  const { toast } = useToast();
   const { data: pipeline, isLoading, error } = usePipeline(pipelineId);
   const pausePipeline = usePausePipeline();
   const resumePipeline = useResumePipeline();
@@ -71,6 +76,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         <div className="flex items-center justify-end px-6 py-5 border-b-2 border-border">
           <button
             onClick={onClose}
+            aria-label="Close pipeline preview"
             className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
@@ -89,6 +95,7 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
         <div className="flex items-center justify-end px-6 py-5 border-b-2 border-border">
           <button
             onClick={onClose}
+            aria-label="Close pipeline preview"
             className="p-1.5 rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X className="h-5 w-5" />
@@ -133,6 +140,9 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
   const hasAiUsageTab = Boolean(pipelineUsageSummary) || stageUsageEntries.length > 0;
   const visibleContextItems = pipeline.context.filter((item) => !isAiUsageContextKey(item.key));
   const resolvedActiveTab = activeTab === "ai-usage" && !hasAiUsageTab ? "context" : activeTab;
+  const detailParams = new URLSearchParams({ tab: resolvedActiveTab === "ai-usage" ? "data" : resolvedActiveTab });
+  const expandedStage = pipeline.actions.find((action) => expandedActions.has(action.id));
+  if (resolvedActiveTab === "stages" && expandedStage) detailParams.set("stage", expandedStage.id);
   const nextScheduledAction = pipeline.actions.find((action) =>
     (action.status === "rescheduled" || action.status === "throttled") && action.nextRetryAtExact
   );
@@ -178,143 +188,125 @@ export function PipelineSidePanel({ pipelineId, onClose }: PipelineSidePanelProp
 
   return (
     <div className="h-full flex flex-col bg-card">
-      {/* Header */}
-      <div className="px-4 py-4 bg-muted/50 border-b-2 border-border">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold text-foreground truncate">
-                {pipeline.pipelineName}
-              </h2>
-              <span className={cn(
-                  "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold shrink-0",
-                  status.bg, status.text
-              )}>
-                <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
-                {status.label}
-              </span>
-            </div>
+      <header className="shrink-0 border-b border-border bg-card px-5 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+            <span className="whitespace-nowrap text-xs text-muted-foreground">Run <span className="font-mono">#{pipeline.executionNumber}</span></span>
+            <span className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
+              status.bg, status.text
+            )}>
+              <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
+              {status.label}
+            </span>
           </div>
-          <button
+          <div className="flex shrink-0 items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground">
+              <Link to={`/pipelines/${pipelineId}?${detailParams}`}>
+                View details
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+            <Button
               onClick={onClose}
-              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <X className="h-4 w-4" />
-          </button>
+              aria-label="Close pipeline preview"
+              title="Close preview"
+              variant="ghost"
+              size="icon"
+              className="-mr-1 h-7 w-7 text-muted-foreground"
+            >
+              <X />
+            </Button>
+          </div>
         </div>
 
-        <div className="mt-2.5 flex items-center gap-3 text-xs">
-          <div className="flex min-w-0 flex-wrap items-center gap-4">
-            <div>
-              <span className="font-semibold text-muted-foreground uppercase tracking-wider">Started </span>
-              <span className="font-mono font-bold text-foreground">{pipeline.startedAt}</span>
+        <h2 className="mt-2 break-words text-lg font-semibold leading-snug tracking-tight text-foreground [overflow-wrap:anywhere]">
+          {pipeline.pipelineName}
+        </h2>
+
+        <dl className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+          <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+            <dt className="text-muted-foreground">Created</dt>
+            <dd title={pipeline.startedAtExact} className="text-foreground">{pipeline.startedAt}</dd>
+          </div>
+          <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+            <dt className="text-muted-foreground">Duration</dt>
+            <dd className="tabular-nums text-foreground">{pipeline.duration || "—"}</dd>
+          </div>
+          {pipeline.traceId && (
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <dt className="text-muted-foreground">Trace</dt>
+              <dd>
+                <button
+                  type="button"
+                  aria-label="Copy trace ID"
+                  title={`Copy trace ID: ${pipeline.traceId}`}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(pipeline.traceId);
+                      toast({ title: "Trace ID copied" });
+                    } catch {
+                      toast({ title: "Could not copy trace ID", description: "Select and copy the trace ID from the run details.", variant: "destructive" });
+                    }
+                  }}
+                  className="inline-flex min-w-0 items-center gap-1.5 rounded-sm text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <span className="font-mono text-[11px]">{pipeline.traceId.length > 20 ? `${pipeline.traceId.slice(0, 8)}…${pipeline.traceId.slice(-8)}` : pipeline.traceId}</span>
+                  <Copy className="h-3.5 w-3.5 shrink-0" />
+                </button>
+              </dd>
             </div>
-            <span className="text-muted-foreground/50">|</span>
-            <div>
-              <span className="font-semibold text-muted-foreground uppercase tracking-wider">Duration </span>
-              <span className="font-mono font-bold text-foreground">{pipeline.duration || "—"}</span>
+          )}
+          {nextScheduledAction && (
+            <div className="flex items-baseline gap-1.5 whitespace-nowrap">
+              <dt className="text-muted-foreground">Next attempt</dt>
+              <dd className="text-foreground">{nextScheduledAction.nextRetryAtExact}</dd>
             </div>
-            {nextScheduledAction && (
-              <>
-                <span className="text-muted-foreground/50">|</span>
-                <div>
-                  <span className="font-semibold text-muted-foreground uppercase tracking-wider">Next </span>
-                  <span className="font-mono font-bold text-foreground">{nextScheduledAction.nextRetryAtExact}</span>
-                </div>
-              </>
+          )}
+        </dl>
+
+        {((canOperate && pipeline.status !== "success" && pipeline.status !== "error") || pipeline.traceUrl || pipeline.logTraceUrl) && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            {canOperate && (
+              pipeline.status === "paused" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2.5 text-xs"
+                  disabled={resumePipeline.isPending}
+                  onClick={() => resumePipeline.mutate(pipelineId)}
+                >
+                  {resumePipeline.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
+                  Resume
+                </Button>
+              ) : pipeline.status !== "success" && pipeline.status !== "error" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2.5 text-xs"
+                  disabled={pausePipeline.isPending}
+                  onClick={() => pausePipeline.mutate(pipelineId)}
+                >
+                  {pausePipeline.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Pause className="h-3.5 w-3.5" />}
+                  Pause
+                </Button>
+              ) : null
+            )}
+            {pipeline.traceUrl && (
+              <a href={pipeline.traceUrl} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
+                View trace <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+            {pipeline.logTraceUrl && (
+              <a href={pipeline.logTraceUrl} target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
+                External logs <ExternalLink className="h-3 w-3" />
+              </a>
             )}
           </div>
-
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {pipeline.status === "paused" ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 px-3 text-status-success bg-status-success-bg hover:bg-status-success-bg border-status-success/30"
-                disabled={resumePipeline.isPending}
-                onClick={() => resumePipeline.mutate(pipelineId)}
-              >
-                {resumePipeline.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <PlayCircle className="h-3.5 w-3.5" />
-                )}
-                Resume
-              </Button>
-            ) : pipeline.status !== "success" && pipeline.status !== "error" ? (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 gap-1.5 px-3 text-status-warning bg-status-warning-bg hover:bg-status-warning-bg border-status-warning/30"
-                disabled={pausePipeline.isPending}
-                onClick={() => pausePipeline.mutate(pipelineId)}
-              >
-                {pausePipeline.isPending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Pause className="h-3.5 w-3.5" />
-                )}
-                Pause
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {pipeline.traceId && (
-            <div className="mt-2.5 flex items-center justify-between gap-2 p-2 bg-card rounded-md border border-border text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="font-semibold text-muted-foreground uppercase tracking-wider shrink-0">Trace</span>
-                <span className="font-mono text-muted-foreground truncate">{pipeline.traceId}</span>
-              </div>
-              <div className="shrink-0 flex items-center gap-1">
-                {pipeline.traceUrl ? (
-                  <a
-                    href={pipeline.traceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-status-running bg-status-running-bg hover:bg-status-running-bg rounded transition-colors border border-status-running/30"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Trace
-                  </a>
-                ) : (
-                  <span title="Trace url not configured">
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground/70 bg-muted rounded border border-border cursor-not-allowed"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Trace
-                    </button>
-                  </span>
-                )}
-                {pipeline.logTraceUrl ? (
-                  <a
-                    href={pipeline.logTraceUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground bg-muted/50 hover:bg-muted rounded transition-colors border border-border"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Logs
-                  </a>
-                ) : (
-                  <span title="Logs url not configured">
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold text-muted-foreground/70 bg-muted rounded border border-border cursor-not-allowed"
-                    >
-                      <ExternalLink className="h-3 w-3" />
-                      Logs
-                    </button>
-                  </span>
-                )}
-              </div>
-            </div>
         )}
-      </div>
+      </header>
 
       {/* Tabs */}
       <div className="px-6 border-b border-border bg-card">
@@ -604,6 +596,7 @@ function formatLogOutputFallback(action: PipelineAction): string {
 }
 
 function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardProps) {
+  const { canOperate } = useAuth();
   const rerunStage = useRerunStage();
   const skipStage = useSkipStage();
   const parsedStageOutput = parseStageLlmOutput(action.output);
@@ -720,7 +713,7 @@ function StageCard({ action, index, traceUrl, isExpanded, onToggle }: StageCardP
         <CollapsibleContent>
           <div className="px-4 pb-4 pt-3 border-t-2 border-border bg-muted/50">
             {/* Rerun / Skip buttons for failed stages */}
-            {action.status === "error" && (
+            {canOperate && action.status === "error" && (
                 <div className="mb-3 flex gap-2">
                   <Button
                       variant="outline"

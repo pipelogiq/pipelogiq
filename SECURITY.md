@@ -2,11 +2,12 @@
 
 ## Supported Versions
 
-Pipelogiq is in preview (v0.x). Security fixes are applied to the latest release on the `main` branch only.
+Pipelogiq is pre-1.0. The current release line is `0.5.x`, without a preview suffix. Security fixes are applied to the current release on the `main` branch only.
 
 | Version | Supported |
 |---------|-----------|
-| 0.x     | Current development line |
+| 0.5.x   | Current release line |
+| Earlier releases / previews | Upgrade to the current release |
 
 ## Reporting a Vulnerability
 
@@ -29,7 +30,7 @@ Include:
 2. We will investigate and provide an initial assessment within 10 business days.
 3. We will work with you on a fix and coordinate disclosure.
 
-As a preview project, we cannot guarantee specific timelines, but we take security reports seriously and will respond as quickly as possible.
+As a pre-1.0 project, we cannot guarantee specific timelines, but we take security reports seriously and will respond as quickly as possible.
 
 ## Scope
 

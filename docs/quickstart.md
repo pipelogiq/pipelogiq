@@ -6,8 +6,8 @@
 - Git
 
 For local development without Docker, you also need:
-- Go 1.22+
-- Node.js 20+ and npm
+- Go 1.26.8+ (the module selects this toolchain automatically)
+- Node.js 24 LTS and npm
 
 ## Docker Compose
 
@@ -24,13 +24,13 @@ cp .env.example .env
 
 ### Option A — Pre-built images (recommended for trying out)
 
-Pulls the latest images from GitHub Container Registry. No local build required.
+Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.0` images have been published; until then, build from source. No local build required.
 
 ```bash
 make compose-latest-up
 ```
 
-To pull the latest images before starting:
+To pull the configured release images before starting:
 
 ```bash
 make compose-latest-pull
@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.6.0-preview.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.5.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:
@@ -79,7 +79,7 @@ Start components independently. All share the `pipelogiq` network so they can co
 # 1. Infrastructure (Postgres, RabbitMQ, Tempo, Grafana)
 make compose-infra-up
 
-# 2. App — web dashboard + API (runs migrations automatically)
+# 2. App — migration service first, then web dashboard + API
 make compose-app-up
 
 # 3. Worker
@@ -97,7 +97,7 @@ make compose-infra-down
 You can also use `docker compose` directly:
 
 ```bash
-docker compose -f infra/compose/docker-compose.infra.yml up -d
+docker compose -f infra/compose/docker-compose.infra.yml up -d --wait
 docker compose -f infra/compose/docker-compose.app.yml up --build -d
 docker compose -f infra/compose/docker-compose.worker.yml up --build -d
 ```
@@ -115,7 +115,7 @@ Once startup completes, check that services are running:
 | API version (via nginx) | `curl http://localhost:3300/api/version` |
 | Worker metrics | `curl http://localhost:9090/metrics` |
 
-> **Note:** Port `8080` (internal API) is not exposed from the `pipelogiq-app` container. The internal API is accessible through nginx on port `3300` under the `/api/` prefix. When running without Docker, `localhost:8080` is accessible directly.
+> **Note:** Port `8088` (internal API inside the app container) is not exposed from the `pipelogiq-app` container. The internal API is accessible through nginx on port `3300` under the `/api/` prefix. When running without Docker, `localhost:8080` is accessible directly.
 
 Management UIs:
 
@@ -142,7 +142,7 @@ Grafana behind the `observability` profile. See
 | `docker-compose.worker.yml`   | `pipelogiq-worker` only (build from source) |
 
 All files use the external `pipelogiq` Docker network. The `docker-compose.registry.yml` file
-supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `latest`).
+supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `v0.5.0`).
 
 ---
 
@@ -159,7 +159,7 @@ Only two ports are published on the host:
 
 | Port | Service | Notes |
 |---|---|---|
-| `3300` | dashboard (`pipelogiq-app:80`) | Put authentication in front of it. There is no anonymous access, but the login page should not be public either. |
+| `3300` | dashboard (`pipelogiq-app:8080`) | Put authentication in front of it. There is no anonymous access, but the login page should not be public either. |
 | `8081` | external API (`pipelogiq-app:8081`) | API-key authenticated. This is what SDK clients and HTTP workers call. |
 
 Nothing else is published. Postgres, RabbitMQ (`5672` and the management UI on
@@ -180,7 +180,7 @@ docker network create pipelogiq 2>/dev/null || true
 In `.env`:
 
 ```bash
-PIPELOGIQ_VERSION=v0.6.0-preview.1
+PIPELOGIQ_VERSION=v0.5.0
 JWT_SECRET=<openssl rand -base64 48>
 POSTGRES_PASSWORD=<openssl rand -hex 24>
 BOOTSTRAP_APPLICATION_NAME=your-app

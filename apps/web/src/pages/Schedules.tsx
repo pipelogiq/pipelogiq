@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 
 import { AppHeader } from '@/components/layout/AppHeader';
+import { ReadOnlyNotice } from '@/components/auth/ReadOnlyNotice';
+import { useAuth } from '@/contexts/AuthContext';
 import { RunOutcomeStrip } from '@/components/schedules/RunOutcomeStrip';
 import { Badge } from '@/components/ui/badge';
 import { KpiCard } from '@/components/ui/kpi-card';
@@ -56,6 +58,7 @@ const healthToneClass = {
 } as const;
 
 export default function Schedules() {
+  const { canOperate } = useAuth();
   const [statusFilter, setStatusFilter] = useState<ScheduleStatus | 'all'>('all');
   const { data, isLoading, isError, error } = useSchedules(
     statusFilter === 'all' ? undefined : statusFilter,
@@ -86,6 +89,7 @@ export default function Schedules() {
   }, [schedules]);
 
   const handleToggle = (schedule: Schedule, shouldRun: boolean) => {
+    if (!canOperate) return;
     setStatus.mutate(
       { id: schedule.id, action: shouldRun ? 'resume' : 'pause' },
       {
@@ -111,6 +115,7 @@ export default function Schedules() {
       <AppHeader title="Schedules" />
 
       <div className="flex-1 space-y-6 p-6">
+        <ReadOnlyNotice />
         <div className="grid gap-4 md:grid-cols-4">
           <KpiCard title="Active" value={counts.active} icon={Play} />
           <KpiCard title="Paused" value={counts.paused} icon={Pause} />
@@ -241,7 +246,7 @@ export default function Schedules() {
                       <TableCell className="text-right">
                         <Switch
                           checked={schedule.status === 'Active'}
-                          disabled={archived || setStatus.isPending}
+                          disabled={!canOperate || archived || setStatus.isPending}
                           onCheckedChange={(checked) => handleToggle(schedule, checked)}
                           aria-label={`Toggle ${schedule.name}`}
                         />

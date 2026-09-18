@@ -7,7 +7,10 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
-## [0.6.0-preview.1] - 2026-09-07
+## [0.5.0] - 2026-09-18
+
+Coordinated release with .NET SDK `0.5.0` and Java SDK `0.5.0`.
+See [release notes and upgrade instructions](docs/releases/RELEASE_NOTES_v0.5.0.md).
 
 ### Breaking changes
 
@@ -28,16 +31,29 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 - **API keys are stored hashed.** Existing keys keep working; the dashboard shows a
   prefix instead of the value, and the clear key is shown only when created.
 - **Sessions are revocable.** Logout and a password change end every session of the
-  account; sessions issued before this release are invalid after upgrading.
+  account except the renewed session after a successful self-service password
+  change; sessions issued before this release are invalid after upgrading.
+- **User roles are normalized to Admin, Operator and Viewer.** Apply the migration
+  before starting the API. Duplicate normalized emails stop migration for manual
+  resolution. Accounts retaining shipped demo password hashes are disabled;
+  replace those credentials before use. Existing memberships are retained.
 
 ### Added
 
 - Integration secrets are encrypted at rest under `SECRETS_ENCRYPTION_KEY` and masked
   in API responses.
 - Sign-in is rate-limited per address and per account.
-- `POST /auth/password` and a password form in Settings.
-- An audit log of sign-ins, password changes and administrative changes, with an
-  Audit page and `GET /audit`.
+- User management in Settings: account creation, roles, application memberships,
+  activation/deactivation and administrator password resets, enforced by the API.
+- `POST /auth/password` and password settings, also available through Account to
+  non-admin users.
+- Settings tabs for API keys, Users, Audit, Licence and Security.
+- An audit log of sign-ins, account changes, pipeline/stage operations (including
+  rerun and skip), schedules and settings, with user/action/outcome filters.
+- A dedicated pipeline run page with stage details, input/output, searchable logs,
+  stage/level filters and a searchable context table with expandable values.
+- Shared styled dropdowns across filters and forms; the old placeholder Executions
+  page redirects to Pipelines.
 - Action policies are stored in the database; the JSON file store is gone.
 - Stage names are validated: unique within a pipeline, no commas or control characters.
 - Every external route is in the OpenAPI contract; CI fails when one is added
@@ -52,9 +68,31 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ### Fixed
 
+- Expiring and revoked dashboard sessions and application memberships are checked
+  for live WebSocket updates as well as HTTP requests.
+- Concurrent password changes cannot overwrite an administrator reset or a later
+  account/session change; account edits protect the last active administrator.
+- Audit snapshots and exports redact historical as well as current secret values;
+  forwarded client headers cannot bypass sign-in throttling.
+- Stage result fencing, event-stage continuation and .NET wire-contract regressions.
+- Release checks align the server, dashboard, OpenAPI, images, Helm chart and notes
+  with `VERSION`; tag publication requires the full CI suite and matching notes.
+- Preview tags no longer replace stable Docker `latest`; the worker image receives
+  the licence public key and GitHub releases include a packaged Helm chart.
+- The standalone app Compose stack validates without cross-project dependencies,
+  waits for its migration service, and the registry pull target includes migrations.
 - The release workflow built the images without the `pro` tag, so the published
   image could never verify a licence.
 - The dashboard rendered `401` and `403` responses as empty data.
+
+### Security
+
+- Updated Go, Node, frontend/backend dependencies and runtime images, including the
+  PostgreSQL migration image's JRE and JDBC driver. Removed unused commercial and
+  non-PostgreSQL migration extensions.
+- Added PostgreSQL concurrency/upgrade regressions, role and application isolation
+  checks, frontend regressions, and Community/Pro vulnerability checks. See the
+  [verification report](docs/security-review-2026-09-18.md) for tested scope and limits.
 
 ## [0.5.0-preview.1] - 2026-09-06
 
@@ -663,6 +701,10 @@ First public preview release.
 - WebSocket endpoint has no authentication
 - No published SDK; external workers must implement the HTTP protocol directly
 
+[Unreleased]: https://github.com/pipelogiq/pipelogiq/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/pipelogiq/pipelogiq/compare/v0.5.0-preview.1...v0.5.0
+[0.5.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.5.0-preview.1
+[0.4.1-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.4.1-preview.1
 [0.4.0-preview.1]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.4.0-preview.1
 [0.3.2-preview.6]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.6
 [0.3.2-preview.5]: https://github.com/pipelogiq/pipelogiq/releases/tag/v0.3.2-preview.5

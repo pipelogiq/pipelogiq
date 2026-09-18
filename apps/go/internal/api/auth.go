@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"pipelogiq/internal/store"
 	"pipelogiq/internal/types"
 )
 
@@ -39,58 +39,72 @@ const (
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	outcome, status, target := "failed", http.StatusBadRequest, "sign-in"
+	defer func() {
+		s.audit(r, "auth.login", target, outcome, map[string]any{"status": status})
+	}()
 
 	var req struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeUserRequest(w, r, &req) {
 		return
 	}
 
 	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	if len(req.Email) <= 255 && req.Email != "" {
+		target = req.Email
+		// Before credentials are verified this is an attempted identity only;
+		// userId stays empty so failed attempts cannot impersonate an actor.
+		r = r.WithContext(context.WithValue(r.Context(), userEmailKey, req.Email))
+	}
 	if req.Email == "" || req.Password == "" {
 		http.Error(w, "email and password are required", http.StatusBadRequest)
+		return
+	}
+	if len(req.Email) > 255 || len(req.Password) > 72 {
+		writeJSONError(w, "email or password is too long", http.StatusBadRequest)
 		return
 	}
 
 	if ok, retryAfter := s.loginLimiter.allow(r.RemoteAddr, req.Email); !ok {
 		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
-		s.audit(r, "auth.login", req.Email, "rate_limited", nil)
+		outcome, status = "rate_limited", http.StatusTooManyRequests
 		writeJSONError(w, "too many sign-in attempts; try again later", http.StatusTooManyRequests)
 		return
 	}
+	status = http.StatusUnauthorized
 
 	user, storedHash, err := s.store.GetUserByEmail(ctx, req.Email)
 	if err != nil {
-		// Burn the same time as a real comparison so a missing account is not
-		// distinguishable from a wrong password by response latency.
+		// Perform bcrypt work for unknown accounts using the same work factor
+		// as passwords created by this API.
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password))
-		s.audit(r, "auth.login", req.Email, "failed", nil)
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
-		s.audit(r, "auth.login", req.Email, "failed", nil)
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil || !user.IsActive || store.IsLegacyDemoPasswordHash(storedHash) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
+	r = withAuditIdentity(r, user.ID, user.Email)
 
 	s.loginLimiter.reset(req.Email)
 	if err := s.issueSession(w, r, user); err != nil {
+		status = http.StatusInternalServerError
 		s.logger.Error("generate jwt failed", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	s.audit(r, "auth.login", req.Email, "ok", nil)
+	outcome, status = "ok", http.StatusOK
 	w.WriteHeader(http.StatusOK)
 }
 
-// dummyHash keeps the failed-login path constant-time when the account is unknown.
-var dummyHash = []byte("$2a$12$C6UzMDM.H6dfI/f/IKcEeO5Uv3Ye3fHhB0P7mkR6cBcd0yq8lmB6e")
+// Keep this work factor aligned with bcrypt.DefaultCost used for account writes.
+var dummyHash = []byte("$2a$10$C6UzMDM.H6dfI/f/IKcEeO5Uv3Ye3fHhB0P7mkR6cBcd0yq8lmB6e")
 
 // issueSession mints a JWT for the user and sets the session cookie.
 func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user *types.UserResponse) error {
@@ -98,6 +112,7 @@ func (s *Server) issueSession(w http.ResponseWriter, r *http.Request, user *type
 	if err != nil {
 		return err
 	}
+	// #nosec G124 -- Secure follows COOKIE_SECURE/TLS; local HTTP development is supported.
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    token,
@@ -134,12 +149,15 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		CurrentPassword string `json:"currentPassword"`
 		NewPassword     string `json:"newPassword"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+	if !decodeUserRequest(w, r, &req) {
 		return
 	}
-	if len(req.NewPassword) < minPasswordLength {
-		writeJSONError(w, fmt.Sprintf("new password must be at least %d characters", minPasswordLength), http.StatusBadRequest)
+	if err := validateUserPassword(req.NewPassword); err != nil {
+		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(req.CurrentPassword) > 72 {
+		writeJSONError(w, "current password is too long", http.StatusBadRequest)
 		return
 	}
 
@@ -163,7 +181,14 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	version, err := s.store.UpdatePassword(ctx, userID, string(hash))
+	// Compare against the authenticated request's version, not the newer user
+	// row: a logout can happen after middleware accepted this request.
+	claimedVersion, _ := r.Context().Value(tokenVersionKey).(int)
+	version, err := s.store.ChangeOwnPassword(ctx, userID, claimedVersion, storedHash, string(hash))
+	if errors.Is(err, store.ErrSessionChanged) {
+		writeJSONError(w, "session expired; sign in again", http.StatusUnauthorized)
+		return
+	}
 	if err != nil {
 		s.logger.Error("update password failed", "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -172,6 +197,7 @@ func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Every other session is now invalid; keep this one alive with a fresh token.
 	user.TokenVersion = version
+	s.hub.DisconnectUser(userID)
 	if err := s.issueSession(w, r, user); err != nil {
 		s.logger.Error("reissue session failed", "err", err)
 	}
@@ -201,27 +227,51 @@ func (s *Server) handleGetCurrentUser(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// Rotating the token version ends every session of the account, not only the
 	// one holding this cookie. A stolen token stops working at logout.
+	outcome, target := "ok", "session"
 	if cookie, err := r.Cookie(authCookieName); err == nil {
 		if claims, err := parseJWT(s.jwtSecret, cookie.Value); err == nil {
 			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 			defer cancel()
-			if _, err := s.store.BumpTokenVersion(ctx, claims.UserID); err != nil {
-				s.logger.Error("revoke sessions on logout failed", "userId", claims.UserID, "err", err)
+			user, err := s.store.GetUserByID(ctx, claims.UserID)
+			if err != nil || !user.IsActive || user.TokenVersion != claims.TokenVersion {
+				outcome = "denied"
+			} else {
+				r = withAuditIdentity(r, user.ID, user.Email)
+				target = "user:" + strconv.Itoa(user.ID)
+				if _, err := s.store.BumpTokenVersion(ctx, claims.UserID); err != nil {
+					outcome = "failed"
+					s.logger.Error("revoke sessions on logout failed", "userId", claims.UserID, "err", err)
+				} else {
+					s.hub.DisconnectUser(claims.UserID)
+				}
 			}
-			s.audit(r, "auth.logout", claims.Email, "ok", nil)
+		} else {
+			outcome = "denied"
 		}
 	}
+	s.audit(r, "auth.logout", target, outcome, map[string]any{"status": http.StatusOK})
 
+	s.clearSessionCookie(w, r)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	// #nosec G124 -- Match the session's configurable Secure flag when deleting it.
 	http.SetCookie(w, &http.Cookie{
 		Name:     authCookieName,
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   s.cookieSecure(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
 	})
+}
 
-	w.WriteHeader(http.StatusOK)
+func withAuditIdentity(r *http.Request, userID int, email string) *http.Request {
+	ctx := context.WithValue(r.Context(), userIDKey, userID)
+	ctx = context.WithValue(ctx, userEmailKey, email)
+	return r.WithContext(ctx)
 }
 
 func generateJWT(jwtSecret []byte, userID int, email, role string, tokenVersion int) (string, error) {
@@ -247,7 +297,7 @@ func parseJWT(jwtSecret []byte, tokenString string) (*jwtClaims, error) {
 			return nil, errors.New("unexpected signing method")
 		}
 		return jwtSecret, nil
-	})
+	}, jwt.WithIssuer(jwtIssuer), jwt.WithExpirationRequired())
 
 	if err != nil {
 		return nil, err
@@ -272,12 +322,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		claims, err := parseJWT(s.jwtSecret, cookie.Value)
 		if err != nil {
 			// Clear invalid cookie
-			http.SetCookie(w, &http.Cookie{
-				Name:   authCookieName,
-				Value:  "",
-				Path:   "/",
-				MaxAge: -1,
-			})
+			s.clearSessionCookie(w, r)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -286,22 +331,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(ctx, userRoleKey, normalizeRole(claims.Role))
 		ctx = context.WithValue(ctx, userEmailKey, claims.Email)
 		ctx = context.WithValue(ctx, tokenVersionKey, claims.TokenVersion)
+		ctx = context.WithValue(ctx, tokenExpiresAtKey, claims.ExpiresAt.Time)
 		next.ServeHTTP(w, r.WithContext(ctx))
-	})
-}
-
-// Optional auth middleware - doesn't require auth but extracts user if present
-func (s *Server) optionalAuthMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(authCookieName)
-		if err == nil {
-			if claims, err := parseJWT(s.jwtSecret, cookie.Value); err == nil {
-				ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
-				ctx = context.WithValue(ctx, userRoleKey, normalizeRole(claims.Role))
-				r = r.WithContext(ctx)
-			}
-		}
-		next.ServeHTTP(w, r)
 	})
 }
 
@@ -315,12 +346,24 @@ func (s *Server) requireAdminMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+func (s *Server) requireOperatorMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		role := types.NormalizeUserRole(getUserRoleFromContext(r.Context()))
+		if role != "admin" && role != "operator" {
+			writeJSONError(w, "operator or administrator access is required", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 type contextKey string
 
 const userIDKey contextKey = "userID"
 const userRoleKey contextKey = "userRole"
 const userEmailKey contextKey = "userEmail"
 const tokenVersionKey contextKey = "tokenVersion"
+const tokenExpiresAtKey contextKey = "tokenExpiresAt"
 
 func getUserIDFromContext(ctx context.Context) int {
 	if userID, ok := ctx.Value(userIDKey).(int); ok {

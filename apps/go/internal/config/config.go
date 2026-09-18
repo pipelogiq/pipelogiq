@@ -187,7 +187,7 @@ func loadCommon() (Common, error) {
 		dbURL = defaultDevDatabaseURL
 	}
 	if rabbitURL == "" {
-		rabbitURL = "amqp://guest:guest@rabbitmq:5672/"
+		rabbitURL = "amqp://guest:guest@rabbitmq:5672/" // #nosec G101 -- Local Compose default; deployments configure RABBITMQ_URL.
 	}
 
 	logLevel := strings.ToLower(getEnv("LOG_LEVEL", "info"))

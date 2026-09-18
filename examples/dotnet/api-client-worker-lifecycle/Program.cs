@@ -23,8 +23,8 @@ var bootstrapRequest = new WorkerBootstrapRequest
 {
     WorkerName = "dotnet-lifecycle-sample",
     InstanceId = $"{Environment.MachineName}-{Environment.ProcessId}",
-    WorkerVersion = "1.0.0",
-    SdkVersion = "example",
+    WorkerVersion = "0.5.0",
+    SdkVersion = typeof(PipelogiqApiClient).Assembly.GetName().Version?.ToString(3),
     Environment = Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "dev",
     HostName = Environment.MachineName,
     Pid = Environment.ProcessId,
@@ -36,7 +36,7 @@ var bootstrapRequest = new WorkerBootstrapRequest
     Capabilities = new Dictionary<string, bool>
     {
         ["batchAck"] = false,
-        ["otel"] = true
+        ["otel"] = false
     },
     Metadata = new Dictionary<string, string>
     {
@@ -52,8 +52,8 @@ try
 }
 catch (HttpRequestException ex)
 {
-    Console.Error.WriteLine("Bootstrap failed.");
-    Console.Error.WriteLine(ex.Message);
+    Console.Error.WriteLine($"Bootstrap failed (HTTP status: {ex.StatusCode?.ToString() ?? "unavailable"}).");
+    Environment.ExitCode = 1;
     return;
 }
 
@@ -69,15 +69,8 @@ Console.WriteLine($"  AppId: {bootstrap.Application.AppId}");
 Console.WriteLine($"  Broker: {bootstrap.MessageBroker.Type}");
 Console.WriteLine($"  Prefetch: {bootstrap.MessageBroker.Prefetch}");
 
-try
-{
-    var rabbit = await client.GetRabbitMqConnectionAsync();
-    Console.WriteLine($"  RabbitMQ connection from API: {rabbit.ConnectionString}");
-}
-catch (HttpRequestException ex)
-{
-    Console.WriteLine($"  RabbitMQ connection endpoint failed: {ex.Message}");
-}
+// The bootstrap response contains MessageBroker.ConnectionString for an actual
+// worker runtime. Never log it or WorkerSessionToken: both contain credentials.
 
 await client.PostWorkerHeartbeatAsync(
     bootstrap.WorkerSessionToken,
@@ -86,7 +79,7 @@ await client.PostWorkerHeartbeatAsync(
         WorkerId = bootstrap.WorkerId,
         State = "ready",
         UptimeSec = 3,
-        BrokerConnected = true,
+        BrokerConnected = false, // This control-plane example never connects to RabbitMQ.
         InFlightJobs = 0,
         JobsProcessed = 0,
         JobsFailed = 0,
@@ -106,12 +99,21 @@ await client.PostWorkerEventAsync(
     new WorkerEventRequest
     {
         WorkerId = bootstrap.WorkerId,
-        Type = "sample.event",
-        Message = "Worker lifecycle sample emitted event",
-        Metadata = new Dictionary<string, object?>
+        Events = new List<WorkerEventItem>
         {
-            ["example"] = true,
-            ["queuedAt"] = DateTimeOffset.UtcNow
+            new()
+            {
+                Timestamp = DateTime.UtcNow,
+                Level = "INFO",
+                EventType = "sample.event",
+                Message = "Worker lifecycle sample emitted event",
+                Details = new Dictionary<string, object?>
+                {
+                    ["example"] = true,
+                    ["jobsProcessed"] = 0,
+                    ["jobsFailed"] = 0
+                }
+            }
         }
     });
 
@@ -120,13 +122,7 @@ await client.PostWorkerShutdownAsync(
     new WorkerShutdownRequest
     {
         WorkerId = bootstrap.WorkerId,
-        State = "stopped",
-        Message = "Sample completed",
-        Metadata = new Dictionary<string, object?>
-        {
-            ["jobsProcessed"] = 0,
-            ["jobsFailed"] = 0
-        }
+        Reason = "Sample completed"
     });
 
 Console.WriteLine("Lifecycle calls completed (bootstrap -> heartbeat -> event -> shutdown).");

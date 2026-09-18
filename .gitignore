@@ -48,3 +48,25 @@ Thumbs.db
 obj/
 [Bb]in/
 *.user
+
+# Python release-check caches
+__pycache__/
+*.pyc
+
+# Local credentials, backups and release tools
+.env*
+!.env.example
+!.env.*.example
+!**/.env.example
+!**/.env.*.example
+*.env.bak*
+*.pem
+*.p12
+*.pfx
+/.tools/
+__pycache__/
+*.pyc
+!/apps/web/.env.development
+!/apps/web/.env.production
+/apps/go/api
+/apps/go/worker

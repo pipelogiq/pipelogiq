@@ -3,6 +3,8 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, Loader2, Pause, Play, Archive, PlayCircle } from 'lucide-react';
 
 import { AppHeader } from '@/components/layout/AppHeader';
+import { ReadOnlyNotice } from '@/components/auth/ReadOnlyNotice';
+import { useAuth } from '@/contexts/AuthContext';
 import { RunOutcomeStrip } from '@/components/schedules/RunOutcomeStrip';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -88,6 +90,7 @@ const healthToneClass = {
 } as const;
 
 export default function ScheduleDetail() {
+  const { canOperate } = useAuth();
   const { id } = useParams<{ id: string }>();
   const scheduleId = Number(id);
   const { data: schedule, isLoading, isError, error } = useSchedule(scheduleId);
@@ -135,7 +138,7 @@ export default function ScheduleDetail() {
   // declares what a schedule runs; how a collision is handled is an operational
   // call, so an upsert that says nothing about it leaves this alone.
   const savePolicies = (patch: { overlapPolicy?: OverlapPolicy; catchupPolicy?: CatchupPolicy }) => {
-    if (!schedule) return;
+    if (!canOperate || !schedule) return;
     updatePolicies.mutate(
       { id: schedule.id, ...patch },
       {
@@ -151,6 +154,7 @@ export default function ScheduleDetail() {
   };
 
   const changeStatus = (action: 'pause' | 'resume' | 'archive') => {
+    if (!canOperate) return;
     setStatus.mutate(
       { id: schedule.id, action },
       {
@@ -166,6 +170,7 @@ export default function ScheduleDetail() {
   };
 
   const runNow = () => {
+    if (!canOperate) return;
     let parsedInput: unknown;
     if (inputOverride.trim() !== '') {
       try {
@@ -203,6 +208,7 @@ export default function ScheduleDetail() {
       <AppHeader title={schedule.name} subtitle={describeSchedule(schedule)} />
 
       <div className="flex-1 space-y-6 p-6">
+        <ReadOnlyNotice />
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" asChild>
             <Link to="/schedules">
@@ -211,7 +217,7 @@ export default function ScheduleDetail() {
             </Link>
           </Button>
 
-          <div className="flex items-center gap-2">
+          {canOperate && <div className="flex items-center gap-2">
             <Button
               size="sm"
               variant="outline"
@@ -251,7 +257,7 @@ export default function ScheduleDetail() {
               <Archive className="mr-2 h-4 w-4" />
               Archive
             </Button>
-          </div>
+          </div>}
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -280,7 +286,7 @@ export default function ScheduleDetail() {
                 <PolicySelect
                   value={schedule.overlapPolicy}
                   options={overlapOptions}
-                  disabled={archived || updatePolicies.isPending}
+                  disabled={!canOperate || archived || updatePolicies.isPending}
                   onChange={value =>
                     savePolicies({ overlapPolicy: value as OverlapPolicy })
                   }
@@ -290,7 +296,7 @@ export default function ScheduleDetail() {
                 <PolicySelect
                   value={schedule.catchupPolicy}
                   options={catchupOptions}
-                  disabled={archived || updatePolicies.isPending}
+                  disabled={!canOperate || archived || updatePolicies.isPending}
                   onChange={value =>
                     savePolicies({ catchupPolicy: value as CatchupPolicy })
                   }
@@ -421,7 +427,7 @@ export default function ScheduleDetail() {
         </section>
       </div>
 
-      <Dialog open={runDialogOpen} onOpenChange={setRunDialogOpen}>
+      <Dialog open={canOperate && runDialogOpen} onOpenChange={setRunDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Run {schedule.name} now</DialogTitle>

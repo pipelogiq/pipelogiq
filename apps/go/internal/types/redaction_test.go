@@ -6,6 +6,14 @@ import (
 	"time"
 )
 
+func TestRedactionDoesNotRewriteItsOwnMarkers(t *testing.T) {
+	got := RedactKnownValues("private-token / A / private", []string{"private", "private-token", "A"})
+	want := "[REDACTED] / [REDACTED] / [REDACTED]"
+	if got != want {
+		t.Fatalf("redaction = %q, want %q", got, want)
+	}
+}
+
 func TestRedactPipelineResponse_RedactsSerializedStringSecretFromContextLogsAndStatusPayloads(t *testing.T) {
 	secret := `"access-token-value"`
 	input := `{"token":"access-token-value"}`

@@ -1413,4 +1413,82 @@
         <sql>CREATE INDEX IF NOT EXISTS idx_audit_log_user_ts ON audit_log(user_id, ts)</sql>
     </changeSet>
 
+    <changeSet id="preserve sensitive context redaction history" author="pipelogiq">
+        <createTable tableName="pipeline_redaction_secret">
+            <column name="id" type="bigint" autoIncrement="true"><constraints primaryKey="true" nullable="false"/></column>
+            <column name="pipeline_id" type="int"><constraints nullable="false" references="pipeline(id)" foreignKeyName="fk_redaction_pipeline" deleteCascade="true"/></column>
+            <column name="value" type="text"><constraints nullable="false"/></column>
+        </createTable>
+        <createIndex tableName="pipeline_redaction_secret" indexName="idx_redaction_pipeline"><column name="pipeline_id"/></createIndex>
+        <sql>INSERT INTO pipeline_redaction_secret (pipeline_id, value) SELECT DISTINCT pipeline_id, value FROM pipeline_context_item WHERE is_sensitive = true AND value IS NOT NULL AND value != ''</sql>
+    </changeSet>
+
+    <changeSet id="sanitize legacy schedule definitions" author="pipelogiq">
+        <sql splitStatements="false"><![CDATA[
+            UPDATE schedule SET definition_json = jsonb_set(
+                definition_json - 'apiKey' - 'ApiKey' - 'traceId' - 'TraceId' - 'idempotencyKey' - 'IdempotencyKey',
+                '{pipelineContextItems}',
+                COALESCE((SELECT jsonb_agg(item) FROM jsonb_array_elements(
+                    CASE WHEN jsonb_typeof(definition_json->'pipelineContextItems') = 'array' THEN definition_json->'pipelineContextItems' ELSE '[]'::jsonb END
+                ) item WHERE lower(item->>'key') NOT IN ('traceparent','tracestate')), '[]'::jsonb)
+            )
+        ]]></sql>
+    </changeSet>
+
+    <changeSet id="add user activation status" author="pipelogiq">
+        <preConditions onFail="MARK_RAN">
+            <not><columnExists tableName="user" columnName="is_active"/></not>
+        </preConditions>
+        <addColumn tableName="user">
+            <column name="is_active" type="boolean" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+    </changeSet>
+
+    <changeSet id="normalize user access roles" author="pipelogiq">
+        <sql>
+            UPDATE "user" SET role = CASE
+                WHEN lower(trim(role)) IN ('admin', 'administrator', 'superadmin') THEN 'admin'
+                WHEN lower(trim(role)) IN ('operator', 'user') THEN 'operator'
+                ELSE 'viewer'
+            END,
+            token_version = token_version + 1;
+        </sql>
+    </changeSet>
+
+    <!-- Never merge or rename accounts implicitly. Existing installations with
+         colliding email identities must resolve those accounts before upgrade. -->
+    <changeSet id="unique normalized user email" author="pipelogiq">
+        <preConditions onFail="HALT" onFailMessage="User emails must be unique ignoring case and surrounding whitespace. Resolve duplicate accounts before running this migration.">
+            <sqlCheck expectedResult="0">
+                SELECT count(*) FROM (SELECT lower(trim(email)) FROM "user" GROUP BY lower(trim(email)) HAVING count(*) &gt; 1) duplicate_emails
+            </sqlCheck>
+        </preConditions>
+        <sql>CREATE UNIQUE INDEX uq_user_email_normalized ON "user" (lower(trim(email)))</sql>
+    </changeSet>
+
+    <changeSet id="index audit history filters" author="pipelogiq">
+        <sql>CREATE INDEX IF NOT EXISTS idx_audit_log_action_ts_id ON audit_log(action, ts DESC, id DESC)</sql>
+        <sql>CREATE INDEX IF NOT EXISTS idx_audit_log_user_action_ts_id ON audit_log(user_id, action, ts DESC, id DESC)</sql>
+        <rollback>
+            <sql>DROP INDEX IF EXISTS idx_audit_log_user_action_ts_id</sql>
+            <sql>DROP INDEX IF EXISTS idx_audit_log_action_ts_id</sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Historical demo identities must not become live accounts on a fresh
+         installation. Match the original hashes so a real account whose
+         password was replaced is never disabled by this migration. -->
+    <changeSet id="disable unchanged seeded credentials" author="pipelogiq">
+        <sql>
+            UPDATE "user" SET is_active = false, token_version = token_version + 1
+            WHERE password IN (
+                '$2a$12$7k/eb090r0jNWF3aMgBXw.V9p9U.7x4c2eNNbP0TAYqUEIPMX0nwG',
+                '$2a$12$TGNopcSVE8D6P4GxsPWbneNjP0Iua1ngopHciWaOPYebih8O1myoC',
+                '$2a$12$.dBosWNEr/3HJkA19X885eUk7OiK2CNaRTkAAg/HIPlQEKpCjS1..'
+            );
+        </sql>
+    </changeSet>
+
 </databaseChangeLog>

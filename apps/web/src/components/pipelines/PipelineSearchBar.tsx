@@ -1,4 +1,4 @@
-import { useState, useCallback, KeyboardEvent, useEffect } from "react";
+import { useState, useCallback, KeyboardEvent, useEffect, useEffectEvent } from "react";
 import { Search, X, Clock, ChevronDown, Layers } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 export interface ContextKeyFilter {
@@ -61,23 +62,35 @@ const statusShortLabels: Record<string, string> = {
 type PeriodMode = "all" | "last" | "range";
 type PeriodUnit = "seconds" | "minutes" | "hours";
 
+function parseSearch(input: string): Pick<SearchFilters, "query" | "contextFilters"> {
+  const keyValuePattern = /(\w+):([^\s]+)/g;
+  const contextFilters: ContextKeyFilter[] = [];
+  let query = input;
+  let match;
+  while ((match = keyValuePattern.exec(input)) !== null) {
+    contextFilters.push({ key: match[1], value: match[2] });
+    query = query.replace(match[0], "").trim();
+  }
+  return { query, contextFilters };
+}
+
 export function PipelineSearchBar({
   onFiltersChange,
   totalResults,
   isSearching = false,
   initialQuery = "",
 }: PipelineSearchBarProps) {
-  const [filters, setFilters] = useState<SearchFilters>({
-    query: "",
+  const [filters, setFilters] = useState<SearchFilters>(() => ({
     status: "all",
     environment: "all",
     dateRange: "all",
     owner: "all",
     tags: [],
-    contextFilters: [],
-  });
+    ...parseSearch(initialQuery),
+  }));
 
   const [searchInput, setSearchInput] = useState(initialQuery);
+  const [previousInitialQuery, setPreviousInitialQuery] = useState(initialQuery);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [statusOpen, setStatusOpen] = useState(false);
   const [periodOpen, setPeriodOpen] = useState(false);
@@ -92,40 +105,18 @@ export function PipelineSearchBar({
     setFilters((prev) => ({ ...prev, ...updates }));
   }, []);
 
-  // Initial fetch on mount, and again whenever the header sends a new query
-  // while this page is already open. Routed through the same parser as typing,
-  // so `orderId:123` becomes a context filter either way.
+  // A URL change replaces the search draft and context terms, including an
+  // empty query, while retaining separately selected status and time filters.
+  if (initialQuery !== previousInitialQuery) {
+    setPreviousInitialQuery(initialQuery);
+    setSearchInput(initialQuery);
+    setFilters({ ...filters, ...parseSearch(initialQuery) });
+  }
+
+  const applyInitialQuery = useEffectEvent(() => onFiltersChange(filters));
   useEffect(() => {
-    if (initialQuery) {
-      setSearchInput(initialQuery);
-      parseAndApplySearch(initialQuery, true);
-    } else {
-      onFiltersChange(filters);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    applyInitialQuery();
   }, [initialQuery]);
-
-  const parseAndApplySearch = (input: string, apply = false) => {
-    const keyValuePattern = /(\w+):([^\s]+)/g;
-    const contextFilters: ContextKeyFilter[] = [];
-    let remainingQuery = input;
-
-    let match;
-    while ((match = keyValuePattern.exec(input)) !== null) {
-      contextFilters.push({ key: match[1], value: match[2] });
-      remainingQuery = remainingQuery.replace(match[0], "").trim();
-    }
-
-    const newFilters = {
-      ...filters,
-      query: remainingQuery,
-      contextFilters,
-    };
-    updateFilters(newFilters);
-    if (apply) {
-      onFiltersChange(newFilters);
-    }
-  };
 
   const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
@@ -171,7 +162,7 @@ export function PipelineSearchBar({
     } else if (periodMode === "last") {
       newFilters = { ...filters, dateRange: `last:${lastValue}:${lastUnit}` };
     } else {
-      newFilters = { ...filters, dateRange: `range:${rangeFrom || "?"}-${rangeTo || "?"}` };
+      newFilters = { ...filters, dateRange: `range:${rangeFrom || "?"}|${rangeTo || "?"}` };
     }
 
     updateFilters(newFilters);
@@ -180,7 +171,9 @@ export function PipelineSearchBar({
   };
 
   const handleSearch = () => {
-    parseAndApplySearch(searchInput, true);
+    const newFilters = { ...filters, ...parseSearch(searchInput) };
+    updateFilters(newFilters);
+    onFiltersChange(newFilters);
   };
 
   const dateLabel = () => {
@@ -274,15 +267,16 @@ export function PipelineSearchBar({
                     onChange={(e) => setLastValue(Number(e.target.value) || 1)}
                     className="h-9 w-20"
                   />
-                  <select
-                    value={lastUnit}
-                    onChange={(e) => setLastUnit(e.target.value as PeriodUnit)}
-                    className="h-9 flex-1 rounded-md border border-input bg-background px-2 text-sm"
-                  >
-                    <option value="seconds">seconds</option>
-                    <option value="minutes">minutes</option>
-                    <option value="hours">hours</option>
-                  </select>
+                  <Select value={lastUnit} onValueChange={value => setLastUnit(value as PeriodUnit)}>
+                    <SelectTrigger aria-label="Time unit" className="h-9 min-w-0 flex-1">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="seconds">seconds</SelectItem>
+                      <SelectItem value="minutes">minutes</SelectItem>
+                      <SelectItem value="hours">hours</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
 

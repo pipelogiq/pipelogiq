@@ -5,31 +5,105 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    name: Create Release
+  preflight:
+    name: Validate release
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      version: ${{ steps.release.outputs.version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      commit: ${{ steps.release.outputs.commit }}
+      date: ${{ steps.release.outputs.date }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - name: Validate tag, versions, release notes and licensing key
+        id: release
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          LICENSE_PUBLIC_KEY: ${{ secrets.LICENSE_PUBLIC_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(preview|rc)\.[1-9][0-9]*)?$ ]]; then
+            echo "Release tags must be vMAJOR.MINOR.PATCH, optionally followed by -preview.N or -rc.N" >&2
+            exit 1
+          fi
+          ./scripts/check-versions.sh "$RELEASE_TAG"
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "Release commit must belong to main" >&2
+            exit 1
+          }
+          python3 - <<'PY'
+          import base64
+          import binascii
+          import os
+          from pathlib import Path
+
+          tag = os.environ["RELEASE_TAG"]
+          notes = Path("docs/releases") / f"RELEASE_NOTES_{tag}.md"
+          if not notes.is_file():
+              raise SystemExit(f"Missing detailed release notes: {notes}")
+          lines = notes.read_text(encoding="utf-8").splitlines()
+          if not lines or lines[0].strip() != f"# Pipelogiq {tag}" or not any(line.strip() for line in lines[1:]):
+              raise SystemExit("Release notes must have the exact version heading and a nonempty body")
+          try:
+              key = base64.b64decode(os.environ.get("LICENSE_PUBLIC_KEY", ""), validate=True)
+          except (ValueError, binascii.Error):
+              raise SystemExit("LICENSE_PUBLIC_KEY must be a base64 Ed25519 public key")
+          if len(key) != 32 or not any(key):
+              raise SystemExit("LICENSE_PUBLIC_KEY must contain a non-placeholder 32-byte Ed25519 public key")
+          PY
+          prerelease=false
+          if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
+          {
+            echo "tag=$RELEASE_TAG"
+            echo "version=${RELEASE_TAG#v}"
+            echo "prerelease=$prerelease"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+  ci:
+    name: Full CI for release commit
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+
+  prepare:
+    name: Prepare release artifacts
+    needs: [preflight, ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: apps/go/go.mod
+          cache-dependency-path: apps/go/go.sum
+
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v4.3.0
 
       - name: Build binaries
         env:
           LICENSE_PUBLIC_KEY: ${{ secrets.LICENSE_PUBLIC_KEY }}
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
+          RELEASE_DATE: ${{ needs.preflight.outputs.date }}
         run: |
-          VERSION=${GITHUB_REF_NAME}
-          COMMIT=$(git rev-parse --short HEAD)
-          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          LDFLAGS="-s -w -X pipelogiq/internal/version.Version=${VERSION} -X pipelogiq/internal/version.Commit=${COMMIT} -X pipelogiq/internal/version.Date=${DATE} -X pipelogiq/internal/license.PublicKeyBase64=${LICENSE_PUBLIC_KEY}"
-          if [ -z "${LICENSE_PUBLIC_KEY}" ]; then echo "LICENSE_PUBLIC_KEY secret is not set; release would ship a Community-only build" >&2; exit 1; fi
+          set -euo pipefail
+          LDFLAGS="-s -w -X pipelogiq/internal/version.Version=${RELEASE_TAG} -X pipelogiq/internal/version.Commit=${RELEASE_COMMIT} -X pipelogiq/internal/version.Date=${RELEASE_DATE} -X pipelogiq/internal/license.PublicKeyBase64=${LICENSE_PUBLIC_KEY}"
 
           cd apps/go
           for GOOS in linux darwin; do
@@ -44,82 +118,118 @@ jobs:
         working-directory: apps/go
         run: go test -tags pro ./internal/pro -run TestProSeamCompiled -count=1
 
-      - name: Extract changelog
-        id: changelog
+      - name: Package Helm chart and release notes
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
         run: |
-          TAG=${GITHUB_REF_NAME}
-          VERSION=${TAG#v}
-          # Extract the section for this version from CHANGELOG.md
-          awk "/^## \\[${VERSION}\\]/{found=1; next} /^## \\[/{if(found) exit} found" CHANGELOG.md > /tmp/release-notes.md
-          echo "notes_file=/tmp/release-notes.md" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          helm lint infra/helm/pipelogiq
+          helm package infra/helm/pipelogiq --version "$RELEASE_VERSION" --app-version "$RELEASE_TAG" --destination apps/go/dist
+          cp "docs/releases/RELEASE_NOTES_${RELEASE_TAG}.md" apps/go/dist/
+          cd apps/go/dist
+          sha256sum pipelogiq-* "RELEASE_NOTES_${RELEASE_TAG}.md" > SHA256SUMS
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          body_path: ${{ steps.changelog.outputs.notes_file }}
-          files: apps/go/dist/*
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          name: release-assets-${{ needs.preflight.outputs.tag }}
+          path: apps/go/dist/*
+          if-no-files-found: error
+          retention-days: 7
 
   docker-publish:
     name: Publish Docker Images
+    needs: [preflight, prepare]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract build metadata
-        id: meta
-        run: |
-          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          echo "commit=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/docker/Dockerfile.app
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            PIPELOGIQ_VERSION=${{ steps.meta.outputs.version }}
-            PIPELOGIQ_COMMIT=${{ steps.meta.outputs.commit }}
-            PIPELOGIQ_BUILD_DATE=${{ steps.meta.outputs.date }}
+            PIPELOGIQ_VERSION=${{ needs.preflight.outputs.tag }}
+            PIPELOGIQ_COMMIT=${{ needs.preflight.outputs.commit }}
+            PIPELOGIQ_BUILD_DATE=${{ needs.preflight.outputs.date }}
             GO_BUILD_TAGS=pro
             PIPELOGIQ_LICENSE_PUBKEY=${{ secrets.LICENSE_PUBLIC_KEY }}
-          tags: |
-            ghcr.io/pipelogiq/pipelogiq-app:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipelogiq-app:latest
+          tags: ghcr.io/pipelogiq/pipelogiq-app:${{ needs.preflight.outputs.tag }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/docker/Dockerfile.worker
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            PIPELOGIQ_VERSION=${{ steps.meta.outputs.version }}
-            PIPELOGIQ_COMMIT=${{ steps.meta.outputs.commit }}
-            PIPELOGIQ_BUILD_DATE=${{ steps.meta.outputs.date }}
+            PIPELOGIQ_VERSION=${{ needs.preflight.outputs.tag }}
+            PIPELOGIQ_COMMIT=${{ needs.preflight.outputs.commit }}
+            PIPELOGIQ_BUILD_DATE=${{ needs.preflight.outputs.date }}
             GO_BUILD_TAGS=pro
-          tags: |
-            ghcr.io/pipelogiq/pipelogiq-worker:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipelogiq-worker:latest
+            PIPELOGIQ_LICENSE_PUBKEY=${{ secrets.LICENSE_PUBLIC_KEY }}
+          tags: ghcr.io/pipelogiq/pipelogiq-worker:${{ needs.preflight.outputs.tag }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: infra/docker/Dockerfile.migrate
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ghcr.io/pipelogiq/pipelogiq-migrate:${{ steps.meta.outputs.version }}
-            ghcr.io/pipelogiq/pipelogiq-migrate:latest
+          build-args: |
+            PIPELOGIQ_VERSION=${{ needs.preflight.outputs.tag }}
+            PIPELOGIQ_COMMIT=${{ needs.preflight.outputs.commit }}
+            PIPELOGIQ_BUILD_DATE=${{ needs.preflight.outputs.date }}
+          tags: ghcr.io/pipelogiq/pipelogiq-migrate:${{ needs.preflight.outputs.tag }}
+
+      - name: Promote completed stable images to latest
+        if: needs.preflight.outputs.prerelease == 'false'
+        env:
+          RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for component in app worker migrate; do
+            image="ghcr.io/pipelogiq/pipelogiq-${component}"
+            docker buildx imagetools create --tag "${image}:latest" "${image}:${RELEASE_TAG}"
+          done
+
+  release:
+    name: Publish GitHub Release
+    needs: [preflight, prepare, docker-publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-assets-${{ needs.preflight.outputs.tag }}
+          path: dist
+
+      - name: Verify downloaded artifacts
+        working-directory: dist
+        run: sha256sum --check SHA256SUMS
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ needs.preflight.outputs.tag }}
+          name: ${{ needs.preflight.outputs.tag }}
+          body_path: dist/RELEASE_NOTES_${{ needs.preflight.outputs.tag }}.md
+          files: dist/*
+          fail_on_unmatched_files: true
+          draft: false
+          prerelease: ${{ needs.preflight.outputs.prerelease == 'true' }}
+          make_latest: ${{ needs.preflight.outputs.prerelease == 'false' && 'true' || 'false' }}

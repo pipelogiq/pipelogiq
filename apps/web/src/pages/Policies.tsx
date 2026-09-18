@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
   AlertTriangle,
@@ -19,6 +19,7 @@ import {
 import { AppHeader } from '@/components/layout/AppHeader';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { KpiCard } from '@/components/ui/kpi-card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
@@ -2064,25 +2065,11 @@ function MultiSelectField({
   options: Array<{ value: string; label: string }>;
   onChange: (values: string[]) => void;
 }) {
+  const id = useId();
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
-      <select
-        multiple
-        className="h-36 w-full rounded-md border border-input bg-background p-2 text-sm"
-        value={values}
-        onChange={event => {
-          const selectedValues = Array.from(event.target.selectedOptions).map(option => option.value);
-          onChange(selectedValues);
-        }}
-      >
-        {options.map(option => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      <p className="text-xs text-muted-foreground">Hold Cmd/Ctrl to select multiple.</p>
+      <Label htmlFor={id}>{label}</Label>
+      <MultiSelect id={id} label={label} values={values} options={options} onChange={onChange} />
     </div>
   );
 }

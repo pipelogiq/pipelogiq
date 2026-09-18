@@ -14,14 +14,14 @@ The **stability contract** applies to:
 2. **The HTTP worker protocol** in [`docs/http-workers.md`](http-workers.md).
 3. **The AMQP wire messages** a worker consumes and produces (`StageNext`,
    `StageResult`, `StageSetStatus`, `StageUpdated`) as carried by
-   `pipelogiq-sdk-net`.
+   the .NET and Java SDKs.
 4. **Configuration**: environment variable names and their meaning, and the
    Docker image entrypoints.
-5. **The database schema's forward compatibility**: every release's migration is
-   additive and re-runnable; a release N-1 binary can run against a schema
-   migrated to N.
-6. **The .NET SDK public surface** — the public types in `PipelogiqSDK.Core`,
-   `PipelogiqSDK`, and `PipelogiqSDK.Http`, versioned independently of the server.
+5. **Database upgrades**: migrations are re-runnable and applied before new code
+   starts. Data changes and constraints that require operator action are listed
+   in release notes; rollback compatibility must be verified separately.
+6. **The .NET and Java SDK public surfaces**, versioned in their respective
+   repositories; compatibility requirements are documented per SDK.
 
 ## What is not covered
 
@@ -54,7 +54,9 @@ heading only ever appears in a MAJOR release.
 
 ## Deprecation
 
-Nothing in the covered set is removed without first being deprecated:
+Before `1.0.0`, minor releases may remove or change APIs with an explicit breaking
+change and migration instructions. The following deprecation policy is the
+contract for the future `1.x` line:
 
 1. The element is marked `deprecated: true` in OpenAPI (or `[Obsolete]` in the SDK)
    and named in the changelog, with its replacement.
@@ -62,44 +64,48 @@ Nothing in the covered set is removed without first being deprecated:
    longer.
 3. It is removed in the next MAJOR release.
 
-A deprecated route logs one warning per calling application per day, so an
-operator finds out before the removal, not after.
+Deprecations are recorded in the contract and changelog so callers can identify
+the replacement before upgrading.
 
 ## Supported versions
 
-- The **current MINOR** receives fixes.
-- The **previous MINOR** receives security fixes for 180 days after the current
-  one is released.
+- Before `1.0.0`, fixes target the **current release line**, as stated in the
+  [security policy](../SECURITY.md). Older lines do not have a separate maintenance
+  guarantee.
 - Pre-release versions (`-preview.N`, `-rc.N`) are supported only until the next
   pre-release or the release they precede.
 
 ## Upgrade guarantees
 
-- **N-1 → N is always supported** without an intermediate step. Skipping more
-  than one MINOR is expected to work, because migrations are cumulative and
-  additive, but is tested only across adjacent versions.
+- **Upgrade coverage is recorded per release.** Migrations are cumulative, but
+  passing a schema upgrade test does not certify every previous deployment or
+  configuration. Follow the release-specific prerequisites and verification.
 - **Migrations run before the new code starts** and are re-runnable: an
   interrupted upgrade can be retried by starting the same version again.
-- **Rollback to N-1** is supported by pinning the previous image; the schema is
-  not rolled back, because N-1 ignores the columns N added. Data written by
-  features that only exist in N (a schedule, a lease) stays in the database and
-  is inert under N-1.
+- **Rollback requires verification on a backup.** New constraints, credential
+  storage and role changes can affect older binaries. An additive schema alone
+  does not establish rollback safety; there are no automatic downgrade migrations.
 - **Server first, then SDK.** A newer SDK may call routes an older server does
   not have. An older SDK keeps working against a newer server; it does not
   participate in features it does not know about.
 
 ## Server and SDK pairing
 
-The server and the .NET SDK are versioned independently. Each server release
+The server, .NET SDK and Java SDK are versioned in separate repositories.
+The coordinated current release is **0.5.0 for all three**. Each server release
 names the SDK version it was verified with in its release notes; each SDK release
-names the minimum server version it needs in `docs/compatibility.md`. Matching
+documents its minimum server version in its compatibility/release guide. Matching
 MINOR numbers are a convenience, not a requirement.
 
 ## How this is enforced
 
 - `scripts/check-openapi-routes.sh` — a route without a contract entry fails CI.
-- `scripts/check-versions.sh` — the README badge, changelog heading, OpenAPI
-  `info.version` and quickstart pinning must agree.
+- `VERSION` defines the server release target. `scripts/check-versions.sh` checks
+  the dashboard manifests, Go default, image/Compose defaults, Helm chart, README,
+  changelog, OpenAPI, current notes and deployment examples against it. Passing a
+  tag also requires an exact match, so a mistyped tag cannot publish blank notes.
 - `database/test-reliability-upgrade.sh` — the migration set is applied to a
   copy of the previous release's schema in CI.
-- The release workflow refuses to tag a build whose tests are red.
+- The tag-triggered release workflow validates the exact tag and runs the reusable
+  CI suite before publication. It packages artifacts before publishing images and
+  creates the GitHub release last. Tags themselves are created by a maintainer.

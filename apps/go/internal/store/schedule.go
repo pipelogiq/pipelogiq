@@ -68,7 +68,7 @@ func (r ScheduleRow) Response() types.ScheduleResponse {
 		Kind:              r.Kind,
 		CronExpression:    r.CronExpression.String,
 		TimeZone:          r.TimeZone,
-		Definition:        json.RawMessage(r.DefinitionJSON),
+		Definition:        types.RedactScheduleDefinition(json.RawMessage(r.DefinitionJSON)),
 		DefinitionVersion: r.DefinitionVersion,
 		OverlapPolicy:     r.OverlapPolicy,
 		CatchupPolicy:     r.CatchupPolicy,
@@ -176,6 +176,30 @@ func (s *Store) UpsertSchedule(
 	now := time.Now().UTC()
 	created := errors.Is(err, ErrScheduleNotFound)
 
+	previousDefinition := ""
+	if !created {
+		previousDefinition = existing.DefinitionJSON
+		if upsert.OverlapPolicy == "" {
+			upsert.OverlapPolicy = existing.OverlapPolicy
+		}
+		if upsert.CatchupPolicy == "" {
+			upsert.CatchupPolicy = existing.CatchupPolicy
+		}
+	}
+	preparedDefinition, prepareErr := prepareScheduleDefinition(upsert.DefinitionJSON, previousDefinition)
+	if prepareErr != nil {
+		return nil, false, prepareErr
+	}
+	upsert.DefinitionJSON = preparedDefinition
+	if !created {
+		// Old definitions may contain credentials/traces; these do not change business intent.
+		normalizedOld, normalizeErr := prepareScheduleDefinition(existing.DefinitionJSON, "")
+		if normalizeErr != nil {
+			return nil, false, normalizeErr
+		}
+		existing.DefinitionJSON = normalizedOld
+	}
+
 	// A brand new schedule has no stored policy to fall back on, so an omitted
 	// one takes the documented default here. On update the empty string is
 	// meaningful and is handled in the statement below.
@@ -273,6 +297,17 @@ func (s *Store) GetSchedule(ctx context.Context, appID int, name string) (*types
 	}
 	response := row.Response()
 	return &response, nil
+}
+
+// GetScheduleDefinitionForExecution loads unredacted business data only for the
+// authenticated application and the exact definition version selected for a run.
+func (s *Store) GetScheduleDefinitionForExecution(ctx context.Context, appID int, id int64, version int) (types.PipelineCreateRequest, error) {
+	var raw string
+	err := s.db.GetContext(ctx, &raw, `SELECT definition_json FROM schedule WHERE id = $1 AND application_id = $2 AND definition_version = $3`, id, appID, version)
+	if err != nil {
+		return types.PipelineCreateRequest{}, fmt.Errorf("load execution schedule definition: %w", err)
+	}
+	return DecodeScheduleDefinition(raw)
 }
 
 // GetScheduleByID loads one schedule without an application filter. Callers must

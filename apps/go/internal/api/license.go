@@ -114,6 +114,7 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 	if !s.requireApplicationAccess(w, r, applicationID) {
 		return
 	}
+	annotateAudit(r, "audit.export", "application:"+strconv.Itoa(applicationID), map[string]any{"applicationId": applicationID})
 
 	from, to, err := parseExportRange(r.URL.Query().Get("from"), r.URL.Query().Get("to"))
 	if err != nil {
@@ -137,10 +138,12 @@ func (s *Server) handleAuditExport(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The response is already streaming, so the status is committed. Log it
 		// and let the missing trailer be the signal that the file is incomplete.
+		annotateAuditOutcome(r, "failed")
 		s.logger.Error("audit export failed",
 			"applicationId", applicationID, "err", err)
 		return
 	}
+	annotateAudit(r, "", "", map[string]any{"records": result.Records})
 	s.logger.Info("audit export completed",
 		"applicationId", applicationID,
 		"records", result.Records,

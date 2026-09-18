@@ -1,11 +1,9 @@
-import { AlertTriangle, Check, ExternalLink, Lock } from 'lucide-react';
+import { AlertTriangle, Check, Minus, RefreshCw } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLicense } from '@/hooks/use-license';
-import { cn } from '@/lib/utils';
-
-const PRICING_URL = 'https://pipelogiq.dev/pricing';
 
 const tierLabel: Record<string, string> = {
   community: 'Community',
@@ -13,139 +11,143 @@ const tierLabel: Record<string, string> = {
   enterprise: 'Enterprise',
 };
 
-function formatDate(iso?: string): string {
-  if (!iso) return '—';
+const featureLabels: Record<string, string> = {
+  sso: 'Single sign-on',
+  'audit.export': 'Signed audit export',
+  retention: 'Data retention',
+};
+
+function formatDate(iso?: string): string | undefined {
+  if (!iso) return undefined;
   const date = new Date(iso);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString();
+  return Number.isNaN(date.getTime())
+    ? undefined
+    : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-/**
- * LicensePanel shows the tier and the full feature catalogue. Locked features are
- * rendered with an explanation and a link to pricing, never hidden: an operator
- * should be able to see what a licence would give them.
- */
+function licenceIssue(reason?: string): string | undefined {
+  if (!reason || reason === 'no licence configured') return undefined;
+  if (reason.startsWith('licence expired on ')) {
+    return 'The previous licence has expired. Its licensed features are no longer available.';
+  }
+  if (reason === 'licence not resolved yet') return 'Licence status has not been resolved yet.';
+  return 'The configured licence could not be verified.';
+}
+
 export function LicensePanel() {
-  const { data, isLoading, isError } = useLicense();
+  const { data, isLoading, isError, isFetching, refetch } = useLicense();
 
   if (isLoading) {
-    return <Skeleton className="h-64 w-full" />;
+    return <Skeleton role="status" aria-label="Loading licence status" className="h-40 max-w-2xl rounded-xl" />;
   }
 
   if (isError || !data) {
-    // A licence that cannot be read is a Community deployment, not an outage.
     return (
-      <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
-        Licence status is unavailable. The deployment runs as Community; pipelines
-        are unaffected.
+      <div role="alert" className="max-w-2xl space-y-3 rounded-xl border border-border bg-card p-5">
+        <p className="text-sm font-medium">Licence status is unavailable.</p>
+        <Button variant="outline" size="sm" onClick={() => void refetch()} disabled={isFetching}>
+          <RefreshCw className="h-4 w-4" />
+          Retry
+        </Button>
       </div>
     );
   }
 
+  const licenceTier = tierLabel[data.tier] ?? 'Commercial';
+  const unsupportedEdition = data.licensed && !data.proCompiled;
+  const edition = data.licensed && data.proCompiled ? licenceTier : 'Community';
+  const expiresAt = formatDate(data.expiresAt);
+  const graceEndsAt = formatDate(data.graceEndsAt);
+  const issue = data.licensed ? undefined : licenceIssue(data.reason);
+  const features = data.catalogue.filter((feature) => feature.available && Object.hasOwn(featureLabels, feature.name));
+
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-border bg-card p-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold">{tierLabel[data.tier] ?? data.tier}</h2>
-          {data.licensed ? (
-            <Badge variant="default">Licensed</Badge>
-          ) : (
-            <Badge variant="outline">Free tier</Badge>
-          )}
-          {data.inGrace && (
-            <Badge variant="destructive" className="gap-1">
-              <AlertTriangle className="h-3 w-3" />
-              Expired — grace period
-            </Badge>
-          )}
+    <div className="max-w-2xl overflow-hidden rounded-xl border border-border bg-card">
+      <div className="space-y-4 p-5">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <h3 className="text-lg font-semibold">{edition}</h3>
+            {data.licensed && (
+              <Badge variant={data.inGrace ? 'outline' : 'secondary'}>
+                {data.inGrace ? 'Grace period' : unsupportedEdition ? 'Licence valid' : 'Active licence'}
+              </Badge>
+            )}
+          </div>
+          {!data.licensed && <p className="mt-1 text-sm text-muted-foreground">No licence required. No expiry.</p>}
         </div>
 
-        {data.inGrace && (
-          <p className="mt-3 rounded-lg border border-status-warning/40 bg-status-warning-bg p-3 text-sm">
-            This licence expired and its features stay unlocked until{' '}
-            <strong>{formatDate(data.graceEndsAt)}</strong>. After that the
-            deployment becomes Community.{' '}
-            <strong>Pipelines keep running either way.</strong>
+        {unsupportedEdition && (
+          <p className="text-sm text-muted-foreground">
+            This Community installation does not support the features of your {licenceTier} licence.
           </p>
         )}
 
-        {!data.licensed && data.reason && (
-          <p className="mt-3 text-sm text-muted-foreground">{data.reason}</p>
+        {data.inGrace && (
+          <div
+            role="status"
+            className="flex items-start gap-2 rounded-lg bg-status-warning-bg p-3 text-sm text-status-warning"
+          >
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              The licence has expired.{' '}
+              {graceEndsAt ? (
+                <>
+                  Its grace period ends on <strong>{graceEndsAt}</strong>.
+                </>
+              ) : (
+                'It is currently in its grace period.'
+              )}
+            </p>
+          </div>
         )}
 
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
-          {data.company && (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Licensed to</dt>
-              <dd className="mt-1">{data.company}</dd>
-            </div>
-          )}
-          {data.engineers ? (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Engineer band</dt>
-              <dd className="mt-1">up to {data.engineers}</dd>
-            </div>
-          ) : null}
-          {data.expiresAt && (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-muted-foreground">Expires</dt>
-              <dd className="mt-1">{formatDate(data.expiresAt)}</dd>
-            </div>
-          )}
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-muted-foreground">Pro build</dt>
-            <dd className="mt-1">{data.proCompiled ? 'compiled in' : 'not compiled in'}</dd>
-          </div>
-        </dl>
-      </div>
+        {issue && <p className="text-sm text-muted-foreground">{issue}</p>}
 
-      <div className="rounded-xl border border-border bg-card">
-        <div className="border-b border-border px-6 py-4">
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-            Features
-          </h3>
-        </div>
-        <ul className="divide-y divide-border">
-          {data.catalogue.map((feature) => (
-            <li key={feature.name} className="flex items-start gap-3 px-6 py-4">
-              <span className="mt-0.5">
-                {feature.unlocked ? (
-                  <Check className="h-4 w-4 text-status-success" />
-                ) : (
-                  <Lock className="h-4 w-4 text-muted-foreground" />
-                )}
-              </span>
-              <div className="flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <code className={cn('text-sm', !feature.unlocked && 'text-muted-foreground')}>
-                    {feature.name}
-                  </code>
-                  {!feature.available && <Badge variant="outline">next release</Badge>}
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">{feature.description}</p>
+        {(data.company || expiresAt) && (
+          <dl className="grid gap-4 text-sm sm:grid-cols-2">
+            {data.company && (
+              <div>
+                <dt className="text-muted-foreground">Organization</dt>
+                <dd className="mt-1 break-words font-medium">{data.company}</dd>
               </div>
-              {!feature.unlocked && (
-                <a
-                  href={PRICING_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex shrink-0 items-center gap-1 text-sm text-foreground hover:underline"
-                >
-                  Pricing
-                  <ExternalLink className="h-3 w-3" />
-                </a>
-              )}
-            </li>
-          ))}
-        </ul>
+            )}
+            {expiresAt && (
+              <div>
+                <dt className="text-muted-foreground">
+                  {data.inGrace || !data.licensed ? 'Licence expired' : 'Licence expires'}
+                </dt>
+                <dd className="mt-1 font-medium">{expiresAt}</dd>
+              </div>
+            )}
+          </dl>
+        )}
       </div>
 
-      <p className="text-sm text-muted-foreground">
-        The core is Apache-2.0 and stays that way. Everything a single developer
-        needs to run and debug a pipeline is free; a licence adds what an
-        organization needs to govern, comply, and scale. A licence is verified
-        offline — Pipelogiq never phones home — and no pipeline ever stops
-        because of one.
-      </p>
+      {data.licensed && features.length > 0 && (
+        <section className="border-t border-border px-5 py-4" aria-label="Licensed features">
+          <h4 className="mb-3 text-sm font-medium">Features</h4>
+          <ul className="space-y-3">
+            {features.map((feature) => {
+              const available = data.proCompiled && feature.available && feature.unlocked;
+              return (
+                <li key={feature.name} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <span>{featureLabels[feature.name]}</span>
+                  <span
+                    className={
+                      available
+                        ? 'flex items-center gap-1.5 text-status-success'
+                        : 'flex items-center gap-1.5 text-muted-foreground'
+                    }
+                  >
+                    {available ? <Check className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+                    {available ? 'Available' : !data.proCompiled ? 'Unavailable' : 'Not included'}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

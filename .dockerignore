@@ -1,0 +1,15 @@
+.git
+**/.DS_Store
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/*.user
+**/*.suo
+**/*.log
+**/coverage
+**/.cache
+**/data
+**/redisdata

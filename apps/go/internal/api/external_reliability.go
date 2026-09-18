@@ -149,7 +149,8 @@ func (s *ExternalServer) handlePostStageResult(w http.ResponseWriter, r *http.Re
 	span := trace.SpanFromContext(r.Context())
 	span.SetAttributes(attribute.Int("stage.id", stageID))
 
-	if strings.TrimSpace(extractWorkerSessionToken(r)) == "" {
+	sessionToken := extractWorkerSessionToken(r)
+	if strings.TrimSpace(sessionToken) == "" {
 		statusCode = http.StatusUnauthorized
 		writeProblemJSON(w, r, statusCode,
 			"https://api.pipelogiq.dev/errors/unauthorized",
@@ -170,6 +171,20 @@ func (s *ExternalServer) handlePostStageResult(w http.ResponseWriter, r *http.Re
 			"Unauthorized",
 			"Invalid API key",
 			nil)
+		return
+	}
+
+	if err := s.store.ValidateWorkerSessionForApplication(ctx, appID, sessionToken); err != nil {
+		if store.IsInvalidWorkerSessionError(err) {
+			statusCode = http.StatusUnauthorized
+			writeProblemJSON(w, r, statusCode,
+				"https://api.pipelogiq.dev/errors/unauthorized", "Unauthorized", "Invalid worker session", nil)
+		} else {
+			statusCode = http.StatusInternalServerError
+			s.logger.Error("validate stage result worker session failed", "err", err)
+			writeProblemJSON(w, r, statusCode,
+				"https://api.pipelogiq.dev/errors/internal", "Internal server error", "Failed to validate worker session", nil)
+		}
 		return
 	}
 

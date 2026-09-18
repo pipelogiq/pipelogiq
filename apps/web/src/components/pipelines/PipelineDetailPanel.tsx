@@ -8,6 +8,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import type { StageLog, UIStatus } from "@/types/api";
 import { ContextValueViewer } from "@/components/pipelines/ContextValueViewer";
+import { useAuth } from "@/contexts/AuthContext";
 
 export interface PipelineAction {
   id: string;
@@ -103,6 +104,7 @@ const statusColors: Record<UIStatus, string> = {
 };
 
 export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelProps) {
+  const { canOperate } = useAuth();
   const [selectedAction, setSelectedAction] = useState<PipelineAction | null>(null);
 
   return (
@@ -165,7 +167,7 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
       </div>
 
       {/* Actions Bar */}
-      <div className="flex gap-2 border-b border-border px-5 py-3">
+      {canOperate && <div className="flex gap-2 border-b border-border px-5 py-3">
         <Button variant="outline" size="sm" className="gap-1.5">
           <Play className="h-3.5 w-3.5" />
           Resume
@@ -186,7 +188,7 @@ export function PipelineDetailPanel({ pipeline, onClose }: PipelineDetailPanelPr
           <Square className="h-3.5 w-3.5" />
           Stop
         </Button>
-      </div>
+      </div>}
 
       {/* Tabs Content */}
       <Tabs defaultValue="actions" className="flex-1 flex flex-col min-h-0">

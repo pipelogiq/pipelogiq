@@ -185,6 +185,7 @@ func pipelineCreateRequestHash(req types.PipelineCreateRequest) (string, error) 
 		return left.Value < right.Value
 	})
 
+	// #nosec G117 -- canonical.ApiKey is cleared above; only the SHA-256 digest is returned.
 	payload, err := json.Marshal(canonical)
 	if err != nil {
 		return "", err

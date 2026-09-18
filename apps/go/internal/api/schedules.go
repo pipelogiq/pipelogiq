@@ -22,11 +22,11 @@ func (s *Server) registerScheduleRoutes(r chi.Router) {
 	r.Get("/{id}", s.handleGetSchedule)
 	r.Get("/{id}/runs", s.handleGetScheduleRuns)
 	r.Get("/{id}/runs/{runId}", s.handleGetScheduleRunPipeline)
-	r.Post("/{id}/pause", s.handlePauseScheduleInternal)
-	r.Post("/{id}/resume", s.handleResumeScheduleInternal)
-	r.Post("/{id}/archive", s.handleArchiveScheduleInternal)
-	r.Post("/{id}/trigger", s.handleTriggerScheduleInternal)
-	r.Patch("/{id}/policies", s.handleUpdateSchedulePoliciesInternal)
+	r.With(s.requireOperatorMiddleware).Post("/{id}/pause", s.handlePauseScheduleInternal)
+	r.With(s.requireOperatorMiddleware).Post("/{id}/resume", s.handleResumeScheduleInternal)
+	r.With(s.requireOperatorMiddleware).Post("/{id}/archive", s.handleArchiveScheduleInternal)
+	r.With(s.requireOperatorMiddleware).Post("/{id}/trigger", s.handleTriggerScheduleInternal)
+	r.With(s.requireOperatorMiddleware).Patch("/{id}/policies", s.handleUpdateSchedulePoliciesInternal)
 }
 
 // requireScheduleAccess loads the schedule and checks membership in one step.
@@ -40,6 +40,7 @@ func (s *Server) requireScheduleAccess(
 		writeJSONError(w, "not found", http.StatusNotFound)
 		return nil, false
 	}
+	annotateAudit(r, "", "schedule:"+strconv.FormatInt(id, 10), map[string]any{"scheduleId": id})
 
 	stored, err := s.store.GetScheduleByID(ctx, id)
 	if err != nil {
@@ -52,6 +53,7 @@ func (s *Server) requireScheduleAccess(
 	if !s.requireApplicationAccess(w, r, stored.ApplicationID) {
 		return nil, false
 	}
+	annotateAudit(r, "", "", map[string]any{"applicationId": stored.ApplicationID})
 	return stored, true
 }
 
@@ -199,6 +201,7 @@ func (s *Server) setScheduleStatusInternal(w http.ResponseWriter, r *http.Reques
 	if !ok {
 		return
 	}
+	annotateAudit(r, "", "", map[string]any{"previousStatus": stored.Status, "newStatus": status})
 
 	var nextRunAt *time.Time
 	if status == types.ScheduleStatusActive {
@@ -259,6 +262,7 @@ func (s *Server) handleTriggerScheduleInternal(w http.ResponseWriter, r *http.Re
 
 	s.logger.Info("schedule triggered from the dashboard",
 		"scheduleId", stored.ID, "name", stored.Name, "runId", runID, "pipelineId", pipelineID)
+	annotateAudit(r, "schedule.trigger", "", map[string]any{"scheduleRunId": runID, "pipelineId": pipelineID})
 	writeJSON(w, map[string]any{
 		"runId":      runID,
 		"pipelineId": pipelineID,
@@ -306,6 +310,10 @@ func (s *Server) handleUpdateSchedulePoliciesInternal(w http.ResponseWriter, r *
 			return
 		}
 	}
+	annotateAudit(r, "schedule.update_policies", "", map[string]any{
+		"previousOverlapPolicy": stored.OverlapPolicy, "overlapPolicy": overlap,
+		"previousCatchupPolicy": stored.CatchupPolicy, "catchupPolicy": catchup,
+	})
 
 	updated, err := s.store.SetSchedulePolicies(ctx, stored.ApplicationID, stored.Name, overlap, catchup)
 	if err != nil {

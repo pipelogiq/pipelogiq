@@ -15,6 +15,8 @@ The dashboard supports live pipeline operations from the list view, including bu
 
 ## Documentation
 
+- [Source hygiene](source-hygiene.md) — commit guards and secret scanning
+- [Release preparation](release-preparation-2026-09-18.md) — coordinated 0.5.0 readiness and remaining external steps
 - [Quick Start](quickstart.md) — get running with Docker Compose
 - [Architecture](architecture.md) — system components, data flow, and deployment
 - [External OpenAPI](openapi.external.yaml) — SDK-facing endpoint contracts
@@ -26,4 +28,4 @@ The dashboard supports live pipeline operations from the list view, including bu
 
 ## Status
 
-Pipelogiq is in preview (`v0.6.0-preview.1`). The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.
+The current release target is Pipelogiq `v0.5.0`, paired with .NET SDK `0.5.0` and Java SDK `0.5.0`. The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.

@@ -337,40 +337,6 @@ func (r *policyRepository) promote(policyID, actor string) (types.Policy, error)
 	return clonePolicy(policy), nil
 }
 
-func (r *policyRepository) markOrphanedByPipeline(pipelineID int, actor string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	changed := false
-	for id, policy := range r.policies {
-		if policy.Source != types.PolicySourcePipelineInline {
-			continue
-		}
-		if policy.Origin == nil || policy.Origin.PipelineID == nil || *policy.Origin.PipelineID != pipelineID {
-			continue
-		}
-		if policy.Status == types.PolicyStatusOrphaned {
-			continue
-		}
-		policy.Status = types.PolicyStatusOrphaned
-		policy.Version++
-		policy.UpdatedAt = time.Now().UTC()
-		policy.UpdatedBy = actor
-		policy = normalizePolicy(policy)
-		r.policies[id] = clonePolicy(policy)
-		r.appendEventLocked(id, actor, types.PolicyEventTypeOrphaned, map[string]any{
-			"pipelineId": pipelineID,
-			"version":    policy.Version,
-		})
-		changed = true
-	}
-	if changed {
-		if err := r.saveLocked(); err != nil {
-			r.logger.Error("save policy store failed on orphan mark", "err", err)
-		}
-	}
-}
-
 func (r *policyRepository) createWithSource(
 	req upsertPolicyRequest,
 	actor string,
@@ -806,6 +772,7 @@ func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.syncPolicyToDB(r.Context(), policy)
+	annotateAudit(r, "policy.create", "policy:"+policy.ID, map[string]any{"policyId": policy.ID})
 	writeJSON(w, policy, http.StatusCreated)
 }
 
@@ -875,6 +842,7 @@ func (s *Server) handleDuplicatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.syncPolicyToDB(r.Context(), duplicated)
+	annotateAudit(r, "policy.duplicate", "policy:"+duplicated.ID, map[string]any{"policyId": duplicated.ID, "sourcePolicyId": policyID})
 	writeJSON(w, duplicated, http.StatusCreated)
 }
 
@@ -1797,7 +1765,8 @@ func (s *Server) syncPolicyToDB(ctx context.Context, p types.Policy) {
 		return
 	}
 	go func() {
-		syncCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Persistence outlives the HTTP response but keeps tracing values and a deadline.
+		syncCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		if err := s.dbPolicies.upsert(syncCtx, p); err != nil {
 			s.logger.Error("sync policy to db failed", "policyId", p.ID, "err", err)

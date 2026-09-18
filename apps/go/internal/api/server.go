@@ -97,11 +97,17 @@ func NewServerWithPoliciesAndDB(cfg config.APIConfig, st *store.Store, mqClient 
 // routes builds the internal API router. It is separate from Run so the full middleware
 // chain — authentication and application scoping included — can be exercised in tests.
 func (s *Server) routes() http.Handler {
+	s.hub.authorizeUser = func(userID, tokenVersion int) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		access, err := s.store.GetUserAccess(ctx, userID)
+		return err == nil && access.IsActive && access.TokenVersion == tokenVersion
+	}
 	router := chi.NewRouter()
 
 	// Global middleware
 	router.Use(middleware.RequestID)
-	router.Use(middleware.RealIP)
+	router.Use(loopbackProxyIP)
 	router.Use(middleware.Recoverer)
 	router.Use(middleware.Timeout(60 * time.Second))
 	router.Use(otelhttp.NewMiddleware("pipelogiq-api-internal"))
@@ -119,6 +125,7 @@ func (s *Server) routes() http.Handler {
 	// All other endpoints require auth
 	router.Group(func(r chi.Router) {
 		r.Use(s.authMiddleware)
+		r.Use(s.auditMutations)
 		r.Use(s.applicationScopeMiddleware)
 
 		// Auth
@@ -133,11 +140,11 @@ func (s *Server) routes() http.Handler {
 		r.Get("/pipelines/{id}/stages", s.handleGetStages)
 		r.Get("/pipelines/{id}/context", s.handleGetContext)
 		r.Get("/pipelines", s.handleGetPipelines)
-		r.Post("/pipelines/{id}/pause", s.handlePausePipeline)
-		r.Post("/pipelines/{id}/resume", s.handleResumePipeline)
-		r.Post("/pipelines/bulkAction", s.handleBulkPipelineAction)
-		r.Post("/pipelines/rerunStage", s.handleRerunStage)
-		r.Post("/pipelines/skipStage", s.handleSkipStage)
+		r.With(s.requireOperatorMiddleware).Post("/pipelines/{id}/pause", s.handlePausePipeline)
+		r.With(s.requireOperatorMiddleware).Post("/pipelines/{id}/resume", s.handleResumePipeline)
+		r.With(s.requireOperatorMiddleware).Post("/pipelines/bulkAction", s.handleBulkPipelineAction)
+		r.With(s.requireOperatorMiddleware).Post("/pipelines/rerunStage", s.handleRerunStage)
+		r.With(s.requireOperatorMiddleware).Post("/pipelines/skipStage", s.handleSkipStage)
 		r.Get("/pipelines/logs/{pipelineId}", s.handleGetPipelineLogs)
 		r.Get("/pipelines/logs/{pipelineId}/{stageId}", s.handleGetPipelineLogs)
 
@@ -149,10 +156,11 @@ func (s *Server) routes() http.Handler {
 
 		r.Group(func(admin chi.Router) {
 			admin.Use(s.requireAdminMiddleware)
-			admin.Use(s.auditMutations)
 
 			// Audit trail
 			admin.Get("/audit", s.handleListAudit)
+			admin.Get("/audit/options", s.handleAuditOptions)
+			admin.Route("/users", s.registerUserRoutes)
 
 			// Application endpoints
 			admin.Get("/applications", s.handleGetApplications)
@@ -191,8 +199,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 
 	s.server = &http.Server{
-		Addr:    s.cfg.HTTPAddr,
-		Handler: s.routes(),
+		Addr:              s.cfg.HTTPAddr,
+		Handler:           s.routes(),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	// Subscribe to StageUpdated fanout exchange and broadcast to WebSocket clients
@@ -228,10 +237,15 @@ func (s *Server) Run(ctx context.Context) error {
 // runMetricsServer exposes Prometheus metrics on an address that is not routed through
 // the public nginx proxy.
 func (s *Server) runMetricsServer(ctx context.Context, addr string) {
-	srv := &http.Server{Addr: addr, Handler: promhttp.Handler()}
+	srv := &http.Server{Addr: addr, Handler: promhttp.Handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
-		_ = srv.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			s.logger.Warn("metrics server graceful shutdown failed", "err", err)
+			_ = srv.Close()
+		}
 	}()
 	s.logger.Info("metrics server listening", "addr", addr)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

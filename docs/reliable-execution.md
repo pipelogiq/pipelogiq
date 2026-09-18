@@ -1,8 +1,8 @@
 # Reliable execution and upgrade guide
 
 This document describes the additive reliability contract targeted by
-Pipelogiq server `v0.4.0-preview.1` and `pipelogiq-sdk-net
-0.4.0-preview.1`.
+Pipelogiq server `v0.5.0` and `pipelogiq-sdk-net
+0.5.0`.
 
 
 ## Guarantee model
@@ -34,11 +34,11 @@ workflow. Loss of either durable store is outside this guarantee.
 1. Back up PostgreSQL and confirm RabbitMQ uses persistent storage.
 2. Apply the additive Liquibase changes in
    [`database/changelog.xml`](../database/changelog.xml#L1077-L1158).
-3. Deploy server/API and worker target `v0.4.0-preview.1`.
+3. Deploy server/API and worker target `v0.5.0`.
 4. Verify `/version`, health endpoints, migrations, and RabbitMQ connectivity.
-5. Install `pipelogiq-sdk-net 0.4.0-preview.1` from NuGet.
+5. Install `pipelogiq-sdk-net 0.5.0` from NuGet.
 6. Upgrade critical workers and the pipeline-creating consumer to SDK
-   `0.4.0-preview.1`.
+   `0.5.0`.
 7. Opt critical workflows into idempotent creation and classified retries.
 8. Keep legacy workers only for non-critical pipelines during the transition.
 
@@ -227,7 +227,7 @@ Interpret the counters as follows:
 Pipeline terminal statuses are `Completed`, `Failed`, and `Cancelled`. Stage
 terminal statuses are `Completed`, `Failed`, `Skipped`, and `Cancelled`.
 
-There is no external/SDK keyword-search endpoint in this preview. Use
+There is no external/SDK keyword-search endpoint in this release. Use
 idempotency-key lookup for create recovery and store the returned pipeline ID
 in the consumer database.
 
@@ -537,7 +537,7 @@ external reservation status before sending another cancellation request.
 
 ## Backward compatibility
 
-Server `v0.4.0-preview.1` continues to accept:
+Server `v0.5.0` continues to accept:
 
 - legacy `POST /pipelines`;
 - pipeline rows without idempotency metadata;
@@ -549,11 +549,28 @@ Server `v0.4.0-preview.1` continues to accept:
 Old SDK `0.3.2-preview.5` can continue to run against the target server, but
 its messages do not participate fully in lease acquisition and result fencing,
 and it cannot opt into idempotent creation, retry filtering, or sensitive
-context. Use target SDK `0.4.0-preview.1` for the critical insurance workflow.
+context. Use target SDK `0.5.0` for the critical insurance workflow.
 
-The normal non-event path is the reliability path. `AsEvent`/`isEvent` retains
-its legacy direct-publish behavior for compatibility and must not host the
-critical external side effect.
+Event stages now enter the same durable scheduler path as ordinary stages,
+both standalone and inside mixed action/event pipelines. Both creation endpoints persist the event first; the scheduler
+allocates its execution ID and attempt before confirmed publication. Lease
+acquisition, retries and interrupted-dispatch recovery apply to these events.
+The API no longer sends an unfenced event directly to RabbitMQ. Event execution
+therefore requires the scheduler to be running, and starts on its normal poll.
+
+`WithAction(...).AsEvent<T>(...).WithAction(...)` executes in that order by
+default. Events participate in explicit dependencies, retries, failure
+continuations, rate limits and circuit-breaker history. Successful completion
+waits for every branch to finish; a higher stage ID finishing first cannot
+discard a parallel event/action result. Event delivery is still at-least-once
+and does not make external side effects exactly-once.
+
+This fixes a behavior change for existing mixed pipelines: their event stages
+were previously excluded from dispatch and could hang the pipeline or remain
+unexecuted after later actions finished. Before upgrading a production server,
+review unfinished mixed pipelines whose event stages were never intended to
+run, and cancel obsolete work. Already terminal pipelines remain terminal.
+No SDK package or wire-format change is required.
 
 ## Long-term transactional outbox
 

@@ -20,6 +20,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { AlertTriangle, CheckCircle2, XCircle, PlayCircle, Clock, Timer, Pause, Loader2, Circle, Ban, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import type { UIStatus } from "@/types/api";
+import { Link } from "react-router-dom";
 
 const stageStatusIcons: Record<UIStatus, typeof CheckCircle2> = {
   success: CheckCircle2,
@@ -68,6 +69,7 @@ export function PipelineTable({
   allBulkSelected = false,
   someBulkSelected = false,
 }: PipelineTableProps) {
+  const canSelect = Boolean(onToggleBulkSelection && onToggleAllBulkSelection);
   if (pipelines.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
@@ -84,13 +86,13 @@ export function PipelineTable({
     <Table>
       <TableHeader className="sticky top-0 bg-background z-10">
         <TableRow className="hover:bg-transparent border-b-2 border-border">
-          <TableHead className="w-[42px]">
+          {canSelect && <TableHead className="w-[42px]">
             <Checkbox
               checked={allBulkSelected ? true : someBulkSelected ? "indeterminate" : false}
               onCheckedChange={(checked) => onToggleAllBulkSelection?.(checked === true)}
               aria-label="Select all visible pipelines"
             />
-          </TableHead>
+          </TableHead>}
           <TableHead className="w-[80px] text-sm font-semibold text-foreground">ID</TableHead>
           <TableHead className="text-sm font-semibold text-foreground">Name</TableHead>
           <TableHead className="text-sm font-semibold text-foreground">Status</TableHead>
@@ -126,7 +128,7 @@ export function PipelineTable({
                 isSelected ? "bg-primary/10 border-l-2 border-l-primary" : "hover:bg-muted/50"
               )}
             >
-              <TableCell
+              {canSelect && <TableCell
                 className="py-3"
                 onClick={(event) => event.stopPropagation()}
               >
@@ -135,9 +137,16 @@ export function PipelineTable({
                   onCheckedChange={(checked) => onToggleBulkSelection?.(pipeline.id, checked === true)}
                   aria-label={`Select pipeline ${pipeline.executionNumber}`}
                 />
-              </TableCell>
+              </TableCell>}
               <TableCell className="py-3 font-mono text-sm font-medium text-foreground">
-                {pipeline.executionNumber}
+                <Link
+                  to={`/pipelines/${pipeline.id}`}
+                  aria-label={`Open pipeline ${pipeline.executionNumber}: ${pipeline.pipelineName}`}
+                  onClick={(event) => event.stopPropagation()}
+                  className="rounded-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {pipeline.executionNumber}
+                </Link>
               </TableCell>
               <TableCell className="py-3">
                 <div className="flex min-w-0 items-center gap-2">

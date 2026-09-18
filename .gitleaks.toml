@@ -1,0 +1,50 @@
+title = "Pipelogiq source and release secret checks"
+minVersion = "v8.25.0"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "pipelogiq-runtime-secret"
+description = "Hardcoded Pipelogiq runtime credential"
+regex = '''(?im)(?:JWT_SECRET|BOOTSTRAP_API_KEY|SECRETS_ENCRYPTION_KEY)\s*[:=]\s*["']?([A-Za-z0-9+/_=.-]{16,})(?:["']|[ \t]*(?:#.*)?$)'''
+secretGroup = 1
+entropy = 3.0
+keywords = ["jwt_secret", "bootstrap_api_key", "secrets_encryption_key"]
+
+# Exact public fixtures only. Rule-scoped allowlists prevent directory scanning
+# from skipping a matching path before checking its secret value.
+[[allowlists]]
+targetRules = ["pipelogiq-runtime-secret", "generic-api-key", "curl-auth-header"]
+condition = "AND"
+paths = ['(^|/)apps/go/internal/config/config_test\.go$']
+regexTarget = "secret"
+regexes = ['^(0123456789abcdef0123456789abcdef|a-unique-secret-that-is-long-enough-0123456789)$']
+
+[[allowlists]]
+targetRules = ["pipelogiq-runtime-secret", "generic-api-key", "curl-auth-header"]
+condition = "AND"
+paths = ['(^|/)\.env\.example$']
+regexTarget = "secret"
+regexes = ['^change-me-to-a-long-random-secret-at-least-32-characters$']
+
+[[allowlists]]
+targetRules = ["pipelogiq-runtime-secret", "generic-api-key", "curl-auth-header"]
+condition = "AND"
+paths = ['(^|/)\.github/workflows/ci\.yml$']
+regexTarget = "secret"
+regexes = ['^ci-validation-secret-not-used-for-deployment$']
+
+[[allowlists]]
+targetRules = ["pipelogiq-runtime-secret", "generic-api-key", "curl-auth-header"]
+condition = "AND"
+paths = ['(^|/)docs/quickstart\.md$']
+regexTarget = "match"
+regexes = ['X-API-Key: YOUR_API_KEY']
+
+[[allowlists]]
+targetRules = ["pipelogiq-runtime-secret", "generic-api-key", "curl-auth-header"]
+condition = "AND"
+paths = ['(^|/)examples/InsuranceClaimWorkflow/Program\.cs$']
+regexTarget = "secret"
+regexes = ['^corr-01J3INSURANCE7WQ8K5Y9M2$']

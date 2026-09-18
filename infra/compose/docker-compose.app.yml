@@ -1,12 +1,12 @@
 version: "3.9"
 
 # Web dashboard + API in a single container. Run pipelogiq-worker separately.
-# Migrations must be managed externally (use Dockerfile.app with
-# LIQUIBASE_ENABLED=true, or run liquibase manually before starting this stack).
+# Start healthy infrastructure first. This stack runs the migration service
+# before the app; cross-project services cannot appear in depends_on.
 #
 # Usage:
 #   docker network create pipelogiq 2>/dev/null || true
-#   docker compose -f infra/compose/docker-compose.infra.yml up -d
+#   docker compose -f infra/compose/docker-compose.infra.yml up -d --wait
 #   docker compose -f infra/compose/docker-compose.app.yml up -d
 #   docker compose -f infra/compose/docker-compose.worker.yml up -d
 
@@ -19,6 +19,10 @@ services:
     build:
       context: ../..
       dockerfile: infra/docker/Dockerfile.migrate
+      args:
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
+        PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
+        PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-migrate
     command:
       - --url=${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
@@ -27,9 +31,6 @@ services:
       - --searchPath=/liquibase
       - --changeLogFile=database/changelog.xml
       - update
-    depends_on:
-      pipelogiq-postgres:
-        condition: service_healthy
     networks:
       - pipelogiq
     restart: "no"
@@ -39,12 +40,12 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.app
       args:
-        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-dev}
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
         PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-app
     environment:
-      APP_VERSION: ${PIPELOGIQ_VERSION:-dev}
+      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
       WORKER_RABBITMQ_URL: ${WORKER_RABBITMQ_URL:-}
@@ -87,6 +88,9 @@ services:
     ports:
       - "3300:8080"
       - "8081:8081"
+    depends_on:
+      pipelogiq-migrate:
+        condition: service_completed_successfully
     networks:
       - pipelogiq
     restart: unless-stopped

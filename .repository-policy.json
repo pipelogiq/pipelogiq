@@ -1,0 +1,6 @@
+{
+  "public_environment_files": [
+    "apps/web/.env.development",
+    "apps/web/.env.production"
+  ]
+}

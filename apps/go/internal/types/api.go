@@ -53,6 +53,8 @@ type StageOptions struct {
 }
 
 type PipelineResponse struct {
+	// RedactionContext is internal history and must never be serialized or sent to workers.
+	RedactionContext []ContextItem     `json:"-"`
 	ID               int               `json:"id"`
 	Name             string            `json:"name"`
 	TraceID          string            `json:"traceId,omitempty"`
@@ -133,9 +135,20 @@ type StageLog struct {
 
 // Pagination
 
+// ContextFilter matches a non-sensitive context key and a literal substring of its value.
+type ContextFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 type GetPipelinesRequest struct {
-	PageNumber *int `json:"pageNumber"`
-	PageSize   *int `json:"pageSize"`
+	Tags           []string          `json:"tags"`
+	Labels         []PipelineKeyword `json:"labels"`
+	ContextFilters []ContextFilter   `json:"contextFilters"`
+	Environment    *string           `json:"environment"`
+	Owner          *string           `json:"owner"`
+	PageNumber     *int              `json:"pageNumber"`
+	PageSize       *int              `json:"pageSize"`
 	// ApplicationIDs restricts the result to applications the caller belongs to. It is set
 	// by the API from the request scope and is never accepted from client input.
 	ApplicationIDs    []int    `json:"-"`
@@ -211,6 +224,7 @@ type UserResponse struct {
 	LastName  *string   `json:"lastName,omitempty" db:"last_name"`
 	Email     string    `json:"email" db:"email"`
 	Role      string    `json:"role" db:"role"`
+	IsActive  bool      `json:"isActive" db:"is_active"`
 	CreatedAt time.Time `json:"createdAt" db:"created_at"`
 	// TokenVersion changes on logout and password change; a JWT carrying an older
 	// value is rejected. Never serialised.

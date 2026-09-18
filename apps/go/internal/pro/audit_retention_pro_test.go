@@ -48,7 +48,8 @@ CREATE TABLE stage_log (
 	created_at TIMESTAMP NULL,
 	stage_id INTEGER NOT NULL
 );
-CREATE TABLE pipeline_context_item (id INTEGER PRIMARY KEY AUTOINCREMENT, pipeline_id INTEGER NOT NULL, key TEXT, value TEXT);
+CREATE TABLE pipeline_redaction_secret (pipeline_id INTEGER NOT NULL, value TEXT NOT NULL);
+CREATE TABLE pipeline_context_item (id INTEGER PRIMARY KEY AUTOINCREMENT, pipeline_id INTEGER NOT NULL, key TEXT, value TEXT, is_sensitive BOOLEAN NOT NULL DEFAULT 0);
 CREATE TABLE pipeline_keyword (id INTEGER PRIMARY KEY AUTOINCREMENT, pipeline_id INTEGER NOT NULL, keyword_id INTEGER NOT NULL);
 CREATE TABLE policy_event (
 	id TEXT PRIMARY KEY,

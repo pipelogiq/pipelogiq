@@ -15,7 +15,7 @@ COMPOSE_WORKER  := infra/compose/docker-compose.worker.yml
 COMPOSE_LATEST  := infra/compose/docker-compose.registry.yml
 COMPOSE_ENV     := $(if $(wildcard .env),--env-file .env,)
 
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= v$(shell cat VERSION)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS ?= -s -w \
@@ -37,16 +37,20 @@ tidy: ## Sync go.mod/go.sum
 .PHONY: build
 build: $(BINS:%=$(BIN_DIR)/%) ## Build all binaries
 
-$(BIN_DIR)/%: $(GO_DIR)/cmd/%/main.go
-	cd $(GO_DIR) && mkdir -p $(BIN_DIR) && $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BIN_DIR)/$* ./cmd/$*
+.PHONY: FORCE
+FORCE:
+
+$(BIN_DIR)/%: FORCE
+	mkdir -p "$(BIN_DIR)"
+	cd $(GO_DIR) && $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o "$(abspath $(BIN_DIR))/$*" ./cmd/$*
 
 .PHONY: run-api
 run-api: ## Run API from source
-	cd $(GO_DIR) && $(GO) run ./cmd/api
+	cd $(GO_DIR) && $(GO) run -ldflags "$(LDFLAGS)" ./cmd/api
 
 .PHONY: run-worker
 run-worker: ## Run worker from source
-	cd $(GO_DIR) && $(GO) run ./cmd/worker
+	cd $(GO_DIR) && $(GO) run -ldflags "$(LDFLAGS)" ./cmd/worker
 
 .PHONY: run-web
 run-web: ## Run React app in dev mode
@@ -55,7 +59,6 @@ run-web: ## Run React app in dev mode
 .PHONY: run
 run: build ## Run API and worker binaries until interrupted
 	@set -e; \
-	cd $(GO_DIR); \
 	./$(BIN_DIR)/api & API_PID=$$!; \
 	./$(BIN_DIR)/worker & WORKER_PID=$$!; \
 	trap 'kill $$API_PID $$WORKER_PID' INT TERM EXIT; \
@@ -96,7 +99,7 @@ compose-down: ## Stop full stack
 .PHONY: compose-infra-up
 compose-infra-up: ## Start infra services (Postgres, RabbitMQ, Tempo, Grafana)
 	docker network create pipelogiq 2>/dev/null || true
-	docker compose $(COMPOSE_ENV) -f $(COMPOSE_INFRA) up -d
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_INFRA) up -d --wait
 
 .PHONY: compose-infra-down
 compose-infra-down: ## Stop infra services
@@ -122,7 +125,7 @@ compose-worker-down: ## Stop pipelogiq-worker
 
 ##@ Docker — pre-built images from ghcr.io
 .PHONY: compose-latest-up
-compose-latest-up: ## Start full stack using latest images from ghcr.io/pipelogiq
+compose-latest-up: ## Start full stack using the pinned release images from ghcr.io/pipelogiq
 	docker network create pipelogiq 2>/dev/null || true
 	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) up -d
 
@@ -131,8 +134,8 @@ compose-latest-down: ## Stop pre-built image stack
 	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) down
 
 .PHONY: compose-latest-pull
-compose-latest-pull: ## Pull latest images from ghcr.io/pipelogiq
-	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) pull pipelogiq-app pipelogiq-worker
+compose-latest-pull: ## Pull the pinned release images from ghcr.io/pipelogiq
+	docker compose $(COMPOSE_ENV) -f $(COMPOSE_LATEST) pull pipelogiq-app pipelogiq-worker pipelogiq-migrate
 
 ##@ Docker — local dev helpers
 .PHONY: dev

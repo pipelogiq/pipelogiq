@@ -1,23 +1,35 @@
 #!/bin/sh
 set -eu
 
-# Applies every historical changeSet except the two reliability additions,
+# Applies historical changeSets before the reliability additions,
 # inserts pre-upgrade rows, then applies the current changelog and verifies the
 # additive defaults. Override the images when an internal registry is required.
 postgres_image="${POSTGRES_IMAGE:-postgres:16-alpine}"
-liquibase_image="${LIQUIBASE_IMAGE:-liquibase/liquibase:4.25}"
+liquibase_image="${LIQUIBASE_IMAGE:-pipelogiq-migrate-test-$$}"
+# The baseline intentionally uses the previously shipped engine; upgrades use the release image.
+baseline_liquibase_image="${BASELINE_LIQUIBASE_IMAGE:-liquibase/liquibase:4.25}"
+built_migration_image=false
 test_suffix="$$"
 network_name="pipelogiq-migration-test-network-${test_suffix}"
 postgres_name="pipelogiq-migration-test-postgres-${test_suffix}"
 database_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-change_set_count=$(awk '/<changeSet / { count++ } END { print count }' "${database_dir}/changelog.xml")
-baseline_change_set_count=$((change_set_count - 2))
+baseline_change_set_count=$(awk '/<changeSet id="add pipeline idempotency metadata"/ { print count; exit } /<changeSet / { count++ }' "${database_dir}/changelog.xml")
+test -n "${baseline_change_set_count}"
 
 cleanup() {
+  if [ "${built_migration_image}" = true ]; then
+    docker image rm "${liquibase_image}" >/dev/null 2>&1 || true
+  fi
   docker rm -f "${postgres_name}" >/dev/null 2>&1 || true
   docker network rm "${network_name}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
+
+if [ -z "${LIQUIBASE_IMAGE:-}" ]; then
+  built_migration_image=true
+  docker build -f "${database_dir}/../infra/docker/Dockerfile.migrate" \
+    -t "${liquibase_image}" "${database_dir}/.." >/dev/null
+fi
 
 docker network create "${network_name}" >/dev/null
 docker run --rm -d \
@@ -39,10 +51,12 @@ until docker exec "${postgres_name}" pg_isready -U pipelogiq_test -d pipelogiq_m
 done
 
 run_liquibase() {
+  migration_image="$1"
+  shift
   docker run --rm \
     --network "${network_name}" \
     -v "${database_dir}:/liquibase/changelog:ro" \
-    "${liquibase_image}" \
+    "${migration_image}" \
     --url="jdbc:postgresql://${postgres_name}:5432/pipelogiq_migration_test" \
     --username=pipelogiq_test \
     --password=pipelogiq_test \
@@ -50,7 +64,7 @@ run_liquibase() {
     "$@"
 }
 
-run_liquibase update-count --count="${baseline_change_set_count}" >/dev/null
+run_liquibase "${baseline_liquibase_image}" update-count --count="${baseline_change_set_count}" >/dev/null
 
 docker exec "${postgres_name}" psql \
   -v ON_ERROR_STOP=1 \
@@ -79,7 +93,7 @@ END
 \$\$;
 " >/dev/null
 
-run_liquibase update >/dev/null
+run_liquibase "${liquibase_image}" update >/dev/null
 
 verified=$(docker exec "${postgres_name}" psql \
   -v ON_ERROR_STOP=1 \
