@@ -140,6 +140,42 @@ func TestPostgresUserManagementConcurrentDuplicateEmails(t *testing.T) {
 	}
 }
 
+func TestPostgresBootstrapAdminAdoptsLegacyDemoAccess(t *testing.T) {
+	st := setupPostgresUserManagementStore(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := st.db.ExecContext(ctx, `INSERT INTO application (name) VALUES ($1)`, "Legacy application"); err != nil {
+		t.Fatal(err)
+	}
+	admin, err := st.CreateUser(ctx, managedUserRequest("admin@example.com", "admin"), "private-admin-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	demo, err := st.CreateUser(ctx, managedUserRequest("renamed-demo@example.com", "viewer", 1), legacyDemoPasswordHashes[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.BootstrapAdmin(ctx, AdminBootstrap{Email: admin.Email}); err != nil {
+		t.Fatalf("bootstrap administrator: %v", err)
+	}
+	adminAccess, err := st.GetUserAccess(ctx, admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adminAccess.ApplicationIDs) != 1 || adminAccess.ApplicationIDs[0] != 1 {
+		t.Fatalf("administrator access = %v, want [1]", adminAccess.ApplicationIDs)
+	}
+	demoAccess, err := st.GetUserAccess(ctx, demo.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if demoAccess.IsActive {
+		t.Fatal("legacy demo user remains active")
+	}
+}
+
 func TestPostgresUserManagementConcurrentPasswordChange(t *testing.T) {
 	testConcurrentOwnPasswordChange(t, setupPostgresUserManagementStore(t))
 }

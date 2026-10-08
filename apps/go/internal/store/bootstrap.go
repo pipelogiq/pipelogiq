@@ -164,11 +164,11 @@ func disableLegacyDemoUsers(ctx context.Context, tx execQuerier, adminID int) (i
 		args := append([]any{adminID}, hashes...)
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
             INSERT INTO user_application (user_id, application_id)
-            SELECT DISTINCT $1, ua.application_id FROM user_application ua
+            SELECT DISTINCT CAST($1 AS INTEGER), ua.application_id FROM user_application ua
             JOIN "user" u ON u.id = ua.user_id
             WHERE u.password IN (%s) AND NOT EXISTS (
                 SELECT 1 FROM user_application existing
-                WHERE existing.user_id = $1 AND existing.application_id = ua.application_id
+                WHERE existing.user_id = CAST($1 AS INTEGER) AND existing.application_id = ua.application_id
             )
         `, placeholders(len(hashes), 2)), args...); err != nil {
 			return 0, fmt.Errorf("adopt demo application access: %w", err)

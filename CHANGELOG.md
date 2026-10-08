@@ -7,6 +7,11 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+### Fixed
+
+- Fresh PostgreSQL startup no longer fails while transferring application access
+  from unchanged legacy demo credentials to the configured administrator.
+
 ## [0.5.0] - 2026-09-18
 
 Coordinated release with .NET SDK `0.5.0` and Java SDK `0.5.0`.
