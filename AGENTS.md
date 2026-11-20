@@ -6,7 +6,7 @@ Use [CONTRIBUTING.md](CONTRIBUTING.md) for local setup and
 
 ## Layout and toolchains
 
-- `apps/go/`: Go module `pipelogiq`, currently Go **1.26.8**. Entrypoints are
+- `apps/go/`: Go module `pipelogiq`, currently Go **1.26.11**. Entrypoints are
   `cmd/api` and `cmd/worker`; backend packages and adjacent tests are in `internal/`.
 - `apps/web/`: **React 19**, TypeScript and Vite dashboard. Use **Node.js 24 LTS**
   and npm; commit `package-lock.json` with dependency changes. Components live in

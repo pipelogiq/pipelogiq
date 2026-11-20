@@ -5,7 +5,7 @@ setup and the review workflow.
 
 ## Prerequisites
 
-- Go **1.26.8**, matching `apps/go/go.mod` and the build images.
+- Go **1.26.11**, matching `apps/go/go.mod` and the build images.
 - Node.js **24 LTS** and npm for `apps/web`.
 - Docker with Docker Compose v2 for PostgreSQL, RabbitMQ and migration tests.
 - .NET **8 SDK** only when running `examples/dotnet`; those examples reference

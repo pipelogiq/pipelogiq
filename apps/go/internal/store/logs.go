@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jmoiron/sqlx"
 
@@ -154,6 +155,11 @@ func stageLogPreview(value string, maxLen int) string {
 	}
 	if maxLen <= 0 || len(trimmed) <= maxLen {
 		return trimmed
+	}
+	// Keep the byte budget, but never split a multibyte character. Audit logs
+	// are stored in PostgreSQL UTF-8 text in the same transaction as appends.
+	for maxLen > 0 && !utf8.RuneStart(trimmed[maxLen]) {
+		maxLen--
 	}
 	return trimmed[:maxLen] + "..."
 }

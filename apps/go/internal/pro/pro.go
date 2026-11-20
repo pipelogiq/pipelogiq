@@ -4,16 +4,15 @@
 // The core never imports a Pro implementation directly. It calls the interfaces
 // declared here, and gets one of two implementations:
 //
-//   - built WITHOUT the `pro` tag (this is what public CI does, and what anyone
-//     cloning the open repository gets): every call returns ErrNotLicensed.
-//     The repository builds and its tests pass with no private code present.
-//   - built WITH `-tags pro` (this is what the released image does): the real
+//   - built WITHOUT the `pro` tag (current releases and default source builds):
+//     every call returns ErrNotLicensed. The repository builds and its tests pass
+//     with no private code present.
+//   - built WITH `-tags pro` (CI coverage and future Pro builds): the real
 //     implementations are linked in, and the licence decides at runtime whether
 //     a gate opens.
 //
-// There is therefore one image, not two. The tag decides what is compiled; the
-// licence decides what is allowed. A Community deployment of the released image
-// behaves exactly like a build without the tag, because every gate is closed.
+// Current release images exclude Pro implementations. The tag decides what is
+// compiled; in a Pro build, the licence decides what is allowed.
 package pro
 
 import (

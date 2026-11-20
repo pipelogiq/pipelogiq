@@ -20,7 +20,7 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.migrate
       args:
-        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
         PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-migrate
@@ -40,12 +40,12 @@ services:
       context: ../..
       dockerfile: infra/docker/Dockerfile.app
       args:
-        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
+        PIPELOGIQ_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
         PIPELOGIQ_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-app
     environment:
-      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.0}
+      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
       WORKER_RABBITMQ_URL: ${WORKER_RABBITMQ_URL:-}
