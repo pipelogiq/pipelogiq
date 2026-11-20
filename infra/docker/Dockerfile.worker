@@ -32,7 +32,8 @@ FROM alpine:3.21
 ARG PIPELOGIQ_VERSION=v0.5.1
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
-RUN apk add --no-cache ca-certificates curl
+RUN apk upgrade --no-cache \
+  && apk add --no-cache ca-certificates curl
 WORKDIR /app
 LABEL org.opencontainers.image.version="${PIPELOGIQ_VERSION}"
 LABEL org.opencontainers.image.revision="${PIPELOGIQ_COMMIT}"
