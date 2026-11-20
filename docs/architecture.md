@@ -25,7 +25,7 @@ flowchart LR
     Migration[pipelogiq-migrate / one-shot] --> DB
 ```
 
-The backend source is in `apps/go` and uses Go 1.26.8. The dashboard is in
+The backend source is in `apps/go` and uses Go 1.26.11. The dashboard is in
 `apps/web`, built with Node.js 24 LTS. The .NET samples in `examples/dotnet`
 target .NET 8 and use the sibling SDK checkout.
 

@@ -6,7 +6,7 @@
 - Git
 
 For local development without Docker, you also need:
-- Go 1.26.8+ (the module selects this toolchain automatically)
+- Go 1.26.11+ (the module selects this toolchain automatically)
 - Node.js 24 LTS and npm
 
 ## Docker Compose

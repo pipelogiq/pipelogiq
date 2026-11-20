@@ -5,7 +5,7 @@ RUN npm ci
 COPY apps/web/ ./
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine AS api-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine AS api-builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG PIPELOGIQ_VERSION=v0.5.1
