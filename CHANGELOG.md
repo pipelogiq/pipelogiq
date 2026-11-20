@@ -7,8 +7,16 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-19
+
+Community release replacing the incomplete 0.5.0 publication. SDK pairing stays
+at .NET `0.5.0` and Java `0.5.0`. See the [release notes](docs/releases/RELEASE_NOTES_v0.5.1.md).
+
 ### Fixed
 
+- Release binaries and images now ship Community without Pro implementations or
+  a licence verification key. Missing `LICENSE_PUBLIC_KEY` no longer blocks
+  publication; Pro launch remains deferred.
 - Fresh PostgreSQL startup no longer fails while transferring application access
   from unchanged legacy demo credentials to the configured administrator.
 

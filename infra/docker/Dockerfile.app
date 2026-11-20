@@ -8,7 +8,7 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.26.8-alpine AS api-builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG PIPELOGIQ_VERSION=v0.5.0
+ARG PIPELOGIQ_VERSION=v0.5.1
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
 ARG GO_BUILD_TAGS=""
@@ -34,7 +34,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -tags "${GO_BUI
 # before this one starts. The container runs as an unprivileged user; nginx
 # listens on 8080, so publish that port.
 FROM nginx:1.30.5-alpine
-ARG PIPELOGIQ_VERSION=v0.5.0
+ARG PIPELOGIQ_VERSION=v0.5.1
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
 RUN apk add --no-cache supervisor ca-certificates curl

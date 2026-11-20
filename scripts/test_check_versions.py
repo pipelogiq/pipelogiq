@@ -1,6 +1,7 @@
 """Regression coverage for release guards, using isolated copies of metadata."""
 import importlib.util
 from pathlib import Path
+import re
 import shutil
 import tempfile
 import unittest
@@ -31,6 +32,29 @@ class ReleaseVersionTests(unittest.TestCase):
 
     def test_current_release(self):
         self.assertEqual(VERSIONS.check(self.root, self.tag), [])
+
+    def test_sdk_versions_can_differ_from_server_and_each_other(self):
+        path = self.root / self.notes
+        notes = path.read_text()
+        for name, version in ((".NET SDK packages", "0.4.1"), ("Java SDK modules", "0.5.0")):
+            notes = re.sub(rf"(\| {re.escape(name)} \| )`[^`]+`", rf"\g<1>`{version}`", notes)
+        path.write_text(notes)
+        self.assertEqual(VERSIONS.check(self.root, self.tag), [])
+
+    def test_sdk_pairing_requires_one_explicit_release_version(self):
+        path = self.root / self.notes
+        original = path.read_text()
+        for name in (".NET SDK packages", "Java SDK modules"):
+            row = re.search(rf"^\| {re.escape(name)} \| `[^`]+` \|$", original, re.MULTILINE).group()
+            for replacement in ("", row + "\n" + row, f"| {name} | `latest` |"):
+                with self.subTest(name=name, replacement=replacement):
+                    path.write_text(original.replace(row, replacement))
+                    self.assertTrue(any(name in error for error in VERSIONS.check(self.root)))
+
+    def test_independent_sdk_versions_do_not_allow_server_drift(self):
+        self.replace(self.notes, f"| Server and dashboard | `{self.version}` |",
+                     "| Server and dashboard | `9.9.9` |")
+        self.assertTrue(any("Server and dashboard" in error for error in VERSIONS.check(self.root)))
 
     def test_wrong_or_preview_tag(self):
         for tag in ("v9.9.9", f"{self.tag}-preview.1", self.version, "v.*"):

@@ -1,6 +1,12 @@
 # Licensing
 
-Pipelogiq has an Apache-2.0 core and a commercial tier next to it.
+Pipelogiq currently releases the Apache-2.0 Community edition. The commercial
+tier is not launched. Its implementation remains in the source for future use;
+the licensing design below describes that future tier.
+
+Official release binaries and images exclude Pro implementations and do not
+require or embed `LICENSE_PUBLIC_KEY`. Setting a licence token cannot enable
+Pro features in these Community artifacts.
 
 The rule that decides which side a feature falls on is one sentence:
 **what one engineer needs to run and debug a pipeline is free; what an
@@ -57,11 +63,11 @@ Community. Pipelines are unaffected at every stage of this.
 intentional and safe: it verifies signatures and cannot create them.
 
 The open repository ships an all-zero placeholder, so a build from a clone is
-Community-only whatever token it is given. A release build supplies the real key
-at link time:
+Community-only whatever token it is given. A future Pro build must supply the
+real key at link time, together with the `pro` build tag:
 
 ```bash
-go build -ldflags "-X pipelogiq/internal/license.PublicKeyBase64=<base64>" ./cmd/api
+go build -tags pro -ldflags "-X pipelogiq/internal/license.PublicKeyBase64=<base64>" ./cmd/api
 ```
 
 The matching private key lives only in `cmd/licensegen`, a small signing tool
@@ -73,12 +79,13 @@ Pro code is compiled only under the `pro` build tag.
 
 | Build | What is linked | Who does it |
 |---|---|---|
-| `go build ./...` | `internal/pro/stub.go` — every call returns `ErrNotLicensed` | Public CI, and anyone cloning the repository |
-| `go build -tags pro ./...` | The real implementations | The release image |
+| `go build ./...` | `internal/pro/stub.go` — every call returns `ErrNotLicensed` | Current releases, public CI, and source builds |
+| `go build -tags pro ./...` | The real implementations | CI coverage and future Pro builds |
 
-So there is **one image**, not two. The tag decides what is compiled; the licence
-decides what is allowed. A Community deployment of the released image behaves
-exactly like a build without the tag, because every gate is closed.
+Current release images use the Community build. The `pro` tag decides what is
+compiled; in a future Pro build, the licence decides what is allowed. Pro launch
+requires an explicit release workflow change; supplying a repository secret
+alone does not change the edition being published.
 
 Public CI builds and tests both ways, so the open repository cannot drift into
 requiring private code.

@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml/badge.svg)](https://github.com/pipelogiq/pipelogiq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Version: v0.5.0](https://img.shields.io/badge/version-v0.5.0-blue)](docs/releases/RELEASE_NOTES_v0.5.0.md)
+[![Version: v0.5.1](https://img.shields.io/badge/version-v0.5.1-blue)](docs/releases/RELEASE_NOTES_v0.5.1.md)
 
-> **Version 0.5.0.** Server, .NET SDK and Java SDK share this release version.
+> **Version 0.5.1.** Community server and dashboard; SDK pairing remains .NET `0.5.0` and Java `0.5.0`.
 > Breaking changes may occur between minor versions before v1.0.
 
 Execution control plane for distributed, event-driven workflows.
@@ -30,7 +30,7 @@ Requires Docker and Docker Compose.
 
 ### Option A — pre-built images (fastest)
 
-No local build required. Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.0` images have been published; until then, build from source.
+No local build required. Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.1` images have been published; until then, build from source.
 
 ```bash
 docker network create pipelogiq 2>/dev/null || true
@@ -41,7 +41,7 @@ make compose-latest-up
 Pin a specific release:
 
 ```bash
-PIPELOGIQ_VERSION=v0.5.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.5.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 ### Option B — build from source
@@ -139,7 +139,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the full development guide.
 
 ## Compatibility
 
-Server and SDKs use separate repositories; the coordinated release target is `0.5.0` for all three. The external API (`:8081`) provides the integration contract. See [releases](https://github.com/pipelogiq/pipelogiq/releases) for version history.
+Server and SDKs use separate repositories; the server release target is `0.5.1`, paired with .NET SDK `0.5.0` and Java SDK `0.5.0`. The external API (`:8081`) provides the integration contract. See [releases](https://github.com/pipelogiq/pipelogiq/releases) for version history.
 
 ## Documentation
 

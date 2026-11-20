@@ -26,11 +26,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate tag, versions, release notes and licensing key
+      - name: Validate tag, versions and release notes
         id: release
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-          LICENSE_PUBLIC_KEY: ${{ secrets.LICENSE_PUBLIC_KEY }}
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(preview|rc)\.[1-9][0-9]*)?$ ]]; then
@@ -43,8 +42,6 @@ jobs:
             exit 1
           }
           python3 - <<'PY'
-          import base64
-          import binascii
           import os
           from pathlib import Path
 
@@ -55,12 +52,6 @@ jobs:
           lines = notes.read_text(encoding="utf-8").splitlines()
           if not lines or lines[0].strip() != f"# Pipelogiq {tag}" or not any(line.strip() for line in lines[1:]):
               raise SystemExit("Release notes must have the exact version heading and a nonempty body")
-          try:
-              key = base64.b64decode(os.environ.get("LICENSE_PUBLIC_KEY", ""), validate=True)
-          except (ValueError, binascii.Error):
-              raise SystemExit("LICENSE_PUBLIC_KEY must be a base64 Ed25519 public key")
-          if len(key) != 32 or not any(key):
-              raise SystemExit("LICENSE_PUBLIC_KEY must contain a non-placeholder 32-byte Ed25519 public key")
           PY
           prerelease=false
           if [[ "$RELEASE_TAG" == *-* ]]; then prerelease=true; fi
@@ -95,28 +86,29 @@ jobs:
         with:
           version: v4.3.0
 
+      # Community releases deliberately omit Pro code and the verification key.
+      # A future Pro launch requires an explicit change to this workflow.
       - name: Build binaries
         env:
-          LICENSE_PUBLIC_KEY: ${{ secrets.LICENSE_PUBLIC_KEY }}
           RELEASE_TAG: ${{ needs.preflight.outputs.tag }}
           RELEASE_COMMIT: ${{ needs.preflight.outputs.commit }}
           RELEASE_DATE: ${{ needs.preflight.outputs.date }}
         run: |
           set -euo pipefail
-          LDFLAGS="-s -w -X pipelogiq/internal/version.Version=${RELEASE_TAG} -X pipelogiq/internal/version.Commit=${RELEASE_COMMIT} -X pipelogiq/internal/version.Date=${RELEASE_DATE} -X pipelogiq/internal/license.PublicKeyBase64=${LICENSE_PUBLIC_KEY}"
+          LDFLAGS="-s -w -X pipelogiq/internal/version.Version=${RELEASE_TAG} -X pipelogiq/internal/version.Commit=${RELEASE_COMMIT} -X pipelogiq/internal/version.Date=${RELEASE_DATE} -X pipelogiq/internal/license.PublicKeyBase64="
 
           cd apps/go
           for GOOS in linux darwin; do
             for GOARCH in amd64 arm64; do
               mkdir -p dist
-              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -tags pro -ldflags "${LDFLAGS}" -o dist/pipelogiq-api-${GOOS}-${GOARCH} ./cmd/api
-              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -tags pro -ldflags "${LDFLAGS}" -o dist/pipelogiq-worker-${GOOS}-${GOARCH} ./cmd/worker
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipelogiq-api-${GOOS}-${GOARCH} ./cmd/api
+              CGO_ENABLED=0 GOOS=${GOOS} GOARCH=${GOARCH} go build -ldflags "${LDFLAGS}" -o dist/pipelogiq-worker-${GOOS}-${GOARCH} ./cmd/worker
             done
           done
 
-      - name: Verify the Pro seam is compiled in
+      - name: Verify Community build excludes Pro implementations
         working-directory: apps/go
-        run: go test -tags pro ./internal/pro -run TestProSeamCompiled -count=1
+        run: go test ./internal/pro -run '^TestStubBuildRefusesEverything$' -count=1
 
       - name: Package Helm chart and release notes
         env:
@@ -166,8 +158,8 @@ jobs:
             PIPELOGIQ_VERSION=${{ needs.preflight.outputs.tag }}
             PIPELOGIQ_COMMIT=${{ needs.preflight.outputs.commit }}
             PIPELOGIQ_BUILD_DATE=${{ needs.preflight.outputs.date }}
-            GO_BUILD_TAGS=pro
-            PIPELOGIQ_LICENSE_PUBKEY=${{ secrets.LICENSE_PUBLIC_KEY }}
+            GO_BUILD_TAGS=
+            PIPELOGIQ_LICENSE_PUBKEY=
           tags: ghcr.io/pipelogiq/pipelogiq-app:${{ needs.preflight.outputs.tag }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -180,8 +172,8 @@ jobs:
             PIPELOGIQ_VERSION=${{ needs.preflight.outputs.tag }}
             PIPELOGIQ_COMMIT=${{ needs.preflight.outputs.commit }}
             PIPELOGIQ_BUILD_DATE=${{ needs.preflight.outputs.date }}
-            GO_BUILD_TAGS=pro
-            PIPELOGIQ_LICENSE_PUBKEY=${{ secrets.LICENSE_PUBLIC_KEY }}
+            GO_BUILD_TAGS=
+            PIPELOGIQ_LICENSE_PUBKEY=
           tags: ghcr.io/pipelogiq/pipelogiq-worker:${{ needs.preflight.outputs.tag }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0

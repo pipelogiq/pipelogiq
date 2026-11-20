@@ -59,7 +59,7 @@ def check(root: Path, tag: str | None = None) -> list[str]:
         matches(name, r"PIPELOGIQ_VERSION=v([^\s`]+)", minimum=2 if name == "docs/quickstart.md" else 1)
     matches("docs/quickstart.md", r"defaults to `v([^`]+)`")
     matches("docs/index.md", r"current release target is Pipelogiq `v([^`]+)`")
-    matches("docs/versioning.md", r"coordinated current release is \*\*([^ ]+) for all three\*\*")
+    matches("docs/versioning.md", r"current server release is \*\*([^*]+)\*\*")
     matches("docs/operations.md", r"ghcr\.io/pipelogiq/pipelogiq-migrate:v([^\s`]+)")
     matches("docs/openapi.external.yaml", r'^  version: "([^"]+)"')
     matches("docs/openapi.external.yaml", r'version: \{ type: string, example: v([^\s}]+)')
@@ -105,10 +105,15 @@ def check(root: Path, tag: str | None = None) -> list[str]:
             errors.append(f"{notes_name}: missing or empty {section} section")
     if len(notes.strip()) < 500:
         errors.append(f"{notes_name}: release notes are empty or incomplete")
-    for name, value in (("Server and dashboard", version), (".NET SDK packages", version),
-                        ("Java SDK modules", version), ("App, worker and migration image tags", expected_tag)):
+    for name, value in (("Server and dashboard", version),
+                        ("App, worker and migration image tags", expected_tag)):
         if f"| {name} | `{value}` |" not in notes:
             errors.append(f"{notes_name}: missing {name} version {value}")
+    # SDKs have independent release cycles; a server patch need not republish them.
+    for name in (".NET SDK packages", "Java SDK modules"):
+        values = re.findall(rf"^\| {re.escape(name)} \| `([^`]+)` \|$", notes, re.MULTILINE)
+        if len(values) != 1 or not re.fullmatch(SEMVER, values[0]):
+            errors.append(f"{notes_name}: missing or invalid {name} version")
     if f"](docs/releases/RELEASE_NOTES_{expected_tag}.md)" not in readme:
         errors.append("README.md: current release notes link is missing")
     return errors

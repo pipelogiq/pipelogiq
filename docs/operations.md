@@ -52,7 +52,7 @@ To run migrations by hand:
 
 ```bash
 docker run --rm --network pipelogiq \
-  ghcr.io/pipelogiq/pipelogiq-migrate:v0.5.0 \
+  ghcr.io/pipelogiq/pipelogiq-migrate:v0.5.1 \
   --url=jdbc:postgresql://pipelogiq-postgres:5432/pipelogiq \
   --username=pipelogiq --password="$POSTGRES_PASSWORD" \
   --searchPath=/liquibase --changeLogFile=database/changelog.xml update
@@ -85,7 +85,7 @@ that a newer version already migrated and then start the older version.
 
 ## Upgrade
 
-1. Read the release notes' [Breaking changes and upgrade requirements](releases/RELEASE_NOTES_v0.5.0.md#breaking-changes-and-upgrade-requirements).
+1. Read the release notes' [Breaking changes and upgrade requirements](releases/RELEASE_NOTES_v0.5.1.md#breaking-changes-and-upgrade-requirements).
 2. Back up (above).
 3. Pull the new tag and start. Compose:
    ```bash

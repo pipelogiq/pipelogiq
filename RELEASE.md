@@ -22,10 +22,12 @@ reusing affected deployment configuration. See the current
 [release readiness report](docs/release-preparation-2026-09-18.md) for external
 prerequisites and the distinction between source preparation and publication.
 
-Before publishing, configure the repository secret `LICENSE_PUBLIC_KEY` with
-the base64 encoding of the 32-byte Ed25519 public verification key. The preflight
-rejects missing, malformed and all-zero placeholder keys. The matching private
-signing key is never part of this repository or its release artifacts.
+Official releases currently ship Community only. Binaries and Docker images
+are built without the `pro` tag and with an empty licence verification key.
+No `LICENSE_PUBLIC_KEY` secret is required or read, even if it already exists.
+Pro implementations remain in the source and are tested in CI for future use.
+Launching Pro requires an explicit workflow change, a matching verification
+key, and updated release documentation; adding a secret alone does not enable it.
 
 ## Publish one tag
 
@@ -45,8 +47,13 @@ git push origin "refs/tags/$release_tag"
 
 Do not push all local tags, move an existing release tag or create the GitHub
 Release manually. The workflow checks the tag format, version references, release
-notes, public key and membership of the tagged commit in `main` before running CI.
+notes and membership of the tagged commit in `main` before running CI.
 For a transient failure, rerun the failed workflow jobs against the unchanged tag.
+For a source or workflow fix, prepare a new patch version and tag the reviewed
+commit after CI passes. Rerunning an old tag uses its original workflow and code,
+so it cannot pick up a Community release fix merged later. Preserve the old tag;
+if an incomplete GitHub Release already exists, mark its notes as incomplete and
+link to the replacement once that release has successfully published.
 
 ## Artifacts and publication order
 
@@ -54,14 +61,14 @@ The workflow runs the same hygiene, Go, PostgreSQL, web and image checks used by
 normal CI. Once they pass, it prepares:
 
 - API and worker binaries for Linux and macOS, each for amd64 and arm64, built
-  with the Pro code and the licence verification key.
+  without Pro implementations or a licence verification key.
 - `pipelogiq-X.Y.Z.tgz`, the packaged Helm chart with matching `appVersion`.
 - The detailed release notes and `SHA256SUMS` covering these downloadable files.
 
 It then publishes the versioned `pipelogiq-app`, `pipelogiq-worker` and
 `pipelogiq-migrate` images to GHCR for `linux/amd64` and `linux/arm64`. App and
-worker images receive the same version metadata and licence public key as the
-binaries. After all three images succeed, a normal release updates their
+worker images receive the same version metadata and Community build settings as
+the binaries. After all three images succeed, a normal release updates their
 `latest` tags. Preview and release-candidate tags leave `latest` unchanged.
 
 The public GitHub Release is created last, after artifact preparation and image

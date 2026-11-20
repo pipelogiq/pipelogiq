@@ -24,7 +24,7 @@ cp .env.example .env
 
 ### Option A — Pre-built images (recommended for trying out)
 
-Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.0` images have been published; until then, build from source. No local build required.
+Pulls the pinned release images from GitHub Container Registry. Use this option once the `v0.5.1` images have been published; until then, build from source. No local build required.
 
 ```bash
 make compose-latest-up
@@ -40,7 +40,7 @@ make compose-latest-up
 To pin a specific release version:
 
 ```bash
-PIPELOGIQ_VERSION=v0.5.0 docker compose -f infra/compose/docker-compose.registry.yml up -d
+PIPELOGIQ_VERSION=v0.5.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
 ```
 
 Stop:
@@ -142,7 +142,7 @@ Grafana behind the `observability` profile. See
 | `docker-compose.worker.yml`   | `pipelogiq-worker` only (build from source) |
 
 All files use the external `pipelogiq` Docker network. The `docker-compose.registry.yml` file
-supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `v0.5.0`).
+supports the `PIPELOGIQ_VERSION` environment variable to pin a release tag (defaults to `v0.5.1`).
 
 ---
 
@@ -180,7 +180,7 @@ docker network create pipelogiq 2>/dev/null || true
 In `.env`:
 
 ```bash
-PIPELOGIQ_VERSION=v0.5.0
+PIPELOGIQ_VERSION=v0.5.1
 JWT_SECRET=<openssl rand -base64 48>
 POSTGRES_PASSWORD=<openssl rand -hex 24>
 BOOTSTRAP_APPLICATION_NAME=your-app
