@@ -13,7 +13,7 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
+          - path: {{ default "/" (include "pipelogiq.basePath" .) | quote }}
             pathType: Prefix
             backend:
               service:

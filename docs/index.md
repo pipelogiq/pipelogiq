@@ -28,4 +28,4 @@ The dashboard supports live pipeline operations from the list view, including bu
 
 ## Status
 
-The current release target is Pipelogiq `v0.5.1`, paired with .NET SDK `0.5.0` and Java SDK `0.5.0`. The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.
+The current release target is Pipelogiq `v0.5.2`, paired with .NET SDK `0.5.0` and Java SDK `0.5.0`. The API surface and configuration may change between minor releases. See the [CHANGELOG](../CHANGELOG.md) for version history.

@@ -92,7 +92,7 @@ the replacement before upgrading.
 ## Server and SDK pairing
 
 The server, .NET SDK and Java SDK are versioned in separate repositories.
-The current server release is **0.5.1**, paired with .NET SDK `0.5.0` and Java
+The current server release is **0.5.2**, paired with .NET SDK `0.5.0` and Java
 SDK `0.5.0`. Each server release names its SDK pairing and verification scope in
 its release notes; each SDK release
 documents its minimum server version in its compatibility/release guide. Matching

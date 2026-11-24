@@ -1,3 +1,4 @@
+import { appUrl } from '@/lib/app-url';
 import { useId, useMemo, useState } from 'react';
 import { format, formatDistanceToNow } from 'date-fns';
 import {
@@ -1386,7 +1387,7 @@ export default function Policies() {
                               {reason ? <p className="mt-1 text-sm text-foreground">Reason: {reason}</p> : null}
                               {executionId ? (
                                 <a
-                                  href={`/executions?executionId=${encodeURIComponent(executionId)}`}
+                                  href={appUrl(`/executions?executionId=${encodeURIComponent(executionId)}`)}
                                   className="mt-2 inline-block text-sm text-primary underline-offset-4 hover:underline"
                                 >
                                   Open execution

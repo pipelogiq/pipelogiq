@@ -9,7 +9,7 @@ version: "3.9"
 #   docker compose -f infra/compose/docker-compose.registry.yml up -d
 #
 # Pin a specific release with PIPELOGIQ_VERSION:
-#   PIPELOGIQ_VERSION=v0.5.1 docker compose -f infra/compose/docker-compose.registry.yml up -d
+#   PIPELOGIQ_VERSION=v0.5.2 docker compose -f infra/compose/docker-compose.registry.yml up -d
 #
 # Tracing is optional. Tempo and Grafana only start with the observability
 # profile; a host that already runs Grafana Alloy or another collector should
@@ -123,7 +123,7 @@ services:
     restart: unless-stopped
 
   pipelogiq-migrate:
-    image: ghcr.io/pipelogiq/pipelogiq-migrate:${PIPELOGIQ_VERSION:-v0.5.1}
+    image: ghcr.io/pipelogiq/pipelogiq-migrate:${PIPELOGIQ_VERSION:-v0.5.2}
     container_name: pipelogiq-migrate
     command:
       - --url=${LIQUIBASE_URL:-jdbc:postgresql://pipelogiq-postgres:5432/${POSTGRES_DB:-pipelogiq}}
@@ -140,10 +140,11 @@ services:
     restart: "no"
 
   pipelogiq-app:
-    image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-v0.5.1}
+    image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-v0.5.2}
     container_name: pipelogiq-app
     environment:
-      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
+      PIPELOGIQ_BASE_PATH: ${PIPELOGIQ_BASE_PATH:-}
+      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.2}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}
@@ -196,17 +197,17 @@ services:
     networks:
       - pipelogiq
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080$${PIPELOGIQ_BASE_PATH}/api/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
 
   pipelogiq-worker:
-    image: ghcr.io/pipelogiq/pipelogiq-worker:${PIPELOGIQ_VERSION:-v0.5.1}
+    image: ghcr.io/pipelogiq/pipelogiq-worker:${PIPELOGIQ_VERSION:-v0.5.2}
     container_name: pipelogiq-worker
     environment:
-      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
+      APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.2}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
       RABBITMQ_URL: ${RABBITMQ_URL:-amqp://guest:guest@pipelogiq-rabbitmq:5672/}

@@ -8,7 +8,7 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine AS api-builder
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
-ARG PIPELOGIQ_VERSION=v0.5.1
+ARG PIPELOGIQ_VERSION=v0.5.2
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
 ARG GO_BUILD_TAGS=""
@@ -34,7 +34,7 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -tags "${GO_BUI
 # before this one starts. The container runs as an unprivileged user; nginx
 # listens on 8080, so publish that port.
 FROM nginx:1.30.7-alpine
-ARG PIPELOGIQ_VERSION=v0.5.1
+ARG PIPELOGIQ_VERSION=v0.5.2
 ARG PIPELOGIQ_COMMIT=unknown
 ARG PIPELOGIQ_BUILD_DATE=unknown
 # Refresh inherited packages as well as installing runtime dependencies.
@@ -47,11 +47,13 @@ LABEL org.opencontainers.image.created="${PIPELOGIQ_BUILD_DATE}"
 
 COPY --from=web-builder /app/dist /usr/share/nginx/html
 COPY --from=api-builder /out/pipelogiq-api /app/pipelogiq-api
-COPY infra/docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=web-builder /app/dist/index.html /opt/pipelogiq/web-templates/index.html
+COPY infra/docker/nginx.conf /opt/pipelogiq/web-templates/nginx.conf
+COPY infra/docker/configure-web.sh /usr/local/bin/configure-web.sh
 COPY infra/docker/supervisord.conf /etc/supervisord.conf
 COPY infra/docker/pipelogiq-app-entrypoint.sh /usr/local/bin/pipelogiq-app-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/pipelogiq-app-entrypoint.sh /app/pipelogiq-api \
+RUN chmod +x /usr/local/bin/pipelogiq-app-entrypoint.sh /usr/local/bin/configure-web.sh /app/pipelogiq-api \
   && mkdir -p /var/cache/nginx /var/run/nginx /var/log/supervisor \
   && chown -R nginx:nginx /var/cache/nginx /var/run/nginx /var/log/nginx /var/log/supervisor /etc/nginx/conf.d /usr/share/nginx/html
 # The image runs as nginx, which cannot write the default pid path. Match the
