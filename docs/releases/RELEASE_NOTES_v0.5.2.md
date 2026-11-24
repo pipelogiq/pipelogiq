@@ -27,6 +27,9 @@ workflow after its checks pass.
 - Docker CI exercises real nginx routing for root, single and nested prefixes,
   including asset/font loading, cookie rewriting and WebSocket upgrades.
 
+- Update Gorilla WebSocket to its fixed commit and OpenTelemetry to 1.47.0
+  (HTTP instrumentation 0.72.0), addressing GO-2026-6278, GO-2026-6974 and GO-2026-6975.
+
 ## Breaking changes and upgrade requirements
 
 No database migration, worker protocol or SDK change is introduced by this patch.

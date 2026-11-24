@@ -17,6 +17,13 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 - Container routing regression checks cover deep links, fonts/assets, API proxying,
   WebSocket upgrades, cookie paths and invalid configuration.
 
+### Fixed
+
+- Update Gorilla WebSocket and OpenTelemetry dependencies to address
+  GO-2026-6278, GO-2026-6974 and GO-2026-6975.
+- Wait for the local HTTP fixture before container routing checks and use an
+  explicit IPv4 loopback upstream to avoid localhost resolver differences.
+
 ### Changed
 
 - Refresh Dashboard metric cards with responsive layouts, status accents and

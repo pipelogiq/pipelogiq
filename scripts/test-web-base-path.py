@@ -35,7 +35,10 @@ class API(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(self.path.encode())
     def log_message(self, *args): pass
-ThreadingHTTPServer(('127.0.0.1', 8088), API).serve_forever()
+server = ThreadingHTTPServer(('127.0.0.1', 8088), API)
+from pathlib import Path
+Path('/tmp/mock-ready').touch()
+server.serve_forever()
 '''
 
 with tempfile.TemporaryDirectory() as directory:
@@ -46,7 +49,10 @@ with tempfile.TemporaryDirectory() as directory:
         container = docker('run', '-d', '--rm', '-p', '127.0.0.1::8080',
                            '-e', 'PIPELOGIQ_BASE_PATH=' + base,
                            '-v', f'{mock}:/tmp/mock.py:ro', '--entrypoint', 'sh', image,
-                           '-ec', 'python3 /tmp/mock.py & /usr/local/bin/configure-web.sh; nginx -t; exec nginx -g "daemon off;"').stdout.strip()
+                           '-ec', 'python3 /tmp/mock.py & fixture_pid=$!; attempts=0; '
+                           'while [ ! -f /tmp/mock-ready ]; do kill -0 "$fixture_pid"; '
+                           'attempts=$((attempts + 1)); [ "$attempts" -lt 100 ]; sleep 0.1; done; '
+                           '/usr/local/bin/configure-web.sh; nginx -t; exec nginx -g "daemon off;"').stdout.strip()
         try:
             info = json.loads(docker('inspect', container).stdout)[0]
             port = int(info['NetworkSettings']['Ports']['8080/tcp'][0]['HostPort'])
@@ -88,7 +94,7 @@ with tempfile.TemporaryDirectory() as directory:
                             font_path = urlsplit(urljoin('http://example.test' + path, font.strip('"\''))).path
                             assert request(font_path)[0] == 200, font_path
             status, headers, body = request(base + '/api/me?test=1')
-            assert status == 200 and body == b'/me?test=1'
+            assert status == 200 and body == b'/me?test=1', (status, body)
             assert f'Path={base}/;' in headers['Set-Cookie'], headers
             status, headers, _ = request(base + '/ws?test=1', {'Upgrade': 'websocket', 'Connection': 'Upgrade'})
             assert status == 101 and headers['X-Backend-Path'] == '/ws?test=1', (status, headers)
