@@ -143,6 +143,7 @@ services:
     image: ghcr.io/pipelogiq/pipelogiq-app:${PIPELOGIQ_VERSION:-v0.5.1}
     container_name: pipelogiq-app
     environment:
+      PIPELOGIQ_BASE_PATH: ${PIPELOGIQ_BASE_PATH:-}
       APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
       APP_ID: ${APP_ID:-PipelogiqTest}
       DATABASE_URL: ${DATABASE_URL:-postgres://pipelogiq:pipelogiq@pipelogiq-postgres:5432/pipelogiq?sslmode=disable}
@@ -196,7 +197,7 @@ services:
     networks:
       - pipelogiq
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080$${PIPELOGIQ_BASE_PATH}/api/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

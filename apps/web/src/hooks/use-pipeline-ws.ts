@@ -11,22 +11,7 @@ import {
   resolveObservabilityConfig,
 } from './use-pipelines';
 
-function getWsUrl(): string {
-  const base = import.meta.env.VITE_API_BASE_URL;
-  if (base && /^https?:\/\//.test(base)) {
-    // Convert absolute http(s)://host(:port)/... to ws(s)://host(:port)/ws
-    const parsed = new URL(base);
-    parsed.protocol = parsed.protocol === 'https:' ? 'wss:' : 'ws:';
-    parsed.pathname = '/ws';
-    parsed.search = '';
-    parsed.hash = '';
-    return parsed.toString();
-  }
-
-  // Relative API base (e.g. /api) or unset -> use same host, Vite/nginx should proxy /ws.
-  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}/ws`;
-}
+import { getWebSocketUrl } from '@/lib/app-url';
 
 const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
@@ -64,7 +49,7 @@ export function usePipelineWebSocket() {
     function connect() {
       if (unmounted) return;
 
-      const url = getWsUrl();
+      const url = getWebSocketUrl(import.meta.env.VITE_API_BASE_URL);
       const ws = new WebSocket(url);
       wsRef.current = ws;
 

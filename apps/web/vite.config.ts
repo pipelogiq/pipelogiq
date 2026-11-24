@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
   const websocketTarget = `${apiTarget.protocol === 'https:' ? 'wss:' : 'ws:'}//${apiTarget.host}`
 
   return {
+    // Asset URLs resolve against the base element configured at container startup.
+    base: './',
     plugins: [react()],
     resolve: {
       alias: {

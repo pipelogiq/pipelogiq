@@ -45,6 +45,7 @@ services:
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-app
     environment:
+      PIPELOGIQ_BASE_PATH: ${PIPELOGIQ_BASE_PATH:-}
       APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}

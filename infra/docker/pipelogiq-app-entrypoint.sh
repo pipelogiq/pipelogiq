@@ -8,4 +8,6 @@ if [ "${LIQUIBASE_ENABLED:-false}" = "true" ]; then
   echo "[pipelogiq-app] LIQUIBASE_ENABLED is no longer honoured here; run the pipelogiq-migrate image before starting the app" >&2
 fi
 
+/usr/local/bin/configure-web.sh
+nginx -t
 exec /usr/bin/supervisord -c /etc/supervisord.conf

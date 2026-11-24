@@ -117,6 +117,7 @@ services:
         PIPELOGIQ_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
     container_name: pipelogiq-app
     environment:
+      PIPELOGIQ_BASE_PATH: ${PIPELOGIQ_BASE_PATH:-}
       APP_VERSION: ${PIPELOGIQ_VERSION:-v0.5.1}
       APP_COMMIT: ${PIPELOGIQ_COMMIT:-unknown}
       APP_BUILD_DATE: ${PIPELOGIQ_BUILD_DATE:-unknown}
@@ -172,7 +173,7 @@ services:
     networks:
       - pipelogiq
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/healthz || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:8080$${PIPELOGIQ_BASE_PATH}/api/healthz || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

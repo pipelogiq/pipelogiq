@@ -29,6 +29,41 @@ nginx is reachable on `8080`.
 | `WORKER_RABBITMQ_URL` | The broker address handed to AMQP workers at bootstrap. Use a least-privilege RabbitMQ user, not the server's. `WORKER_BROKER_HANDOUT=false` hands out nothing; workers then set `PIPELOGIQ_RABBITMQ_URL` themselves. |
 | `COOKIE_SECURE` | `auto` trusts TLS or `X-Forwarded-Proto: https`; `always` / `never` override. |
 
+## Serving the dashboard under a path
+
+The combined app image supports `PIPELOGIQ_BASE_PATH=/pipelogiq` at **container
+startup**, without rebuilding the frontend for each installation. Leave it empty
+for the domain root. Accepted prefixes contain slash-separated letters, digits,
+underscores and hyphens, with no trailing slash. This requires an image built with
+base-path support; the previously published `v0.5.1` image does not include it.
+
+Route `/pipelogiq` and its descendants to the app's port 8080, preserving the
+prefix (no ingress rewrite). The app redirects `/pipelogiq` to `/pipelogiq/`, serves
+SPA deep links and static resources there, and proxies `/pipelogiq/api/*` and
+`/pipelogiq/ws` to the unchanged internal API. Outside paths return 404. Set
+browser health/readiness probes to `/pipelogiq/api/healthz` and
+`/pipelogiq/api/readyz`. Set `COOKIE_SECURE=true` when HTTPS terminates upstream.
+
+The session cookie is scoped to `/pipelogiq/`, including cookie deletion on
+logout. Different prefixes can host test/live on the same domain. Restarting with
+a new prefix requires signing in at the new address. The SDK-facing port 8081
+and worker protocol do not change. Vite development continues at `/`.
+
+`PIPELOGIQ_BASE_PATH` is passed through by the supplied Compose files. With direct
+Docker, use `-e PIPELOGIQ_BASE_PATH=/pipelogiq`; with Kubernetes, set the same
+container environment variable and an Ingress Prefix path. Point any external
+links (including Support's `PIPELOGIQ_PUBLIC_URL`) at the full prefixed URL.
+
+Validate a newly built app image with:
+
+```sh
+python3 scripts/test-web-base-path.py YOUR_APP_IMAGE
+```
+
+This runs disposable containers with a local HTTP fixture and checks root and
+prefixed pages, assets/fonts, deep links, cookie paths, WebSocket upgrades and
+runtime configuration validation. It does not require production credentials.
+
 ## Migrations
 
 Migrations are **not** run by the app. The `pipelogiq-migrate` image applies the

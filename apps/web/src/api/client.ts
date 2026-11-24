@@ -62,7 +62,7 @@ import type {
   TriggerScheduleResponse,
 } from '@/types/schedules';
 
-const API_BASE = '/api';
+import { appUrl } from '@/lib/app-url';
 
 /** Dispatched on window when the server answers 401 to an authenticated call. */
 export const SESSION_EXPIRED_EVENT = 'pipelogiq:session-expired';
@@ -91,7 +91,7 @@ async function request<T>(
   endpoint: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch(`${API_BASE}${endpoint}`, {
+  const response = await fetch(appUrl(`/api${endpoint}`), {
     ...options,
     credentials: 'include',
     headers: {

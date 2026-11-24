@@ -1,3 +1,4 @@
+import { appUrl } from '@/lib/app-url';
 import { useState, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -224,7 +225,7 @@ function TraceRow({ trace, traceLinkTemplate, copiedId, onCopy }: TraceRowProps)
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => {
-                    window.location.href = `/pipelines?id=${trace.executionId}`;
+                    window.location.href = appUrl(`/pipelines?id=${trace.executionId}`);
                   }}
                 >
                   <ArrowRight className="h-3.5 w-3.5" />
