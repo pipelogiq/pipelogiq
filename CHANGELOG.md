@@ -7,6 +7,24 @@ This project follows [Semantic Versioning](https://semver.org/). v0.x releases m
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-24
+
+### Added
+
+- Serve the dashboard under a runtime-configured path such as `/pipelogiq` using
+  `PIPELOGIQ_BASE_PATH`, with prefixed navigation, assets, browser API, WebSockets
+  and scoped session cookies. Root installations remain supported by the same image.
+- Container routing regression checks cover deep links, fonts/assets, API proxying,
+  WebSocket upgrades, cookie paths and invalid configuration.
+
+### Changed
+
+- Refresh Dashboard metric cards with responsive layouts, status accents and
+  neutral zero/unknown values (VitaliTs, PR #27 / duplicate #29).
+
+See the [release notes](docs/releases/RELEASE_NOTES_v0.5.2.md). SDK pairing remains
+.NET `0.5.0` and Java `0.5.0`; this patch changes no worker protocol or database schema.
+
 ## [0.5.1] - 2026-11-19
 
 Community release replacing the incomplete 0.5.0 publication. SDK pairing stays

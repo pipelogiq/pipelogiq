@@ -10,12 +10,12 @@ import (
 
 // Set via ldflags at build time:
 //
-//	-X pipelogiq/internal/version.Version=v0.5.1
+//	-X pipelogiq/internal/version.Version=v0.5.2
 //	-X pipelogiq/internal/version.Commit=abc1234
 //	-X pipelogiq/internal/version.Date=2025-01-01T00:00:00Z
 //
 // DefaultVersion identifies this source tree; release builds override Version via ldflags.
-const DefaultVersion = "v0.5.1"
+const DefaultVersion = "v0.5.2"
 
 var (
 	Version = "dev"

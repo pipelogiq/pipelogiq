@@ -11,6 +11,8 @@ image:
 existingSecret: pipelogiq
 
 app:
+  # Empty for the domain root, or e.g. /pipelogiq (no trailing slash).
+  basePath: ""
   replicas: 1
   appId: PipelogiqProd
   adminEmail: admin@example.com

@@ -4,4 +4,5 @@ Before the first sign-in, read the one-time administrator password from the API 
   kubectl logs deploy/{{ .Release.Name }}-app -c app | grep 'one-time administrator password'
 
 Dashboard service: {{ .Release.Name }}-dashboard:{{ .Values.service.dashboardPort }}
+Dashboard path:    {{ default "/" (include "pipelogiq.basePath" .) }}
 External API:      {{ .Release.Name }}-external-api:{{ .Values.service.externalApiPort }}

@@ -2,7 +2,7 @@ apiVersion: v2
 name: pipelogiq
 description: Pipelogiq — execution control plane for distributed, event-driven workflows
 type: application
-version: 0.5.1
-appVersion: "v0.5.1"
+version: 0.5.2
+appVersion: "v0.5.2"
 keywords: [workflow, orchestration, pipelines]
 home: https://github.com/pipelogiq/pipelogiq
