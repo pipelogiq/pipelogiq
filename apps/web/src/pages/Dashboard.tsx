@@ -12,6 +12,7 @@ import { AppHeader } from "@/components/layout/AppHeader";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { useWorkerEvents, useWorkerStatus } from "@/hooks/use-workers";
 import type { WorkerState, WorkerStatusResponse } from "@/types/api";
+import "./dashboard-metrics.css";
 
 export default function Dashboard() {
   const { data: workers, isLoading: workersLoading, error: workersError } = useWorkerStatus({ limit: 50 });
@@ -30,13 +31,14 @@ export default function Dashboard() {
     <div className="flex flex-col">
       <AppHeader title="Dashboard" />
 
-      <div className="flex-1 space-y-6 p-6">
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="dashboard-content flex-1 space-y-6 p-6">
+        <div className="dashboard-metrics">
           <KpiCard
             title="Workers Online"
             value={status.onlineCount}
             subtitle={`${status.totalCount} tracked`}
             icon={Server}
+            accent="success"
           />
           <KpiCard
             title="Workers Degraded"
@@ -44,24 +46,28 @@ export default function Dashboard() {
             subtitle="Need attention"
             icon={ShieldAlert}
             tone="critical"
+            accent="warning"
           />
           <KpiCard
             title="Workers Offline"
             value={status.offlineCount}
             subtitle={`>${status.offlineAfterSec}s no heartbeat`}
             icon={AlertCircle}
+            accent="error"
           />
           <KpiCard
             title="In Flight Jobs"
             value={status.items.reduce((sum, w) => sum + (w.inFlightJobs || 0), 0)}
             subtitle="Across online workers"
             icon={ServerCog}
+            accent="neutral"
           />
           <KpiCard
             title="Jobs Processed"
             value={status.items.reduce((sum, w) => sum + (w.jobsProcessed || 0), 0).toLocaleString()}
             subtitle="All tracked workers"
             icon={Cpu}
+            accent="neutral"
           />
           <KpiCard
             title="Jobs Failed"
@@ -69,6 +75,7 @@ export default function Dashboard() {
             subtitle="All tracked workers"
             icon={HardDrive}
             tone="critical"
+            accent="error"
           />
         </div>
 

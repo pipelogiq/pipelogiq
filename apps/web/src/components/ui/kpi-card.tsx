@@ -1,6 +1,25 @@
 import { cn } from "@/lib/utils";
 import { LucideIcon } from "lucide-react";
 
+const accentStyles = {
+  success: {
+    rail: "before:bg-status-success",
+    icon: "border-status-success/25 bg-status-success-bg text-status-success",
+  },
+  warning: {
+    rail: "before:bg-status-warning",
+    icon: "border-status-warning/25 bg-status-warning-bg text-status-warning",
+  },
+  error: {
+    rail: "before:bg-status-error",
+    icon: "border-status-error/25 bg-status-error-bg text-status-error",
+  },
+  neutral: {
+    rail: "before:bg-muted-foreground/60",
+    icon: "border-border-strong bg-muted text-muted-foreground",
+  },
+};
+
 interface KpiCardProps {
   title: string;
   value: string | number;
@@ -12,12 +31,10 @@ interface KpiCardProps {
     isPositive?: boolean;
   };
   /**
-   * "critical" marks a figure that means something is wrong — failures, dead
-   * workers. It only colours the tile when the value is actually non-zero, so
-   * a healthy dashboard stays monochrome and the one red number is the thing
-   * your eye lands on.
+   * Highlights a non-zero figure that indicates a problem.
    */
   tone?: "default" | "critical";
+  accent?: keyof typeof accentStyles;
   className?: string;
 }
 
@@ -28,27 +45,32 @@ export function KpiCard({
   icon: Icon,
   trend,
   tone = "default",
+  accent,
   className,
 }: KpiCardProps) {
-  const isAlarming =
-    tone === "critical" && value !== 0 && value !== "0" && value !== "—";
+  const hasNonzeroValue = value !== 0 && value !== "0" && value !== "—";
+  const isAlarming = tone === "critical" && hasNonzeroValue;
+  const decoration = accent && accentStyles[hasNonzeroValue ? accent : "neutral"];
+  const alarmText = accent === "warning" ? "text-status-warning" : "text-status-error";
 
   return (
     <div
       className={cn(
         "relative overflow-hidden rounded-xl border border-border bg-card p-6 transition-colors hover:border-border-strong",
+        decoration && "kpi-card-accent rounded-2xl border-foreground/80 shadow-card dark:border-border-strong before:pointer-events-none before:absolute before:inset-y-4 before:left-0 before:w-1 before:rounded-r-full",
+        decoration?.rail,
         className
       )}
     >
-      <div className="flex items-start justify-between">
-        <div>
+      <div className={cn("flex items-start justify-between", decoration && "kpi-card-body")}>
+        <div className={decoration ? "kpi-card-copy" : undefined}>
           {/* Tier 1: the label, in foreground — it names the figure, so it is
               not secondary information. */}
-          <p className="metric-label">{title}</p>
-          <div className="flex items-baseline gap-2.5">
-            {/* Tier 2: the figure. The jump from 15px to 40px is what reads as
-                confidence; a dashboard set entirely at 24px does not. */}
-            <p className={cn("metric-value", isAlarming && "text-status-error")}>
+          <p className={cn("metric-label", decoration && "text-xs font-bold uppercase tracking-wide")}>
+            {title}
+          </p>
+          <div className={cn("flex items-baseline gap-2.5", decoration && "kpi-card-figure")}>
+            <p className={cn("metric-value", decoration && "text-[34px] font-semibold", isAlarming && alarmText)}>
               {value}
             </p>
             {trend && (
@@ -69,13 +91,13 @@ export function KpiCard({
           <div
             className={cn(
               "rounded-lg p-2.5",
-              isAlarming ? "bg-status-error-bg" : "bg-muted"
+              decoration ? cn("kpi-card-icon shrink-0 rounded-xl border", decoration.icon) : isAlarming ? "bg-status-error-bg" : "bg-muted"
             )}
           >
             <Icon
               className={cn(
                 "h-[18px] w-[18px]",
-                isAlarming ? "text-status-error" : "text-muted-foreground"
+                !decoration && (isAlarming ? "text-status-error" : "text-muted-foreground")
               )}
               strokeWidth={1.75}
             />
